@@ -37,9 +37,13 @@ class DabTester:
 
     def execute_cmd(self,operation,request="{}"):
         self.dab_test_client.request(operation,request)
-        if self.dab_test_client.response['status'] == 200:
-            return 0
-        else:
+        try:
+            if self.dab_test_client.response['status'] == 200:
+                return 0
+            else:
+                return 1
+        except:
+            self.dab_test_client.response['status'] = 999 # unknown error
             return 1
     
     def Run(self):
