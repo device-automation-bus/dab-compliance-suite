@@ -35,3 +35,16 @@ class DabClient:
         
     def print_response(self):
         print(json.dumps(self.response, indent=2))
+    
+    def print_last_error(self):
+        code = self.response['status']
+        print("Error",code,': ',end='')
+
+        if(code == -1):
+            print("Unknown error",end='')
+        elif(code == 400):
+            print("Request invalid or malformed",end='')
+        elif(code == 500):
+            print("Internal error",end='')
+        elif(code == 501):
+            print("Not implemented",end='')
