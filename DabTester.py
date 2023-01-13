@@ -19,7 +19,7 @@ class DabTester:
     
     def Test_Case(self,operation,request):
         if self.execute_cmd(operation,request) == 0:
-            print("[ OK ] ",end='')
+            print("[ PASS ] ",end='')
             print(operation)
         else:
             print('[ ',end='')

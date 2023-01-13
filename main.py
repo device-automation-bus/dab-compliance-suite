@@ -34,10 +34,10 @@ Test_Cases = [
 if __name__ == "__main__":
     Tester = DabTester()
     
-    # Tester.Test_All(Test_Cases)
+    Tester.Test_All(Test_Cases)
     
-    Tester.verbose = False
-    Tester.Test_Case("dab/input/key-press",'{"keyCode": "KEY_DOWN"}')
+    # Tester.verbose = False
+    # Tester.Test_Case("dab/input/key-press",'{"keyCode": "KEY_DOWN"}')
     
     Tester.Close()
 
