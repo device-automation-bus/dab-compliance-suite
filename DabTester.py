@@ -29,7 +29,7 @@ class DabTester:
             if self.verbose == True:
                 self.dab_test_client.print_response()
 
-    def Run_All(self,Test_Set):
+    def Test_All(self,Test_Set):
         for operation in Test_Set:
             self.Test_Case(operation[0],operation[1])
 
