@@ -7,7 +7,6 @@ import json
 
 class DabClient:
     def __init__(self):
-        self.verbose = True
         self.lock = Lock()
         self.lock.acquire()
         self.client = mqtt.Client("mqtt5_client",protocol=mqtt.MQTTv5) 
