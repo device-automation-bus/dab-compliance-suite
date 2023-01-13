@@ -43,7 +43,7 @@ class DabTester:
             else:
                 return 1
         except:
-            self.dab_test_client.response['status'] = 999 # unknown error
+            self.dab_test_client.response['status'] = -1 # unknown error
             return 1
     
     def Run(self):
