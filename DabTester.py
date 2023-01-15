@@ -25,7 +25,6 @@ class DabTester:
             print('[ ',end='')
             self.dab_client.print_last_error()
             print(' ] ',operation,end='')
-            print(operation)
             if ((self.verbose == True) and (self.dab_client.response['status']==500)):
                 self.dab_client.print_response()
 
