@@ -28,9 +28,9 @@ class DabTester:
             else:
                 print("\033[1;31m[ FAILED ]\033[0m")
         else:
-            print('[ ',end='')
+            print('\033[1;31m[ ',end='')
             self.dab_client.print_last_error()
-            print(' ]')
+            print(' ]\033[0m')
         if ((self.verbose == True)):
             self.dab_client.print_response()
 
@@ -43,6 +43,7 @@ class DabTester:
         
 def Default_Test():
     sleep(1)
+    return True
 
 def YesNoQuestion(question=""):
     positive = ['yes', 'y']
