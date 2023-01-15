@@ -1,6 +1,7 @@
 from DabClient import DabClient
 from time import sleep
 
+
 class DabTester:
     def __init__(self):
         self.dab_client = DabClient()
@@ -19,16 +20,16 @@ class DabTester:
             return 1
     
     def Test_Case(self,operation,request,extra_function):
+        print("testing",operation,"... ",end='', flush=True)
         if self.execute_cmd(operation,request) == 0:
             if extra_function() == True:
-                print("[ PASS ] ",end='')
+                print("\033[1;32m[ PASS ]\033[0m")
             else:
-                print("[ FAILED ] ",end='')
-            print(operation)
+                print("\033[1;31m[ FAILED ]\033[0m")
         else:
             print('[ ',end='')
             self.dab_client.print_last_error()
-            print(' ] ',operation)
+            print(' ]')
         if ((self.verbose == True)):
             self.dab_client.print_response()
 
