@@ -19,7 +19,8 @@ class DabTester:
             self.dab_client.response['status'] = -1 # unknown error
             return 1
     
-    def Test_Case(self,operation,request,extra_function):
+    def Test_Case(self,test_case):
+        (operation,request,extra_function)=test_case
         print("testing",operation,"... ",end='', flush=True)
         if self.execute_cmd(operation,request) == 0:
             if extra_function() == True:
@@ -35,7 +36,7 @@ class DabTester:
 
     def Test_All(self,Test_Set):
         for operation in Test_Set:
-            self.Test_Case(operation[0],operation[1],operation[2])
+            self.Test_Case(operation)
 
     def Close(self):
         self.dab_client.disconnect()
