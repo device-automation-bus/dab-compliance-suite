@@ -8,7 +8,6 @@ Test_Cases = [
     ("dab/applications/get-state","{}"),
     ("dab/applications/exit","{}"),
     ("dab/device/info","{}"),
-    ("dab/system/restart","{}"),
     ("dab/system/settings/list","{}"),
     ("dab/system/settings/get","{}"),
     ("dab/system/settings/set","{}"),
@@ -29,6 +28,7 @@ Test_Cases = [
     ("dab/system/language/list","{}"),
     ("dab/system/language/get","{}"),
     ("dab/system/language/set","{}"),
+    # ("dab/system/restart","{}"),
 ]
 
 if __name__ == "__main__":
@@ -37,7 +37,7 @@ if __name__ == "__main__":
     Tester.verbose = True
     Tester.Test_All(Test_Cases)
     
-    # Tester.Test_Case("dab/input/key-press",'{"keyCode": "KEY_DOWN"}')
+    # Tester.Test_Case("dab/input/key-press",'{"keyCode": "KEY_RIGHT"}')
     
     Tester.Close()
 
