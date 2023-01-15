@@ -1,6 +1,6 @@
 from DabClient import DabClient
 from time import sleep
-
+from readchar import readchar
 
 class DabTester:
     def __init__(self):
@@ -49,11 +49,13 @@ def YesNoQuestion(question=""):
     negative = ['no', 'n']
 
     while True:
-        user_input = input(question+'(Y/N): ')
+        # user_input = input(question+'(Y/N): ')
+        print(question,'(Y/N): ',end='', flush=True)
+        user_input=readchar()
+        print(' ['+user_input+'] ',end='')
         if user_input.lower() in positive:
             return True
         elif user_input.lower() in negative:
             return False
         else:
-            print('Type yes(Y) or no(N)')
             continue

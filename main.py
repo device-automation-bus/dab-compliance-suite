@@ -36,11 +36,11 @@ if __name__ == "__main__":
     ]
     
     Tester.verbose = False
-    Tester.Test_All(Test_Cases)
+    # Tester.Test_All(Test_Cases)
     
     
-    # Tester.Test_Case("dab/applications/launch",'{"appId": "Cobalt"}',applications.launch)
-    # Tester.Test_Case("dab/applications/exit",'{"appId": "Cobalt"}',applications.exit)
+    Tester.Test_Case(Test_Cases[2])
+    Tester.Test_Case(Test_Cases[5])
     
     Tester.Close()
 
