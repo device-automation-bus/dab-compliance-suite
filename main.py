@@ -1,6 +1,7 @@
 from DabTester import DabTester
 from DabTester import Default_Test
 import applications 
+import system
 
 if __name__ == "__main__":
     Tester = DabTester()
@@ -32,7 +33,7 @@ if __name__ == "__main__":
         ("dab/system/language/list",'{}',Default_Test),
         ("dab/system/language/get",'{}',Default_Test),
         ("dab/system/language/set",'{}',Default_Test),
-        # ("dab/system/restart",'{}',Default_Test),
+        ("dab/system/restart",'{}',system.restart),
     ]
     
     Tester.verbose = False
