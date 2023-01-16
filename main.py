@@ -2,9 +2,23 @@ from DabTester import DabTester
 from DabTester import Default_Test
 import dab.applications
 import dab.system
+import argparse
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-v","--verbose", 
+                        help="increase output verbosity",
+                        action="store_true")
+    parser.set_defaults(feature=False)
+    parser.add_argument("-c","--case", 
+                        help="test only the specified case.Ex: -c 3",
+                        type=int)
+    parser.set_defaults(feature=False)
+    args = parser.parse_args()
+    
+    # Use the DabTester
     Tester = DabTester()
+    # Implement the test cases
     Test_Cases = [
         ("dab/operations/list",'{}',Default_Test),
         ("dab/applications/list",'{}',Default_Test),
@@ -36,8 +50,13 @@ if __name__ == "__main__":
         ("dab/system/restart",'{}',dab.system.restart),
     ]
     
-    Tester.verbose = False
-    Tester.Test_All(Test_Cases)
+    Tester.verbose = args.verbose
     
+    if(args.case == None):
+        # Test all the cases
+        Tester.Test_All(Test_Cases)
+    else:
+        # Test a single case
+        Tester.Test_Case(Test_Cases[args.case])
+        
     Tester.Close()
-
