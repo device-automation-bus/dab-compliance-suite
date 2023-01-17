@@ -31,8 +31,8 @@ Test_Cases = [
     ("dab/voice/send-text",'{}',Default_Test),
     ("dab/version",'{}',Default_Test),
     ("dab/system/language/list",'{}',Default_Test),
-    ("dab/system/language/get",'{}',Default_Test),
     ("dab/system/language/set",'{}',Default_Test),
+    ("dab/system/language/get",'{}',Default_Test),
     ("dab/system/restart",'{}',dab.system.restart),
 ]
 

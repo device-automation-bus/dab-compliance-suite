@@ -9,11 +9,12 @@ class DabClient:
     def __init__(self):
         self.lock = Lock()
         self.lock.acquire()
-        self.client = mqtt.Client("mqtt5_client",protocol=mqtt.MQTTv5) 
+        self.client = mqtt.Client("mqtt5_client",protocol=mqtt.MQTTv5)
 
     def __on_message(self, client, userdata, message):   
         self.response = json.loads(message.payload)
         self.lock.release()
+        self.code = self.response['status']
 
     def disconnect(self):
         self.client.disconnect()
@@ -31,20 +32,24 @@ class DabClient:
         self.client.on_message = self.__on_message
         self.client.subscribe(response_topic)
         self.client.publish(topic,msg,properties=properties)
-        self.lock.acquire()
+        if not (self.lock.acquire(timeout = 3)):
+            self.code = 100
         
     def print_response(self):
-        print(json.dumps(self.response, indent=2))
+        if((self.code != -1) and (self.code != 100)):
+            print(json.dumps(self.response, indent=2))
     
     def print_last_error(self):
-        code = self.response['status']
-        print("Error",code,': ',end='')
 
-        if(code == -1):
+        print("Error",self.code,': ',end='')
+
+        if(self.code == -1):
             print("Unknown error",end='')
-        elif(code == 400):
+        elif(self.code == 100):
+            print("Timeout",end='')
+        elif(self.code == 400):
             print("Request invalid or malformed",end='')
-        elif(code == 500):
+        elif(self.code == 500):
             print("Internal error",end='')
-        elif(code == 501):
+        elif(self.code == 501):
             print("Not implemented",end='')

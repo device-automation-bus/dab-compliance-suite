@@ -11,12 +11,12 @@ class DabTester:
     def execute_cmd(self,operation,request="{}"):
         self.dab_client.request(operation,request)
         try:
-            if self.dab_client.response['status'] == 200:
+            if self.code == 200:
                 return 0
             else:
                 return 1
         except:
-            self.dab_client.response['status'] = -1 # unknown error
+            self.code = -1 # unknown error
             return 1
     
     def Test_Case(self,test_case):
