@@ -10,13 +10,9 @@ class DabTester:
 
     def execute_cmd(self,operation,request="{}"):
         self.dab_client.request(operation,request)
-        try:
-            if self.code == 200:
-                return 0
-            else:
-                return 1
-        except:
-            self.code = -1 # unknown error
+        if self.dab_client.last_error_code() == 200:
+            return 0
+        else:
             return 1
     
     def Test_Case(self,test_case):

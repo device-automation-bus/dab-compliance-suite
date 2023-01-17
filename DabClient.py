@@ -14,7 +14,10 @@ class DabClient:
     def __on_message(self, client, userdata, message):   
         self.__response_dic = json.loads(message.payload)
         self.__lock.release()
-        self.__code = self.__response_dic['status']
+        try:
+            self.__code = self.__response_dic['status']
+        except:
+            self.__code = -1
 
     def disconnect(self):
         self.__client.disconnect()
