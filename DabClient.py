@@ -7,51 +7,51 @@ import json
 
 class DabClient:
     def __init__(self):
-        self.lock = Lock()
-        self.lock.acquire()
-        self.client = mqtt.Client("mqtt5_client",protocol=mqtt.MQTTv5)
+        self.__lock = Lock()
+        self.__lock.acquire()
+        self.__client = mqtt.Client("mqtt5_client",protocol=mqtt.MQTTv5)
 
     def __on_message(self, client, userdata, message):   
-        self.response = json.loads(message.payload)
-        self.lock.release()
-        self.code = self.response['status']
+        self.__response_dic = json.loads(message.payload)
+        self.__lock.release()
+        self.__code = self.__response_dic['status']
 
     def disconnect(self):
-        self.client.disconnect()
+        self.__client.disconnect()
 
     def connect(self,broker_address,broker_port):
-        self.client.connect(broker_address, port=broker_port)
-        self.client.loop_start()
+        self.__client.connect(broker_address, port=broker_port)
+        self.__client.loop_start()
     
     def request(self,topic,msg="{}"):
         # Send request and block until get the response or timeout
         response_topic="_response/"+topic
-        self.client.subscribe(response_topic)
+        self.__client.subscribe(response_topic)
         properties=Properties(PacketTypes.PUBLISH)
         properties.ResponseTopic=response_topic
-        self.client.on_message = self.__on_message
-        self.client.subscribe(response_topic)
-        self.client.publish(topic,msg,properties=properties)
-        if not (self.lock.acquire(timeout = 5)):
-            self.code = 100
+        self.__client.on_message = self.__on_message
+        self.__client.subscribe(response_topic)
+        self.__client.publish(topic,msg,properties=properties)
+        if not (self.__lock.acquire(timeout = 5)):
+            self.__code = 100
         
     def response(self):
-        if((self.code != -1) and (self.code != 100)):
-            return json.dumps(self.response, indent=2)
+        if((self.__code != -1) and (self.__code != 100)):
+            return json.dumps(self.__response_dic, indent=2)
         else:
             return ""
     
     def last_error_code(self):
-        return self.code
+        return self.__code
     
     def last_error_msg(self):
-        if(self.code == -1):
+        if(self.__code == -1):
             print("Unknown error",end='')
-        elif(self.code == 100):
+        elif(self.__code == 100):
             print("Timeout",end='')
-        elif(self.code == 400):
+        elif(self.__code == 400):
             print("Request invalid or malformed",end='')
-        elif(self.code == 500):
+        elif(self.__code == 500):
             print("Internal error",end='')
-        elif(self.code == 501):
+        elif(self.__code == 501):
             print("Not implemented",end='')
