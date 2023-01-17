@@ -35,14 +35,16 @@ class DabClient:
         if not (self.lock.acquire(timeout = 5)):
             self.code = 100
         
-    def print_response(self):
+    def response(self):
         if((self.code != -1) and (self.code != 100)):
-            print(json.dumps(self.response, indent=2))
+            return json.dumps(self.response, indent=2)
+        else:
+            return ""
     
-    def print_last_error(self):
-
-        print("Error",self.code,': ',end='')
-
+    def last_error_code(self):
+        return self.code
+    
+    def last_error_msg(self):
         if(self.code == -1):
             print("Unknown error",end='')
         elif(self.code == 100):

@@ -29,10 +29,11 @@ class DabTester:
                 print("\033[1;31m[ FAILED ]\033[0m")
         else:
             print('\033[1;31m[ ',end='')
-            self.dab_client.print_last_error()
+            print("Error",self.dab_client.last_error_code(),': ',end='')
+            self.dab_client.last_error_msg()
             print(' ]\033[0m')
         if ((self.verbose == True)):
-            self.dab_client.print_response()
+            print(self.dab_client.response())
 
     def Test_All(self,Test_Set):
         for operation in Test_Set:
