@@ -60,12 +60,12 @@ if __name__ == "__main__":
     if(args.list == True):
         for i in range(len(Test_Cases)):
             print(i,")",Test_Cases[i][0],Test_Cases[i][1])
-    
-    if(args.case == None):
-        # Test all the cases
-        Tester.Test_All(Test_Cases)
     else:
-        # Test a single case
-        Tester.Test_Case(Test_Cases[args.case])
+        if(args.case == None):
+            # Test all the cases
+            Tester.Test_All(Test_Cases)
+        else:
+            # Test a single case
+            Tester.Test_Case(Test_Cases[args.case])
         
     Tester.Close()
