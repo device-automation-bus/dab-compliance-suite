@@ -59,7 +59,7 @@ if __name__ == "__main__":
     
     if(args.list == True):
         for i in range(len(Test_Cases)):
-            print(i,")",Test_Cases[i][0],Test_Cases[i][1])
+            print("[%02d]"%i,Test_Cases[i][0]," ",Test_Cases[i][1])
     else:
         if(args.case == None):
             # Test all the cases
