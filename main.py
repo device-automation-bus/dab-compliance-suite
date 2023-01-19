@@ -41,17 +41,25 @@ if __name__ == "__main__":
     parser.add_argument("-v","--verbose", 
                         help="increase output verbosity",
                         action="store_true")
-    parser.set_defaults(feature=False)
+    parser.set_defaults(verbose=False)
+    parser.add_argument("-l","--list", 
+                        help="list the test cases",
+                        action="store_true")
+    parser.set_defaults(list=False)
     parser.add_argument("-c","--case", 
                         help="test only the specified case.Ex: -c 3",
                         type=int)
-    parser.set_defaults(feature=False)
+    parser.set_defaults(case=False)
     args = parser.parse_args()
     
     # Use the DabTester
     Tester = DabTester()
     
     Tester.verbose = args.verbose
+    
+    if(args.list == True):
+        for i in range(len(Test_Cases)):
+            print(i,")",Test_Cases[i][0],Test_Cases[i][1])
     
     if(args.case == None):
         # Test all the cases
