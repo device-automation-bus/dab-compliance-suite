@@ -39,7 +39,7 @@ class DabTester:
         self.dab_client.disconnect()
         
 def Default_Test():
-    sleep(1)
+    sleep(0.2)
     return True
 
 def YesNoQuestion(question=""):
