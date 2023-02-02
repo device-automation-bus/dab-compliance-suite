@@ -35,7 +35,7 @@ class DabClient:
         self.__client.on_message = self.__on_message
         self.__client.subscribe(response_topic)
         self.__client.publish(topic,msg,properties=properties)
-        if not (self.__lock.acquire(timeout = 5)):
+        if not (self.__lock.acquire(timeout = 20)):
             self.__code = 100
         
     def response(self):
