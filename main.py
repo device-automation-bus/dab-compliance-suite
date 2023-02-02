@@ -61,13 +61,12 @@ if __name__ == "__main__":
         for i in range(len(Test_Cases)):
             print("[%02d]"%i,Test_Cases[i][0]," ",Test_Cases[i][1])
     else:
-        if not isinstance(args.case, (int)):
+        if (args.case == False) or (not isinstance(args.case, (int))):
             # Test all the cases
             print("Testing all cases")
             Tester.Test_All(Test_Cases)
         else:
             # Test a single case
-            print("Testing case",args.case)
             Tester.Test_Case(Test_Cases[args.case])
         
     Tester.Close()
