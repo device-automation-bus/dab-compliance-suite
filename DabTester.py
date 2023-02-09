@@ -3,9 +3,9 @@ from time import sleep
 from readchar import readchar
 
 class DabTester:
-    def __init__(self):
+    def __init__(self,broker):
         self.dab_client = DabClient()
-        self.dab_client.connect("localhost",1883)
+        self.dab_client.connect(broker,1883)
         self.verbose = False
 
     def execute_cmd(self,operation,request="{}"):

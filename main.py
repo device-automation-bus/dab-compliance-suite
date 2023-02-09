@@ -17,9 +17,9 @@ Test_Cases = [
     ("dab/system/settings/get",'{}',Default_Test),
     ("dab/system/settings/set",'{}',Default_Test),
     ("dab/input/key/list",'{}',Default_Test),
-    ("dab/input/key-press",'{"keyCode": "KEY_DOWN"}',Default_Test),
+    ("dab/input/key-press",'{"keyCode": "KEY_LEFT"}',Default_Test),
     ("dab/input/long-key-press",'{}',Default_Test),
-    ("dab/output/image",'{}',Default_Test),
+    ("dab/output/image",'{"outputLocation": "https://webhook.site/791918a1-cf5f-4a3e-9166-9f83af776232"}', Default_Test),
     ("dab/device-telemetry/start",'{}',Default_Test),
     ("dab/device-telemetry/stop",'{}',Default_Test),
     ("dab/app-telemetry/start",'{}',Default_Test),
@@ -43,6 +43,10 @@ if __name__ == "__main__":
                         help="list the test cases",
                         action="store_true")
     parser.set_defaults(list=False)
+    parser.add_argument("-b","--broker", 
+                        help="set the IP of the broker.Ex: -b 192.168.0.100",
+                        type=str,
+                        default="localhost")
     parser.add_argument("-c","--case", 
                         help="test only the specified case.Ex: -c 3",
                         type=int)
@@ -50,7 +54,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     # Use the DabTester
-    Tester = DabTester()
+    Tester = DabTester(args.broker)
     
     Tester.verbose = args.verbose
     
