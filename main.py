@@ -47,6 +47,12 @@ if __name__ == "__main__":
                         help="set the IP of the broker.Ex: -b 192.168.0.100",
                         type=str,
                         default="localhost")
+
+    parser.add_argument("-I","--ID", 
+                        help="set the Device ID.Ex: -I mydevice123",
+                        type=str,
+                        default="localhost")
+
     parser.add_argument("-c","--case", 
                         help="test only the specified case.Ex: -c 3",
                         type=int)
@@ -54,7 +60,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     # Use the DabTester
-    device_id = "OEUzIwMjExMTA4NjAyMDAwOA"
+    device_id = args.ID
 
     Tester = DabTester(args.broker)
     
