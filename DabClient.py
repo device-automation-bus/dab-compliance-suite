@@ -26,8 +26,9 @@ class DabClient:
         self.__client.connect(broker_address, port=broker_port)
         self.__client.loop_start()
     
-    def request(self,topic,msg="{}"):
+    def request(self,device_id,operation,msg="{}"):
         # Send request and block until get the response or timeout
+        topic = "dab/" + device_id+"/" + operation
         response_topic="_response/"+topic
         self.__client.subscribe(response_topic)
         properties=Properties(PacketTypes.PUBLISH)
