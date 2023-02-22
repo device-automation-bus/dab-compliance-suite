@@ -36,10 +36,16 @@ To list the available test cases, type:
 # python3 main.py -l
 ```
 
-To execute the first test:
+To execute the first test only:
 
 ```
 # python3 main.py -v -b <your-box-ip> -I <device-id> -c 0
+```
+
+To execute the third test only:
+
+```
+# python3 main.py -v -b <your-box-ip> -I <device-id> -c 2
 ```
 
 To execute all the tests:
