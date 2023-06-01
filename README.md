@@ -2,6 +2,11 @@
 
 This tool applies test cases for DAB enabled devices.
 
+## Prerequisite ##
+```
+pip3 install -r requirements.txt
+```
+
 ## Commands ##
 
 These are the main commands of the tool:

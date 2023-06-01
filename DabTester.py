@@ -43,6 +43,10 @@ def Default_Test():
     sleep(0.2)
     return True
 
+def Voice_Test():
+    sleep(5)
+    return True
+
 def YesNoQuestion(question=""):
     positive = ['yes', 'y']
     negative = ['no', 'n']
