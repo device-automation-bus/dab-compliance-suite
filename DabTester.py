@@ -34,6 +34,7 @@ class DabTester:
     def Test_All(self,device_id,Test_Set):
         for operation in Test_Set:
             self.Test_Case(device_id,operation)
+            sleep(5)
 
     def Close(self):
         self.dab_client.disconnect()

@@ -2,9 +2,9 @@ from time import sleep
 from DabTester import YesNoQuestion
 
 def launch():
-    sleep(2)
+    sleep(5)
     return YesNoQuestion("Cobalt started?")
     
 def exit():
-    sleep(1)
+    sleep(5)
     return YesNoQuestion("Cobalt exited?")
