@@ -1,0 +1,4 @@
+###### Requirements without Version Specifiers ######
+paho-mqtt
+readchar
+FileCache

@@ -29,7 +29,7 @@ class DabClient:
     def request(self,device_id,operation,msg="{}"):
         # Send request and block until get the response or timeout
         topic = "dab/" + device_id+"/" + operation
-        response_topic="_response/"+topic
+        response_topic="dab/_response/"+topic
         self.__client.subscribe(response_topic)
         properties=Properties(PacketTypes.PUBLISH)
         properties.ResponseTopic=response_topic
