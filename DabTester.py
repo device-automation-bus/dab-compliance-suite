@@ -1,7 +1,9 @@
 from DabClient import DabClient
+from result_json import TestOutcome, TestSuite
 from time import sleep
 from readchar import readchar
 import datetime
+import jsons
 
 class DabTester:
     def __init__(self,broker):
@@ -16,18 +18,21 @@ class DabTester:
         else:
             return 1
     
-    def Test_Case(self,device_id,test_case):
-        (operation,request,extra_function,params)=test_case
+    def Test_Case(self, device_id, test_case):
+        (operation, request, extra_function, params)=test_case
+        test_outcome = TestOutcome(device_id, operation, request, "unknwon", "")
         print("\ntesting", operation, " ", request, "... ", end='', flush=True)
         start = datetime.datetime.now()
-        if self.execute_cmd(device_id,operation,request) == 0:
+        if self.execute_cmd(device_id, operation, request) == 0:
             end = datetime.datetime.now()
             duration = end - start
             durationInMs = int(duration.total_seconds() * 1000)
-            if extra_function(durationInMs,params) == True:
+            if extra_function(durationInMs, params) == True:
                 print("\033[1;32m[ PASS ]\033[0m")
+                test_outcome.outcome = "PASS"
             else:
                 print("\033[1;31m[ FAILED ]\033[0m")
+                test_outcome.outcome = "FAILED"
         else:
             print('\033[1;31m[ ',end='')
             print("Error",self.dab_client.last_error_code(),': ',end='')
@@ -35,11 +40,20 @@ class DabTester:
             print(' ]\033[0m')
         if ((self.verbose == True)):
             print(self.dab_client.response())
+            test_outcome.response = self.dab_client.response()
+        return test_outcome
 
-    def Test_All(self,device_id,Test_Set):
+    def Test_All(self, suite_name, device_id, Test_Set, file_path):
+        result_list = TestSuite([], suite_name)
         for operation in Test_Set:
-            self.Test_Case(device_id,operation)
+            result_list.test_outcome_list.append(self.Test_Case(device_id, operation))
             sleep(5)
+        if (len(file_path) == 0):
+            file_path = f"./test_result/{suite_name}.json"
+        file_dump = jsons.dumps(result_list, indent = 4)
+        with open(file_path, "w") as outfile:
+                outfile.write(file_dump)
+
 
     def Close(self):
         self.dab_client.disconnect()

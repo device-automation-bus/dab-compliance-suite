@@ -58,7 +58,7 @@ if __name__ == "__main__":
         if (args.case == 99999) or (not isinstance(args.case, (int))):
             # Test all the cases
             print("Testing all cases")
-            Tester.Test_All(device_id,Voice_Test_Cases)
+            Tester.Test_All("end_to_end_cobalt", device_id,Voice_Test_Cases)
         else:
             # Test a single case
             Tester.Test_Case(device_id,(Voice_Test_Cases[args.case]))

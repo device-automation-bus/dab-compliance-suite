@@ -117,6 +117,7 @@ Test_Cases = [
     ("voice/send-text",'{"requestText" : "Play lady Gaga music on YouTube", "voiceSystem": "Alexa"}',Default_Test, 10000),
     ("version",'{}',Default_Test, 200),
     ("system/restart",'{}',dab.system.restart, 30000),
+
 ]
 
 if __name__ == "__main__":
@@ -142,6 +143,12 @@ if __name__ == "__main__":
     parser.add_argument("-c","--case", 
                         help="test only the specified case. Ex: -c 3",
                         type=int)
+
+    parser.add_argument("-o","--output", 
+                        help="output location for the json file",
+                        type=str)
+    parser.set_defaults(output="")
+    
     parser.set_defaults(case=99999)
     args = parser.parse_args()
     
@@ -159,7 +166,7 @@ if __name__ == "__main__":
         if (args.case == 99999) or (not isinstance(args.case, (int))):
             # Test all the cases
             print("Testing all cases")
-            Tester.Test_All(device_id,Test_Cases)
+            Tester.Test_All("main", device_id,Test_Cases, args.output)
         else:
             # Test a single case
             Tester.Test_Case(device_id,(Test_Cases[args.case]))
