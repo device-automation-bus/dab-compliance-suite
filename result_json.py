@@ -2,7 +2,7 @@ import jsons
 from dataclasses import dataclass
 
 @dataclass
-class TestOutcome:
+class TestResult:
     device_id: str
     operation: str
     request: str
@@ -11,5 +11,5 @@ class TestOutcome:
 
 @dataclass
 class TestSuite:
-    test_outcome_list: tuple[TestOutcome]
+    test_result_list: list[TestResult]
     suite_name: str
