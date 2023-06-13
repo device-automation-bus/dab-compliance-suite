@@ -1,0 +1,1448 @@
+{
+    "suite_name": "main",
+    "test_result_list": [
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "operations/list",
+            "outcome": "UNKNOWN",
+            "request": "{}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "applications/list",
+            "outcome": "UNKNOWN",
+            "request": "{}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "applications/launch",
+            "outcome": "UNKNOWN",
+            "request": "{\"appId\": \"Cobalt\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "applications/launch-with-content",
+            "outcome": "UNKNOWN",
+            "request": "{\"appId\": \"Cobalt\", \"contentId\": \"v=jfKfPfyJRdk\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "applications/get-state",
+            "outcome": "UNKNOWN",
+            "request": "{\"appId\": \"Cobalt\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "applications/exit",
+            "outcome": "UNKNOWN",
+            "request": "{\"appId\": \"Cobalt\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "device/info",
+            "outcome": "UNKNOWN",
+            "request": "{}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "system/settings/list",
+            "outcome": "UNKNOWN",
+            "request": "{}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "system/settings/get",
+            "outcome": "UNKNOWN",
+            "request": "{}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "system/settings/set",
+            "outcome": "UNKNOWN",
+            "request": "{\"language\": \"en-US\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "system/settings/set",
+            "outcome": "UNKNOWN",
+            "request": "{\"outputResolution\": {\"width\": 3840, \"height\": 2160, \"frequency\": 60} }",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "system/settings/set",
+            "outcome": "UNKNOWN",
+            "request": "{\"memc\": true}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "system/settings/set",
+            "outcome": "UNKNOWN",
+            "request": "{\"cec\": true}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "system/settings/set",
+            "outcome": "UNKNOWN",
+            "request": "{\"lowLatencyMode\": true}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "system/settings/set",
+            "outcome": "UNKNOWN",
+            "request": "{\"matchContentFrameRate\": \"EnabledSeamlessOnly\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "system/settings/set",
+            "outcome": "UNKNOWN",
+            "request": "{\"hdrOutputMode\": \"AlwaysHdr\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "system/settings/set",
+            "outcome": "UNKNOWN",
+            "request": "{\"pictureMode\": \"Standard\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "system/settings/set",
+            "outcome": "UNKNOWN",
+            "request": "{\"audioOutputMode\": \"Auto\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "system/settings/set",
+            "outcome": "UNKNOWN",
+            "request": "{\"audioOutputSource\": \"HDMI\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "system/settings/set",
+            "outcome": "UNKNOWN",
+            "request": "{\"videoInputSource\": \"Other\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "system/settings/set",
+            "outcome": "UNKNOWN",
+            "request": "{\"audioVolume\": 20}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "system/settings/set",
+            "outcome": "UNKNOWN",
+            "request": "{\"mute\": false}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "system/settings/set",
+            "outcome": "UNKNOWN",
+            "request": "{\"textToSpeech\": true}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/key/list",
+            "outcome": "UNKNOWN",
+            "request": "{}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_HOME\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_VOLUME_UP\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_VOLUME_DOWN\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_MUTE\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_CHANNEL_UP\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_CHANNEL_DOWN\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_MENU\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_EXIT\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_INFO\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_GUIDE\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_CAPTIONS\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_UP\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_PAGE_UP\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_PAGE_DOWN\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_RIGHT\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_DOWN\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_LEFT\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_ENTER\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_BACK\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_PLAY\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_PLAY_PAUSE\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_PAUSE\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_STOP\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_REWIND\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_FAST_FORWARD\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_SKIP_REWIND\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_SKIP_FAST_FORWARD\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_0\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_1\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_2\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_3\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_4\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_5\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_6\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_7\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_8\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_9\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/long-key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_HOME\", \"durationMs\": 3000}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/long-key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_VOLUME_UP\", \"durationMs\": 3000}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/long-key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_VOLUME_DOWN\", \"durationMs\": 3000}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/long-key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_MUTE\", \"durationMs\": 3000}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/long-key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_CHANNEL_UP\", \"durationMs\": 3000}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/long-key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_CHANNEL_DOWN\", \"durationMs\": 3000}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/long-key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_MENU\", \"durationMs\": 3000}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/long-key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_EXIT\", \"durationMs\": 3000}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/long-key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_INFO\", \"durationMs\": 3000}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/long-key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_GUIDE\", \"durationMs\": 3000}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/long-key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_CAPTIONS\", \"durationMs\": 3000}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/long-key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_UP\", \"durationMs\": 3000}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/long-key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_PAGE_UP\", \"durationMs\": 3000}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/long-key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_PAGE_DOWN\", \"durationMs\": 3000}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/long-key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_RIGHT\", \"durationMs\": 3000}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/long-key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_DOWN\", \"durationMs\": 3000}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/long-key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_LEFT\", \"durationMs\": 3000}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/long-key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_ENTER\", \"durationMs\": 3000}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/long-key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_BACK\", \"durationMs\": 3000}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/long-key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_PLAY\", \"durationMs\": 3000}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/long-key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_PLAY_PAUSE\", \"durationMs\": 3000}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/long-key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_PAUSE\", \"durationMs\": 3000}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/long-key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_STOP\", \"durationMs\": 3000}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/long-key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_REWIND\", \"durationMs\": 3000}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/long-key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_FAST_FORWARD\", \"durationMs\": 3000}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/long-key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_SKIP_REWIND\", \"durationMs\": 3000}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/long-key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_SKIP_FAST_FORWARD\", \"durationMs\": 3000}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/long-key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_0\", \"durationMs\": 3000}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/long-key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_1\", \"durationMs\": 3000}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/long-key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_2\", \"durationMs\": 3000}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/long-key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_3\", \"durationMs\": 3000}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/long-key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_4\", \"durationMs\": 3000}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/long-key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_5\", \"durationMs\": 3000}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/long-key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_6\", \"durationMs\": 3000}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/long-key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_7\", \"durationMs\": 3000}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/long-key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_8\", \"durationMs\": 3000}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "input/long-key-press",
+            "outcome": "UNKNOWN",
+            "request": "{\"keyCode\": \"KEY_9\", \"durationMs\": 3000}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "output/image",
+            "outcome": "UNKNOWN",
+            "request": "{\"outputLocation\": \"https://webhook.site/791918a1-cf5f-4a3e-9166-9f83af776232\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "device-telemetry/start",
+            "outcome": "UNKNOWN",
+            "request": "{\"durationMs\": 1000}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "device-telemetry/stop",
+            "outcome": "UNKNOWN",
+            "request": "{}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "app-telemetry/start",
+            "outcome": "UNKNOWN",
+            "request": "{\"appId\": \"Cobalt\", \"durationMs\": 1000}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "app-telemetry/stop",
+            "outcome": "UNKNOWN",
+            "request": "{\"appId\": \"Cobalt\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "health-check/get",
+            "outcome": "UNKNOWN",
+            "request": "{}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "voice/list",
+            "outcome": "UNKNOWN",
+            "request": "{}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "voice/set",
+            "outcome": "UNKNOWN",
+            "request": "{}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "voice/send-audio",
+            "outcome": "UNKNOWN",
+            "request": "{\"fileLocation\": \"https://storage.googleapis.com/ytlr-cert.appspot.com/voice/ladygaga.wav\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "voice/send-text",
+            "outcome": "UNKNOWN",
+            "request": "{\"requestText\" : \"Play lady Gaga music on YouTube\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "voice/send-text",
+            "outcome": "UNKNOWN",
+            "request": "{\"requestText\" : \"Play lady Gaga music on YouTube\", \"voiceSystem\": \"Alexa\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "version",
+            "outcome": "UNKNOWN",
+            "request": " {}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "system/restart",
+            "outcome": "UNKNOWN",
+            "request": " {}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+        }
+    ]
+}

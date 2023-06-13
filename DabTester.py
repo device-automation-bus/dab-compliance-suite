@@ -45,9 +45,9 @@ class DabTester:
 
     def Execute_All_Tests(self, suite_name, device_id, Test_Set, test_result_output_path):
         result_list = TestSuite([], suite_name)
-        for dab_dab_request_body_topic in Test_Set:
-            result_list.test_result_list.append(self.Execute_Test_Case(device_id, dab_dab_request_body_topic))
-            sleep(5)
+        for test in Test_Set:
+            result_list.test_result_list.append(self.Execute_Test_Case(device_id, test))
+            #sleep(5)
         if (len(test_result_output_path) == 0):
             test_result_output_path = f"./test_result/{suite_name}.json"
         file_dump = jsons.dumps(result_list, indent = 4)
@@ -82,7 +82,7 @@ def YesNoQuestion(test_result, question=""):
         # user_input = input(question+'(Y/N): ')
         log(test_result, f"{question}(Y/N)")
         user_input=readchar()
-        print(f"[{user_input}]")
+        log(f"[{user_input}]")
         if user_input.lower() in positive:
             return True
         elif user_input.lower() in negative:
