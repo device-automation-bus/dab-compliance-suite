@@ -1,10 +1,10 @@
 from time import sleep
 from DabTester import YesNoQuestion
 
-def launch(durationInMs=0,expectedLatencyMs=0):
+def launch(test_result, durationInMs=0,expectedLatencyMs=0):
     sleep(5)
-    return YesNoQuestion("Cobalt started?")
+    return YesNoQuestion(test_result, "Cobalt started?")
     
-def exit(durationInMs=0,expectedLatencyMs=0):
+def exit(test_result, durationInMs=0,expectedLatencyMs=0):
     sleep(5)
-    return YesNoQuestion("Cobalt exited?")
+    return YesNoQuestion(test_result, "Cobalt exited?")

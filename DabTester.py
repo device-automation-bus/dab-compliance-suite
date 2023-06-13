@@ -18,35 +18,35 @@ class DabTester:
         else:
             return 1
     
-    def Test_Case(self, device_id, test_case):
+    def Execute_Test_Case(self, device_id, test_case):
         (dab_dab_request_body_topic, dab_request_body, validate_output_function, expected_response_code)=test_case
-        test_result = TestResult(device_id, dab_dab_request_body_topic, dab_request_body, "UNKNOWN", "")
+        test_result = TestResult(device_id, dab_dab_request_body_topic, dab_request_body, "UNKNOWN", "", [])
         print("\ntesting", dab_dab_request_body_topic, " ", dab_request_body, "... ", end='', flush=True)
         start = datetime.datetime.now()
         if self.execute_cmd(device_id, dab_dab_request_body_topic, dab_request_body) == 0:
             end = datetime.datetime.now()
             duration = end - start
             durationInMs = int(duration.total_seconds() * 1000)
-            if validate_output_function(durationInMs, expected_response_code) == True:
-                print("\033[1;32m[ PASS ]\033[0m")
+            if validate_output_function(test_result, durationInMs, expected_response_code) == True:
+                log(test_result, "\033[1;32m[ PASS ]\033[0m")
                 test_result.test_result = "PASS"
             else:
-                print("\033[1;31m[ FAILED ]\033[0m")
+                log(test_result, "\033[1;31m[ FAILED ]\033[0m")
                 test_result.test_result = "FAILED"
         else:
-            print('\033[1;31m[ ',end='')
-            print("Error",self.dab_client.last_error_code(),': ',end='')
+            log(test_result, '\033[1;31m[ ')
+            log(test_result, f"Error: self.dab_client.last_error_code()")
             self.dab_client.last_error_msg()
-            print(' ]\033[0m')
+            log(test_result, ' ]\033[0m')
         if ((self.verbose == True)):
-            print(self.dab_client.response())
+            log(test_result, self.dab_client.response())
         test_result.response = self.dab_client.response()
         return test_result
 
-    def Test_All(self, suite_name, device_id, Test_Set, test_result_output_path):
+    def Execute_All_Tests(self, suite_name, device_id, Test_Set, test_result_output_path):
         result_list = TestSuite([], suite_name)
         for dab_dab_request_body_topic in Test_Set:
-            result_list.test_result_list.append(self.Test_Case(device_id, dab_dab_request_body_topic))
+            result_list.test_result_list.append(self.Execute_Test_Case(device_id, dab_dab_request_body_topic))
             sleep(5)
         if (len(test_result_output_path) == 0):
             test_result_output_path = f"./test_result/{suite_name}.json"
@@ -58,27 +58,31 @@ class DabTester:
     def Close(self):
         self.dab_client.disconnect()
         
-def Default_Test(durationInMs=0, expectedLatencyMs=0):
+def Default_Validations(test_result, durationInMs=0, expectedLatencyMs=0):
     sleep(0.2)
-    print("\ndab_dab_request_body_topic Latency, Expected: ", expectedLatencyMs, " ms, Actual: ", durationInMs, " ms\n")
+    log(test_result, f"\ndab_dab_request_body_topic Latency, Expected: {expectedLatencyMs} ms, Actual: {durationInMs} ms\n")
     if durationInMs > expectedLatencyMs:
-        print("dab_dab_request_body_topic took more time than expected.\n")
+        log(test_result, "dab_dab_request_body_topic took more time than expected.\n")
         return False
     return True
 
-def Voice_Test(durationInMs=0, args=''):
+def log(test_result, str_print):
+    test_result.logs.append(str_print)
+    print(str_print)
+
+def Voice_Test(test_result, durationInMs=0, args=''):
     sleep(5)
     return YesNoQuestion(args)
 
-def YesNoQuestion(question=""):
+def YesNoQuestion(test_result, question=""):
     positive = ['yes', 'y']
     negative = ['no', 'n']
 
     while True:
         # user_input = input(question+'(Y/N): ')
-        print(question,'(Y/N): ',end='', flush=True)
+        log(test_result, f"{question}(Y/N)")
         user_input=readchar()
-        print(' ['+user_input+'] ',end='')
+        print(f"[{user_input}]")
         if user_input.lower() in positive:
             return True
         elif user_input.lower() in negative:

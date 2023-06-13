@@ -166,9 +166,9 @@ if __name__ == "__main__":
         if (args.case == 99999) or (not isinstance(args.case, (int))):
             # Test all the cases
             print("Testing all cases")
-            Tester.Test_All("main", device_id,Test_Cases, args.output)
+            Tester.Execute_All_Tests("main", device_id, Test_Cases, args.output)
         else:
             # Test a single case
-            Tester.Test_Case(device_id,(Test_Cases[args.case]))
+            Tester.Execute_Test_Case(device_id,(Test_Cases[args.case]))
         
     Tester.Close()

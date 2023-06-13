@@ -8,6 +8,7 @@ class TestResult:
     request: str
     outcome: str
     response: str
+    logs: list[str]
 
 @dataclass
 class TestSuite:

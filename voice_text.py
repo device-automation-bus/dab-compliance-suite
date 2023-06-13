@@ -59,9 +59,9 @@ if __name__ == "__main__":
         if (args.case == 99999) or (not isinstance(args.case, (int))):
             # Test all the cases
             print("Testing all cases")
-            Tester.Test_All("voice_text", device_id,Voice_Test_Cases)
+            Tester.Execute_All_Tests("voice_text", device_id,Voice_Test_Cases, args.output)
         else:
             # Test a single case
-            Tester.Test_Case(device_id,(Voice_Test_Cases[args.case]))
+            Tester.Execute_Test_Case(device_id,(Voice_Test_Cases[args.case]))
         
     Tester.Close()
