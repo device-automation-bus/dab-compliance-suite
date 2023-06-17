@@ -3,18 +3,19 @@ from DabTester import Voice_Test
 import dab.applications
 import dab.system
 import argparse
+from schema import dab_response_validator
 
 # Voice action steps
 Voice_Test_Cases = [
-    ("voice/send-text",'{"requestText" : "Play lady Gaga music on YouTube", "voiceSystem": "Alexa"}',Voice_Test, "Are you on search page with Lady Gaga?"),
-    ("voice/send-text",'{"requestText" : "Press enter", "voiceSystem": "Alexa"}',Voice_Test, "Is video playing?"),
-    ("voice/send-text",'{"requestText" : "Play video", "voiceSystem": "Alexa"}',Voice_Test, "If video was not playing, is it playing now?"),
-    ("voice/send-text",'{"requestText" : "Set volume 0", "voiceSystem": "Alexa"}',Voice_Test, "Did volume of the video changed?"),
-    ("voice/send-text",'{"requestText" : "Set volume 5", "voiceSystem": "Alexa"}',Voice_Test, "Did volume of the video changed?"),
-    ("voice/send-text",'{"requestText" : "Pause Video", "voiceSystem": "Alexa"}',Voice_Test, "Did video paused?"),
-    ("voice/send-text",'{"requestText" : "Fast forward video", "voiceSystem": "Alexa"}',Voice_Test, "Did video playback fast forward?"),
-    ("voice/send-text",'{"requestText" : "Rewind video", "voiceSystem": "Alexa"}',Voice_Test, "Did video playback rewind?"),
-    ("voice/send-text",'{"requestText" : "Exit to main menu", "voiceSystem": "Alexa"}',Voice_Test, "Are you on main menu?"),
+    ("voice/send-text",'{"requestText" : "Play lady Gaga music on YouTube", "voiceSystem": "Alexa"}',Voice_Test, "Are you on search page with Lady Gaga?", dab_response_validator.validate_dab_response_schema),
+    ("voice/send-text",'{"requestText" : "Press enter", "voiceSystem": "Alexa"}',Voice_Test, "Is video playing?", dab_response_validator.validate_dab_response_schema),
+    ("voice/send-text",'{"requestText" : "Play video", "voiceSystem": "Alexa"}',Voice_Test, "If video was not playing, is it playing now?", dab_response_validator.validate_dab_response_schema),
+    ("voice/send-text",'{"requestText" : "Set volume 0", "voiceSystem": "Alexa"}',Voice_Test, "Did volume of the video changed?", dab_response_validator.validate_dab_response_schema),
+    ("voice/send-text",'{"requestText" : "Set volume 5", "voiceSystem": "Alexa"}',Voice_Test, "Did volume of the video changed?", dab_response_validator.validate_dab_response_schema),
+    ("voice/send-text",'{"requestText" : "Pause Video", "voiceSystem": "Alexa"}',Voice_Test, "Did video paused?", dab_response_validator.validate_dab_response_schema),
+    ("voice/send-text",'{"requestText" : "Fast forward video", "voiceSystem": "Alexa"}',Voice_Test, "Did video playback fast forward?", dab_response_validator.validate_dab_response_schema),
+    ("voice/send-text",'{"requestText" : "Rewind video", "voiceSystem": "Alexa"}',Voice_Test, "Did video playback rewind?", dab_response_validator.validate_dab_response_schema),
+    ("voice/send-text",'{"requestText" : "Exit to main menu", "voiceSystem": "Alexa"}',Voice_Test, "Are you on main menu?", dab_response_validator.validate_dab_response_schema),
 ]
 
 

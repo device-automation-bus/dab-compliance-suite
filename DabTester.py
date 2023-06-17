@@ -19,7 +19,7 @@ class DabTester:
             return 1
     
     def Execute_Test_Case(self, device_id, test_case):
-        (dab_dab_request_body_topic, dab_request_body, validate_output_function, expected_response_code)=test_case
+        (dab_dab_request_body_topic, dab_request_body, validate_output_function, expected_response_code, response_validate_function)=test_case
         test_result = TestResult(device_id, dab_dab_request_body_topic, dab_request_body, "UNKNOWN", "", [])
         print("\ntesting", dab_dab_request_body_topic, " ", dab_request_body, "... ", end='', flush=True)
         start = datetime.datetime.now()
@@ -27,6 +27,7 @@ class DabTester:
             end = datetime.datetime.now()
             duration = end - start
             durationInMs = int(duration.total_seconds() * 1000)
+            response_validate_function(self.dab_client.response())
             if validate_output_function(test_result, durationInMs, expected_response_code) == True:
                 log(test_result, "\033[1;32m[ PASS ]\033[0m")
                 test_result.test_result = "PASS"

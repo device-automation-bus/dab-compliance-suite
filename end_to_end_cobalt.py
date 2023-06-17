@@ -3,17 +3,18 @@ from DabTester import Voice_Test
 import dab.applications
 import dab.system
 import argparse
+from schema import dab_response_validator
 
 # Voice action steps
 Voice_Test_Cases = [
-    ("voice/send-text",'{"requestText" : "Play lady Gaga music on YouTube", "voiceSystem": "Alexa"}',Voice_Test, "Are you on search page with Lady Gaga?"),
-    ("input/key-press",'{"keyCode": "KEY_ENTER"}',Voice_Test, "Is video playing?"),
-    ("input/long-key-press",'{"keyCode": "KEY_VOLUME_UP", "durationMs": 3000}',Voice_Test, "Is volume going up?"),
-    ("input/long-key-press",'{"keyCode": "KEY_VOLUME_DOWN", "durationMs": 2000}',Voice_Test, "Is volume going down?"),
-    ("input/key-press",'{"keyCode": "KEY_PAUSE"}',Voice_Test, "Did video paused?"),
-    ("input/long-key-press",'{"keyCode": "KEY_RIGHT", "durationMs": 3000}',Voice_Test, "Did video playback fastforward?"),
-    ("input/long-key-press",'{"keyCode": "KEY_LEFT", "durationMs": 3000}',Voice_Test, "Did video playback rewind?"),
-    ("applications/exit",'{"appId": "Cobalt"}',dab.applications.exit, 1000),
+    ("voice/send-text",'{"requestText" : "Play lady Gaga music on YouTube", "voiceSystem": "Alexa"}',Voice_Test, "Are you on search page with Lady Gaga?", dab_response_validator.validate_dab_response_schema),
+    ("input/key-press",'{"keyCode": "KEY_ENTER"}',Voice_Test, "Is video playing?", dab_response_validator.validate_dab_response_schema),
+    ("input/long-key-press",'{"keyCode": "KEY_VOLUME_UP", "durationMs": 3000}',Voice_Test, "Is volume going up?", dab_response_validator.validate_dab_response_schema),
+    ("input/long-key-press",'{"keyCode": "KEY_VOLUME_DOWN", "durationMs": 2000}',Voice_Test, "Is volume going down?", dab_response_validator.validate_dab_response_schema),
+    ("input/key-press",'{"keyCode": "KEY_PAUSE"}',Voice_Test, "Did video paused?", dab_response_validator.validate_dab_response_schema),
+    ("input/long-key-press",'{"keyCode": "KEY_RIGHT", "durationMs": 3000}',Voice_Test, "Did video playback fastforward?", dab_response_validator.validate_dab_response_schema),
+    ("input/long-key-press",'{"keyCode": "KEY_LEFT", "durationMs": 3000}',Voice_Test, "Did video playback rewind?", dab_response_validator.validate_dab_response_schema),
+    ("applications/exit",'{"appId": "Cobalt"}',dab.applications.exit, 1000, dab_response_validator.validate_exit_application_response_schema),
 ]
 
 
