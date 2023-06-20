@@ -11,23 +11,23 @@ class DabTester:
         self.dab_client.connect(broker,1883)
         self.verbose = False
 
-    def execute_cmd(self,device_id,dab_dab_request_body_topic,dab_request_body="{}"):
-        self.dab_client.request(device_id,dab_dab_request_body_topic,dab_request_body)
+    def execute_cmd(self,device_id,dab_request_topic,dab_request_body="{}"):
+        self.dab_client.request(device_id,dab_request_topic,dab_request_body)
         if self.dab_client.last_error_code() == 200:
             return 0
         else:
             return 1
     
     def Execute_Test_Case(self, device_id, test_case):
-        (dab_dab_request_body_topic, dab_request_body, validate_output_function, expected_response_code, response_validate_function)=test_case
-        test_result = TestResult(device_id, dab_dab_request_body_topic, dab_request_body, "UNKNOWN", "", [])
-        print("\ntesting", dab_dab_request_body_topic, " ", dab_request_body, "... ", end='', flush=True)
+        (dab_request_topic, dab_request_body, validate_output_function, expected_response_code)=test_case
+        test_result = TestResult(device_id, dab_request_topic, dab_request_body, "UNKNOWN", "", [])
+        print("\ntesting", dab_request_topic, " ", dab_request_body, "... ", end='', flush=True)
         start = datetime.datetime.now()
-        if self.execute_cmd(device_id, dab_dab_request_body_topic, dab_request_body) == 0:
+        test_result.response = self.dab_client.response()
+        if self.execute_cmd(device_id, dab_request_topic, dab_request_body) == 0:
             end = datetime.datetime.now()
             duration = end - start
             durationInMs = int(duration.total_seconds() * 1000)
-            response_validate_function(self.dab_client.response())
             if validate_output_function(test_result, durationInMs, expected_response_code) == True:
                 log(test_result, "\033[1;32m[ PASS ]\033[0m")
                 test_result.test_result = "PASS"
@@ -41,7 +41,6 @@ class DabTester:
             log(test_result, ' ]\033[0m')
         if ((self.verbose == True)):
             log(test_result, self.dab_client.response())
-        test_result.response = self.dab_client.response()
         return test_result
 
     def Execute_All_Tests(self, suite_name, device_id, Test_Set, test_result_output_path):
@@ -61,19 +60,15 @@ class DabTester:
         
 def Default_Validations(test_result, durationInMs=0, expectedLatencyMs=0):
     sleep(0.2)
-    log(test_result, f"\ndab_dab_request_body_topic Latency, Expected: {expectedLatencyMs} ms, Actual: {durationInMs} ms\n")
+    log(test_result, f"\n{test_result.operation} Latency, Expected: {expectedLatencyMs} ms, Actual: {durationInMs} ms\n")
     if durationInMs > expectedLatencyMs:
-        log(test_result, "dab_dab_request_body_topic took more time than expected.\n")
+        log(test_result, f"{test_result.operation} took more time than expected.\n")
         return False
     return True
 
 def log(test_result, str_print):
     test_result.logs.append(str_print)
     print(str_print)
-
-def Voice_Test(test_result, durationInMs=0, args=''):
-    sleep(5)
-    return YesNoQuestion(args)
 
 def YesNoQuestion(test_result, question=""):
     positive = ['yes', 'y']

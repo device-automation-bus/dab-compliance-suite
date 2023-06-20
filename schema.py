@@ -1,4 +1,5 @@
 from jsonschema import validate
+import jsons
 
 # DabRequest
 dab_request_schema = {
@@ -644,95 +645,95 @@ class dab_response_validator(object):
 
     @staticmethod
     def validate_dab_response_schema(response):
-        validate(instance=response, schema=dab_response_schema)
+        validate(instance=jsons.loads(response), schema=dab_response_schema)
 
     @staticmethod
     def validate_list_supported_operation_response_schema(response):
-        validate(instance=response, schema=list_supported_operation_response_schema)
+        validate(instance=jsons.loads(response), schema=list_supported_operation_response_schema)
 
     @staticmethod
     def validate_list_applications_response_schema(response):
-        validate(instance=response, schema=list_applications_response_schema)
+        validate(instance=jsons.loads(response), schema=list_applications_response_schema)
 
     @staticmethod
     def validate_launch_application_response_schema(response):
-        validate(instance=response, schema=launch_application_response_schema)
+        validate(instance=jsons.loads(response), schema=launch_application_response_schema)
 
     @staticmethod
     def validate_launch_application_with_content_response_schema(response):
-        validate(instance=response, schema=launch_application_with_content_response_schema)
+        validate(instance=jsons.loads(response), schema=launch_application_with_content_response_schema)
 
     @staticmethod
     def validate_get_application_state_response_schema(response):
-        validate(instance=response, schema=get_application_state_response_schema)
+        validate(instance=jsons.loads(response), schema=get_application_state_response_schema)
 
     @staticmethod
     def validate_exit_application_response_schema(response):
-        validate(instance=response, schema=exit_application_response_schema)
+        validate(instance=jsons.loads(response), schema=exit_application_response_schema)
 
     @staticmethod
     def validate_device_information_schema(response):
-        validate(instance=response, schema=device_information_schema)
+        validate(instance=jsons.loads(response), schema=device_information_schema)
 
     @staticmethod
     def validate_restart_response_schema(response):
-        validate(instance=response, schema=restart_response_schema)
+        validate(instance=jsons.loads(response), schema=restart_response_schema)
 
     @staticmethod
     def validate_list_system_settings_schema(response):
-        validate(instance=response, schema=list_system_settings_schema)
+        validate(instance=jsons.loads(response), schema=list_system_settings_schema)
 
     @staticmethod
     def validate_get_system_settings_response_schema(response):
-        validate(instance=response, schema=get_system_settings_response_schema)
+        validate(instance=jsons.loads(response), schema=get_system_settings_response_schema)
 
     @staticmethod
     def validate_set_system_settings_response_schema(response):
-        validate(instance=response, schema=set_system_settings_response_schema)
+        validate(instance=jsons.loads(response), schema=set_system_settings_response_schema)
 
     @staticmethod
     def validate_key_list_schema(response):
-        validate(instance=response, schema=key_list_schema)
+        validate(instance=jsons.loads(response), schema=key_list_schema)
 
     @staticmethod
     def validate_output_image_response_schema(response):
-        validate(instance=response, schema=output_image_response_schema)
+        validate(instance=jsons.loads(response), schema=output_image_response_schema)
 
     @staticmethod
     def validate_start_device_telemetry_response_schema(response):
-        validate(instance=response, schema=start_device_telemetry_response_schema)
+        validate(instance=jsons.loads(response), schema=start_device_telemetry_response_schema)
 
     @staticmethod
     def validate_stop_device_telemetry_response_schema(response):
-        validate(instance=response, schema=stop_device_telemetry_response_schema)
+        validate(instance=jsons.loads(response), schema=stop_device_telemetry_response_schema)
 
     @staticmethod
     def validate_start_app_telemetry_response_schema(response):
-        validate(instance=response, schema=start_app_telemetry_response_schema)
+        validate(instance=jsons.loads(response), schema=start_app_telemetry_response_schema)
 
     @staticmethod
     def validate_stop_app_telemetry_response_schema(response):
-        validate(instance=response, schema=stop_app_telemetry_response_schema)
+        validate(instance=jsons.loads(response), schema=stop_app_telemetry_response_schema)
 
     @staticmethod
     def validate_health_check_response_schema(response):
-        validate(instance=response, schema=health_check_response_schema)
+        validate(instance=jsons.loads(response), schema=health_check_response_schema)
 
     @staticmethod
     def validate_list_voice_response_schema(response):
-        validate(instance=response, schema=list_voice_response_schema)
+        validate(instance=jsons.loads(response), schema=list_voice_response_schema)
 
     @staticmethod
     def validate_set_voice_system_response_schema(response):
-        validate(instance=response, schema=set_voice_system_response_schema)
+        validate(instance=jsons.loads(response), schema=set_voice_system_response_schema)
 
     @staticmethod
     def validate_discovery_response_schema(response):
-        validate(instance=response, schema=discovery_response_schema)
+        validate(instance=jsons.loads(response), schema=discovery_response_schema)
 
     @staticmethod
     def validate_version_response_schema(response):
-        validate(instance=response, schema=version_response_schema)
+        validate(instance=jsons.loads(response), schema=version_response_schema)
     
     
 

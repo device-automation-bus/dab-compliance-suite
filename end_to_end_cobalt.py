@@ -3,18 +3,19 @@ from DabTester import Voice_Test
 import dab.applications
 import dab.system
 import argparse
-from schema import dab_response_validator
+import dab.input
+import dab.voice
 
 # Voice action steps
 Voice_Test_Cases = [
-    ("voice/send-text",'{"requestText" : "Play lady Gaga music on YouTube", "voiceSystem": "Alexa"}',Voice_Test, "Are you on search page with Lady Gaga?", dab_response_validator.validate_dab_response_schema),
-    ("input/key-press",'{"keyCode": "KEY_ENTER"}',Voice_Test, "Is video playing?", dab_response_validator.validate_dab_response_schema),
-    ("input/long-key-press",'{"keyCode": "KEY_VOLUME_UP", "durationMs": 3000}',Voice_Test, "Is volume going up?", dab_response_validator.validate_dab_response_schema),
-    ("input/long-key-press",'{"keyCode": "KEY_VOLUME_DOWN", "durationMs": 2000}',Voice_Test, "Is volume going down?", dab_response_validator.validate_dab_response_schema),
-    ("input/key-press",'{"keyCode": "KEY_PAUSE"}',Voice_Test, "Did video paused?", dab_response_validator.validate_dab_response_schema),
-    ("input/long-key-press",'{"keyCode": "KEY_RIGHT", "durationMs": 3000}',Voice_Test, "Did video playback fastforward?", dab_response_validator.validate_dab_response_schema),
-    ("input/long-key-press",'{"keyCode": "KEY_LEFT", "durationMs": 3000}',Voice_Test, "Did video playback rewind?", dab_response_validator.validate_dab_response_schema),
-    ("applications/exit",'{"appId": "Cobalt"}',dab.applications.exit, 1000, dab_response_validator.validate_exit_application_response_schema),
+    ("voice/send-text",'{"requestText" : "Play lady Gaga music on YouTube", "voiceSystem": "Alexa"}', dab.voice.send_text, "Are you on search page with Lady Gaga?"),
+    ("input/key-press",'{"keyCode": "KEY_ENTER"}', dab.input.key_press, "Is video playing?"),
+    ("input/long-key-press",'{"keyCode": "KEY_VOLUME_UP", "durationMs": 3000}', dab.input.long_key_press, "Is volume going up?"),
+    ("input/long-key-press",'{"keyCode": "KEY_VOLUME_DOWN", "durationMs": 2000}', dab.input.long_key_press, "Is volume going down?"),
+    ("input/key-press",'{"keyCode": "KEY_PAUSE"}', dab.input.key_press, "Did video paused?"),
+    ("input/long-key-press",'{"keyCode": "KEY_RIGHT", "durationMs": 3000}', dab.input.long_key_press, "Did video playback fastforward?"),
+    ("input/long-key-press",'{"keyCode": "KEY_LEFT", "durationMs": 3000}', dab.input.long_key_press, "Did video playback rewind?"),
+    ("applications/exit",'{"appId": "Cobalt"}',dab.applications.exit, 1000),
 ]
 
 
@@ -54,12 +55,12 @@ if __name__ == "__main__":
     
     if(args.list == True):
         for i in range(len(Voice_Test_Cases)):
-            print("[%02d]"%i,Voice_Test_Cases[i][0]," ",Voice_Test_Cases[i][1])
+            print("[%02d]"%i, dab.input.long_key_press_Cases[i][0]," ", dab.input.long_key_press_Cases[i][1])
     else:
         if (args.case == 99999) or (not isinstance(args.case, (int))):
             # Test all the cases
             print("Testing all cases")
-            Tester.Test_All("end_to_end_cobalt", device_id,Voice_Test_Cases)
+            Tester.Test_All("end_to_end_cobalt", device_id, dab.input.long_key_press_Cases)
         else:
             # Test a single case
             Tester.Test_Case(device_id,(Voice_Test_Cases[args.case]))

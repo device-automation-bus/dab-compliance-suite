@@ -4,18 +4,19 @@ import dab.applications
 import dab.system
 import argparse
 from schema import dab_response_validator
+import dab.voice
 
 # Voice action steps
 Voice_Test_Cases = [
-    ("voice/send-text",'{"requestText" : "Play lady Gaga music on YouTube", "voiceSystem": "Alexa"}',Voice_Test, "Are you on search page with Lady Gaga?", dab_response_validator.validate_dab_response_schema),
-    ("voice/send-text",'{"requestText" : "Press enter", "voiceSystem": "Alexa"}',Voice_Test, "Is video playing?", dab_response_validator.validate_dab_response_schema),
-    ("voice/send-text",'{"requestText" : "Play video", "voiceSystem": "Alexa"}',Voice_Test, "If video was not playing, is it playing now?", dab_response_validator.validate_dab_response_schema),
-    ("voice/send-text",'{"requestText" : "Set volume 0", "voiceSystem": "Alexa"}',Voice_Test, "Did volume of the video changed?", dab_response_validator.validate_dab_response_schema),
-    ("voice/send-text",'{"requestText" : "Set volume 5", "voiceSystem": "Alexa"}',Voice_Test, "Did volume of the video changed?", dab_response_validator.validate_dab_response_schema),
-    ("voice/send-text",'{"requestText" : "Pause Video", "voiceSystem": "Alexa"}',Voice_Test, "Did video paused?", dab_response_validator.validate_dab_response_schema),
-    ("voice/send-text",'{"requestText" : "Fast forward video", "voiceSystem": "Alexa"}',Voice_Test, "Did video playback fast forward?", dab_response_validator.validate_dab_response_schema),
-    ("voice/send-text",'{"requestText" : "Rewind video", "voiceSystem": "Alexa"}',Voice_Test, "Did video playback rewind?", dab_response_validator.validate_dab_response_schema),
-    ("voice/send-text",'{"requestText" : "Exit to main menu", "voiceSystem": "Alexa"}',Voice_Test, "Are you on main menu?", dab_response_validator.validate_dab_response_schema),
+    ("voice/send-text",'{"requestText" : "Play lady Gaga music on YouTube", "voiceSystem": "Alexa"}', dab.voice.send_text, "Are you on search page with Lady Gaga?"),
+    ("voice/send-text",'{"requestText" : "Press enter", "voiceSystem": "Alexa"}', dab.voice.send_text, "Is video playing?"),
+    ("voice/send-text",'{"requestText" : "Play video", "voiceSystem": "Alexa"}', dab.voice.send_text, "If video was not playing, is it playing now?"),
+    ("voice/send-text",'{"requestText" : "Set volume 0", "voiceSystem": "Alexa"}', dab.voice.send_text, "Did volume of the video changed?"),
+    ("voice/send-text",'{"requestText" : "Set volume 5", "voiceSystem": "Alexa"}', dab.voice.send_text, "Did volume of the video changed?"),
+    ("voice/send-text",'{"requestText" : "Pause Video", "voiceSystem": "Alexa"}', dab.voice.send_text, "Did video paused?"),
+    ("voice/send-text",'{"requestText" : "Fast forward video", "voiceSystem": "Alexa"}', dab.voice.send_text, "Did video playback fast forward?"),
+    ("voice/send-text",'{"requestText" : "Rewind video", "voiceSystem": "Alexa"}', dab.voice.send_text, "Did video playback rewind?"),
+    ("voice/send-text",'{"requestText" : "Exit to main menu", "voiceSystem": "Alexa"}', dab.voice.send_text, "Are you on main menu?"),
 ]
 
 
@@ -55,12 +56,12 @@ if __name__ == "__main__":
     
     if(args.list == True):
         for i in range(len(Voice_Test_Cases)):
-            print("[%02d]"%i,Voice_Test_Cases[i][0]," ",Voice_Test_Cases[i][1])
+            print("[%02d]"%i, dab.voice.send_text_Cases[i][0]," ", dab.voice.send_text_Cases[i][1])
     else:
         if (args.case == 99999) or (not isinstance(args.case, (int))):
             # Test all the cases
             print("Testing all cases")
-            Tester.Execute_All_Tests("voice_text", device_id,Voice_Test_Cases, args.output)
+            Tester.Execute_All_Tests("voice_text", device_id, dab.voice.send_text_Cases, args.output)
         else:
             # Test a single case
             Tester.Execute_Test_Case(device_id,(Voice_Test_Cases[args.case]))
