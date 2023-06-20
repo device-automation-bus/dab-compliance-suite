@@ -23,8 +23,9 @@ class DabTester:
         test_result = TestResult(device_id, dab_request_topic, dab_request_body, "UNKNOWN", "", [])
         print("\ntesting", dab_request_topic, " ", dab_request_body, "... ", end='', flush=True)
         start = datetime.datetime.now()
+        code = self.execute_cmd(device_id, dab_request_topic, dab_request_body)
         test_result.response = self.dab_client.response()
-        if self.execute_cmd(device_id, dab_request_topic, dab_request_body) == 0:
+        if  code == 0:
             end = datetime.datetime.now()
             duration = end - start
             durationInMs = int(duration.total_seconds() * 1000)
@@ -78,7 +79,7 @@ def YesNoQuestion(test_result, question=""):
         # user_input = input(question+'(Y/N): ')
         log(test_result, f"{question}(Y/N)")
         user_input=readchar()
-        log(f"[{user_input}]")
+        log(test_result, f"[{user_input}]")
         if user_input.lower() in positive:
             return True
         elif user_input.lower() in negative:
