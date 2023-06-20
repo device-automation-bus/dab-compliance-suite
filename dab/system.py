@@ -10,15 +10,15 @@ def restart(test_result, durationInMs=0,expectedLatencyMs=0):
 
 def get(test_result, durationInMs=0,expectedLatencyMs=0):
     dab_response_validator.validate_get_system_settings_response_schema(test_result.response)
-    sleep(5)
+    sleep(0.1)
     return Default_Validations(test_result, durationInMs, expectedLatencyMs)
 
 def set(test_result, durationInMs=0,expectedLatencyMs=0):
     dab_response_validator.validate_set_system_settings_response_schema(test_result.response)
-    sleep(5)
+    sleep(0.1)
     return Default_Validations(test_result, durationInMs, expectedLatencyMs)
 
 def list(test_result, durationInMs=0,expectedLatencyMs=0):
     dab_response_validator.validate_list_system_settings_schema(test_result.response)
-    sleep(5)
+    sleep(0.1)
     return Default_Validations(test_result, durationInMs, expectedLatencyMs)

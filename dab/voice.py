@@ -20,10 +20,10 @@ def send_text(test_result, durationInMs=0,expectedLatencyMs=0):
 
 def list(test_result, durationInMs=0,expectedLatencyMs=0):
     dab_response_validator.validate_list_voice_response_schema(test_result.response)
-    sleep(5)
+    sleep(0.1)
     return Default_Validations(test_result, durationInMs, expectedLatencyMs)
 
 def set(test_result, durationInMs=0,expectedLatencyMs=0):
     dab_response_validator.validate_set_voice_system_response_schema(test_result.response)
-    sleep(5)
+    sleep(0.1)
     return Default_Validations(test_result, durationInMs, expectedLatencyMs)
