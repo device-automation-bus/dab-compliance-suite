@@ -3,3 +3,4 @@ paho-mqtt
 readchar
 FileCache
 json
+jsonschema

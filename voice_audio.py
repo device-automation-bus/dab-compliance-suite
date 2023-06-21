@@ -1,20 +1,21 @@
 from DabTester import DabTester
-from DabTester import Voice_Test
+from DabTester import dab.voice.send_audio
 import dab.applications
 import dab.system
 import argparse
+import dab.voice
 
 # Voice action steps
-Voice_Test_Cases = [
-    ("voice/send-audio",'{"fileLocation": "https://storage.googleapis.com/ytlr-cert.appspot.com/voice/ladygaga.wav", "voiceSystem": "Alexa"}',Voice_Test, "Are you on search page with Lady Gaga?"),
-    ("voice/send-audio",'{"fileLocation": "https://storage.googleapis.com/ytlr-cert.appspot.com/voice/pressenter.wav", "voiceSystem": "Alexa"}',Voice_Test, "Is video playing?"),
-    ("voice/send-audio",'{"fileLocation": "https://storage.googleapis.com/ytlr-cert.appspot.com/voice/playvideo.wav", "voiceSystem": "Alexa"}',Voice_Test, "If video was not playing, is it playing now?"),
-    ("voice/send-audio",'{"fileLocation": "https://storage.googleapis.com/ytlr-cert.appspot.com/voice/setvolume0.wav", "voiceSystem": "Alexa"}',Voice_Test, "Did volume of the video changed?"),
-    ("voice/send-audio",'{"fileLocation": "https://storage.googleapis.com/ytlr-cert.appspot.com/voice/setvolume5.wav", "voiceSystem": "Alexa"}',Voice_Test, "Did volume of the video changed?"),
-    ("voice/send-audio",'{"fileLocation": "https://storage.googleapis.com/ytlr-cert.appspot.com/voice/pausevideo.wav", "voiceSystem": "Alexa"}',Voice_Test, "Did video paused?"),
-    ("voice/send-audio",'{"fileLocation": "https://storage.googleapis.com/ytlr-cert.appspot.com/voice/fastforwardvideo.wav", "voiceSystem": "Alexa"}',Voice_Test, "Did video playback fast forward?"),
-    ("voice/send-audio",'{"fileLocation": "https://storage.googleapis.com/ytlr-cert.appspot.com/voice/rewindvideo.wav", "voiceSystem": "Alexa"}',Voice_Test, "Did video playback rewind?"),
-    ("voice/send-audio",'{"fileLocation": "https://storage.googleapis.com/ytlr-cert.appspot.com/voice/exittomainmenu.wav", "voiceSystem": "Alexa"}',Voice_Test, "Are you on main menu?"),
+dab.voice.send_audio_Cases = [
+    ("voice/send-audio",'{"fileLocation": "https://storage.googleapis.com/ytlr-cert.appspot.com/voice/ladygaga.wav", "voiceSystem": "Alexa"}', dab.voice.send_audio, "Are you on search page with Lady Gaga?"),
+    ("voice/send-audio",'{"fileLocation": "https://storage.googleapis.com/ytlr-cert.appspot.com/voice/pressenter.wav", "voiceSystem": "Alexa"}', dab.voice.send_audio, "Is video playing?"),
+    ("voice/send-audio",'{"fileLocation": "https://storage.googleapis.com/ytlr-cert.appspot.com/voice/playvideo.wav", "voiceSystem": "Alexa"}', dab.voice.send_audio, "If video was not playing, is it playing now?"),
+    ("voice/send-audio",'{"fileLocation": "https://storage.googleapis.com/ytlr-cert.appspot.com/voice/setvolume0.wav", "voiceSystem": "Alexa"}', dab.voice.send_audio, "Did volume of the video changed?"),
+    ("voice/send-audio",'{"fileLocation": "https://storage.googleapis.com/ytlr-cert.appspot.com/voice/setvolume5.wav", "voiceSystem": "Alexa"}', dab.voice.send_audio, "Did volume of the video changed?"),
+    ("voice/send-audio",'{"fileLocation": "https://storage.googleapis.com/ytlr-cert.appspot.com/voice/pausevideo.wav", "voiceSystem": "Alexa"}', dab.voice.send_audio, "Did video paused?"),
+    ("voice/send-audio",'{"fileLocation": "https://storage.googleapis.com/ytlr-cert.appspot.com/voice/fastforwardvideo.wav", "voiceSystem": "Alexa"}', dab.voice.send_audio, "Did video playback fast forward?"),
+    ("voice/send-audio",'{"fileLocation": "https://storage.googleapis.com/ytlr-cert.appspot.com/voice/rewindvideo.wav", "voiceSystem": "Alexa"}', dab.voice.send_audio, "Did video playback rewind?"),
+    ("voice/send-audio",'{"fileLocation": "https://storage.googleapis.com/ytlr-cert.appspot.com/voice/exittomainmenu.wav", "voiceSystem": "Alexa"}', dab.voice.send_audio, "Are you on main menu?"),
 ]
 
 
@@ -53,15 +54,15 @@ if __name__ == "__main__":
     Tester.verbose = args.verbose
     
     if(args.list == True):
-        for i in range(len(Voice_Test_Cases)):
-            print("[%02d]"%i,Voice_Test_Cases[i][0]," ",Voice_Test_Cases[i][1])
+        for i in range(len(dab.voice.send_audio_Cases)):
+            print("[%02d]"%i, dab.voice.send_audio_Cases[i][0]," ", dab.voice.send_audio_Cases[i][1])
     else:
         if (args.case == 99999) or (not isinstance(args.case, (int))):
             # Test all the cases
             print("Testing all cases")
-            Tester.Execute_All_Tests("voice_audio", device_id, Voice_Test_Cases, args.output)
+            Tester.Execute_All_Tests("voice_audio", device_id, dab.voice.send_audio_Cases, args.output)
         else:
             # Test a single case
-            Tester.Execute_Test_Case(device_id,(Voice_Test_Cases[args.case]))
+            Tester.Execute_Test_Case(device_id,(dab.voice.send_audio_Cases[args.case]))
         
     Tester.Close()
