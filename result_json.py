@@ -1,5 +1,5 @@
-import jsons
 from dataclasses import dataclass
+from typing import List
 
 @dataclass
 class TestResult:
@@ -8,9 +8,9 @@ class TestResult:
     request: str
     outcome: str
     response: str
-    logs: list[str]
+    logs: List[str]
 
 @dataclass
 class TestSuite:
-    test_result_list: list[TestResult]
+    test_result_list: List[TestResult]
     suite_name: str
