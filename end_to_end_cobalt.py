@@ -5,6 +5,7 @@ import dab.system
 import argparse
 import dab.input
 import dab.voice
+import config
 
 # Voice action steps
 Voice_Test_Cases = [
@@ -15,7 +16,7 @@ Voice_Test_Cases = [
     ("input/key-press",'{"keyCode": "KEY_PAUSE"}', dab.input.key_press, "Did video paused?"),
     ("input/long-key-press",'{"keyCode": "KEY_RIGHT", "durationMs": 3000}', dab.input.long_key_press, "Did video playback fastforward?"),
     ("input/long-key-press",'{"keyCode": "KEY_LEFT", "durationMs": 3000}', dab.input.long_key_press, "Did video playback rewind?"),
-    ("applications/exit",'{"appId": "Cobalt"}',dab.applications.exit, 1000),
+    ("applications/exit",f'{"appId": "{config.apps.youtube}"}',dab.applications.exit, 1000),
 ]
 
 

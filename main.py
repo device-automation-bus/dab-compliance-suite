@@ -1,5 +1,6 @@
 from DabTester import DabTester
 from DabTester import Default_Validations
+import config
 import dab.app_telemetry
 import dab.device
 import dab.health_check
@@ -17,10 +18,10 @@ import argparse
 Test_Cases = [
     ("operations/list",'{}', dab.operations.list, 200),
     ("applications/list",'{}', dab.applications.list, 200),
-    ("applications/launch",'{"appId": "Cobalt"}', dab.applications.launch, 10000),
-    ("applications/launch-with-content",'{"appId": "Cobalt", "contentId": "v=jfKfPfyJRdk"}', dab.applications.launch_with_content, 10000),
-    ("applications/get-state",'{"appId": "Cobalt"}', dab.applications.get_state, 200),
-    ("applications/exit",'{"appId": "Cobalt"}', dab.applications.exit, 5000),
+    ("applications/launch",f'{"appId": "{config.apps.youtube}"}', dab.applications.launch, 10000),
+    ("applications/launch-with-content",f'{"appId": "{config.apps.youtube}", "contentId": "v=jfKfPfyJRdk"}', dab.applications.launch_with_content, 10000),
+    ("applications/get-state",f'{"appId": "{config.apps.youtube}"}', dab.applications.get_state, 200),
+    ("applications/exit",f'{"appId": "{config.apps.youtube}"}', dab.applications.exit, 5000),
     ("device/info",'{}', dab.device.info, 200),
     ("system/settings/list",'{}', dab.system.list, 200),
     ("system/settings/get",'{}', dab.system.get, 200),
@@ -116,8 +117,8 @@ Test_Cases = [
     ("output/image",'{"outputLocation": "https://webhook.site/791918a1-cf5f-4a3e-9166-9f83af776232"}', dab.output.image, 2000),
     ("device-telemetry/start",'{"durationMs": 1000}', dab.device_telemetry.start, 200),
     ("device-telemetry/stop",'{}', dab.device_telemetry.stop, 200),
-    ("app-telemetry/start",'{"appId": "Cobalt", "durationMs": 1000}', dab.app_telemetry.start, 200),
-    ("app-telemetry/stop",'{"appId": "Cobalt"}', dab.app_telemetry.stop, 200),
+    ("app-telemetry/start",f'{"appId": "{config.apps.youtube}", "durationMs": 1000}', dab.app_telemetry.start, 200),
+    ("app-telemetry/stop",f'{"appId": "{config.apps.youtube}"}', dab.app_telemetry.stop, 200),
     ("health-check/get",'{}', dab.health_check.get, 2000),
     ("voice/list",'{}', dab.voice.list, 200),
     ("voice/set",'{}', dab.voice.set, 5000),
