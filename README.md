@@ -3,6 +3,10 @@
 This project contains tools and tests to validate Device Automation Bus 2.0 Partner implementations end-to-end.
 
 ## Prerequisite ##
+Python minimal version 3.8
+
+Please edit config.py to have the device app line up with your system settings.
+
 ```
 pip3 install -r requirements.txt
 ```
