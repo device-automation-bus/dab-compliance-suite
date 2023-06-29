@@ -378,7 +378,7 @@ output_image_response_schema = {
         "error": {"type": ["string", "null"]},
         "outputImage": {"type": "string"},
     },
-    "required": ["status", "outputFile", "format"]
+    "required": ["status", "outputImage"]
 }
 
 # Operation: device_telemetry/start
