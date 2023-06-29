@@ -115,7 +115,7 @@ Test_Cases = [
     ("input/long-key-press",'{"keyCode": "KEY_7", "durationMs": 3000}', dab.input.long_key_press, 5000),
     ("input/long-key-press",'{"keyCode": "KEY_8", "durationMs": 3000}', dab.input.long_key_press, 5000),
     ("input/long-key-press",'{"keyCode": "KEY_9", "durationMs": 3000}', dab.input.long_key_press, 5000),
-    ("output/image",'{"outputLocation": "https://webhook.site/791918a1-cf5f-4a3e-9166-9f83af776232"}', dab.output.image, 2000),
+    ("output/image",'{}', dab.output.image, 2000),
     ("device-telemetry/start",'{"durationMs": 1000}', dab.device_telemetry.start, 200),
     ("device-telemetry/stop",'{}', dab.device_telemetry.stop, 200),
     ("app-telemetry/start",f'{{"appId": "{config.apps["youtube"]}", "durationMs": 1000}}', dab.app_telemetry.start, 200),
