@@ -376,8 +376,7 @@ output_image_response_schema = {
     "properties": {
         "status": {"type": "integer"},
         "error": {"type": ["string", "null"]},
-        "outputFile": {"type": "string"},
-        "format": {"type": "string"},
+        "outputImage": {"type": "string"},
     },
     "required": ["status", "outputFile", "format"]
 }
