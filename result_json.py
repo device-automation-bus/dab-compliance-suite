@@ -3,6 +3,7 @@ from typing import List
 
 @dataclass
 class TestResult:
+    test_id: str
     device_id: str
     operation: str
     request: str

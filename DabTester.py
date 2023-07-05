@@ -2,6 +2,7 @@ from DabClient import DabClient
 from result_json import TestResult, TestSuite
 from time import sleep
 from readchar import readchar
+from re import split
 import datetime
 import jsons
 
@@ -17,10 +18,13 @@ class DabTester:
             return 0
         else:
             return 1
+        
+    def to_test_id(self, input_string):
+        return ''.join(item.title() for item in split('([^a-zA-Z0-9])', input_string) if item.isalnum())
     
     def Execute_Test_Case(self, device_id, test_case):
-        (dab_request_topic, dab_request_body, validate_output_function, expected_response_code)=test_case
-        test_result = TestResult(device_id, dab_request_topic, dab_request_body, "UNKNOWN", "", [])
+        (dab_request_topic, dab_request_body, validate_output_function, expected_response, test_title)=test_case
+        test_result = TestResult(self.to_test_id(f"{dab_request_topic}/{test_title}"), device_id, dab_request_topic, dab_request_body, "UNKNOWN", "", [])
         print("\ntesting", dab_request_topic, " ", dab_request_body, "... ", end='', flush=True)
         start = datetime.datetime.now()
         code = self.execute_cmd(device_id, dab_request_topic, dab_request_body)
@@ -29,7 +33,7 @@ class DabTester:
             end = datetime.datetime.now()
             duration = end - start
             durationInMs = int(duration.total_seconds() * 1000)
-            if validate_output_function(test_result, durationInMs, expected_response_code) == True:
+            if validate_output_function(test_result, durationInMs, expected_response) == True:
                 log(test_result, "\033[1;32m[ PASS ]\033[0m")
                 test_result.test_result = "PASS"
             else:
