@@ -1,5 +1,5 @@
-from DabTester import DabTester
-from DabTester import Default_Validations
+from dab_tester import DabTester
+from dab_tester import Default_Validations
 import config
 import dab.app_telemetry
 import dab.device

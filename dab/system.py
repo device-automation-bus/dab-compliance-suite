@@ -1,5 +1,5 @@
 from time import sleep
-from DabTester import YesNoQuestion, Default_Validations
+from dab_tester import YesNoQuestion, Default_Validations
 import jsons
 from schema import dab_response_validator
 

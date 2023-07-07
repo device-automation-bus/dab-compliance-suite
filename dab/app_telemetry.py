@@ -1,6 +1,6 @@
 from schema import dab_response_validator
 from time import sleep
-from DabTester import Default_Validations
+from dab_tester import Default_Validations
 import jsons
 
 

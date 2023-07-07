@@ -1,4 +1,4 @@
-from DabTester import DabTester
+from dab_tester import DabTester
 import dab.applications
 import dab.system
 import argparse

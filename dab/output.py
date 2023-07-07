@@ -1,6 +1,6 @@
 from schema import dab_response_validator
 from time import sleep
-from DabTester import YesNoQuestion, Default_Validations
+from dab_tester import YesNoQuestion, Default_Validations
 import jsons
 
 def image(test_result, durationInMs=0,expectedLatencyMs=0):

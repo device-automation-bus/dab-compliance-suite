@@ -1,6 +1,6 @@
 from time import sleep
 from schema import dab_response_validator
-from DabTester import YesNoQuestion, Default_Validations
+from dab_tester import YesNoQuestion, Default_Validations
 import jsons
 
 def launch(test_result, durationInMs=0,expectedLatencyMs=0):

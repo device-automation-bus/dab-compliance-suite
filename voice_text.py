@@ -1,5 +1,5 @@
-from DabTester import DabTester
-from DabTester import Voice_Test
+from dab_tester import DabTester
+from dab_tester import Voice_Test
 import dab.applications
 import dab.system
 import argparse
