@@ -12,7 +12,8 @@
             "operation": "operations/list",
             "outcome": "UNKNOWN",
             "request": "{}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "OperationsListConformance"
         },
         {
             "device_id": "device0",
@@ -25,7 +26,8 @@
             "operation": "applications/list",
             "outcome": "UNKNOWN",
             "request": "{}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "ApplicationsListConformance"
         },
         {
             "device_id": "device0",
@@ -37,8 +39,23 @@
             ],
             "operation": "applications/launch",
             "outcome": "UNKNOWN",
-            "request": "{\"appId\": \"Cobalt\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "request": "{\"appId\": \"YouTube\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "ApplicationsLaunchConformance"
+        },
+        {
+            "device_id": "device0",
+            "logs": [
+                "\u001b[1;31m[ ",
+                "Error: self.dab_client.last_error_code()",
+                " ]\u001b[0m",
+                "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            ],
+            "operation": "applications/launch",
+            "outcome": "UNKNOWN",
+            "request": "{\"appId\": \"YouTube\", \"parameters\": \"#/watch?list=OLAK5uy_mKAu6VNK3gMSq_L8fU_C6myQnuuuIzvWY\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "ApplicationsLaunchWithParameters"
         },
         {
             "device_id": "device0",
@@ -50,8 +67,9 @@
             ],
             "operation": "applications/launch-with-content",
             "outcome": "UNKNOWN",
-            "request": "{\"appId\": \"Cobalt\", \"contentId\": \"v=jfKfPfyJRdk\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "request": "{\"appId\": \"YouTube\", \"contentId\": \"jfKfPfyJRdk\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "ApplicationsLaunchWithContentConformance"
         },
         {
             "device_id": "device0",
@@ -63,8 +81,9 @@
             ],
             "operation": "applications/get-state",
             "outcome": "UNKNOWN",
-            "request": "{\"appId\": \"Cobalt\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "request": "{\"appId\": \"YouTube\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "ApplicationsGetStateConformance"
         },
         {
             "device_id": "device0",
@@ -76,8 +95,9 @@
             ],
             "operation": "applications/exit",
             "outcome": "UNKNOWN",
-            "request": "{\"appId\": \"Cobalt\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "request": "{\"appId\": \"YouTube\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "ApplicationsExitConformance"
         },
         {
             "device_id": "device0",
@@ -90,7 +110,8 @@
             "operation": "device/info",
             "outcome": "UNKNOWN",
             "request": "{}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "DeviceInfoConformance"
         },
         {
             "device_id": "device0",
@@ -103,7 +124,8 @@
             "operation": "system/settings/list",
             "outcome": "UNKNOWN",
             "request": "{}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "SystemSettingsListConformance"
         },
         {
             "device_id": "device0",
@@ -116,7 +138,8 @@
             "operation": "system/settings/get",
             "outcome": "UNKNOWN",
             "request": "{}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "SystemSettingsGetConformance"
         },
         {
             "device_id": "device0",
@@ -129,7 +152,8 @@
             "operation": "system/settings/set",
             "outcome": "UNKNOWN",
             "request": "{\"language\": \"en-US\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "SystemSettingsSetLanguage"
         },
         {
             "device_id": "device0",
@@ -142,7 +166,8 @@
             "operation": "system/settings/set",
             "outcome": "UNKNOWN",
             "request": "{\"outputResolution\": {\"width\": 3840, \"height\": 2160, \"frequency\": 60} }",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "SystemSettingsSetOutputresolution"
         },
         {
             "device_id": "device0",
@@ -155,7 +180,8 @@
             "operation": "system/settings/set",
             "outcome": "UNKNOWN",
             "request": "{\"memc\": true}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "SystemSettingsSetMemc"
         },
         {
             "device_id": "device0",
@@ -168,7 +194,8 @@
             "operation": "system/settings/set",
             "outcome": "UNKNOWN",
             "request": "{\"cec\": true}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "SystemSettingsSetCec"
         },
         {
             "device_id": "device0",
@@ -181,7 +208,8 @@
             "operation": "system/settings/set",
             "outcome": "UNKNOWN",
             "request": "{\"lowLatencyMode\": true}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "SystemSettingsSetLowlatencymode"
         },
         {
             "device_id": "device0",
@@ -194,7 +222,8 @@
             "operation": "system/settings/set",
             "outcome": "UNKNOWN",
             "request": "{\"matchContentFrameRate\": \"EnabledSeamlessOnly\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "SystemSettingsSetMatchcontentframerate"
         },
         {
             "device_id": "device0",
@@ -207,7 +236,8 @@
             "operation": "system/settings/set",
             "outcome": "UNKNOWN",
             "request": "{\"hdrOutputMode\": \"AlwaysHdr\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "SystemSettingsSetHdroutputmode"
         },
         {
             "device_id": "device0",
@@ -220,7 +250,8 @@
             "operation": "system/settings/set",
             "outcome": "UNKNOWN",
             "request": "{\"pictureMode\": \"Standard\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "SystemSettingsSetPicturemode"
         },
         {
             "device_id": "device0",
@@ -233,7 +264,8 @@
             "operation": "system/settings/set",
             "outcome": "UNKNOWN",
             "request": "{\"audioOutputMode\": \"Auto\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "SystemSettingsSetAudiooutputmode"
         },
         {
             "device_id": "device0",
@@ -246,7 +278,8 @@
             "operation": "system/settings/set",
             "outcome": "UNKNOWN",
             "request": "{\"audioOutputSource\": \"HDMI\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "SystemSettingsSetAudiooutputsource"
         },
         {
             "device_id": "device0",
@@ -259,7 +292,8 @@
             "operation": "system/settings/set",
             "outcome": "UNKNOWN",
             "request": "{\"videoInputSource\": \"Other\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "SystemSettingsSetVideoinputsource"
         },
         {
             "device_id": "device0",
@@ -272,7 +306,8 @@
             "operation": "system/settings/set",
             "outcome": "UNKNOWN",
             "request": "{\"audioVolume\": 20}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "SystemSettingsSetAudiovolume"
         },
         {
             "device_id": "device0",
@@ -285,7 +320,8 @@
             "operation": "system/settings/set",
             "outcome": "UNKNOWN",
             "request": "{\"mute\": false}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "SystemSettingsSetMute"
         },
         {
             "device_id": "device0",
@@ -298,7 +334,8 @@
             "operation": "system/settings/set",
             "outcome": "UNKNOWN",
             "request": "{\"textToSpeech\": true}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "SystemSettingsSetTexttospeech"
         },
         {
             "device_id": "device0",
@@ -311,7 +348,8 @@
             "operation": "input/key/list",
             "outcome": "UNKNOWN",
             "request": "{}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputKeyListConformance"
         },
         {
             "device_id": "device0",
@@ -324,7 +362,8 @@
             "operation": "input/key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_HOME\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputKeyPressKeyHome"
         },
         {
             "device_id": "device0",
@@ -337,7 +376,8 @@
             "operation": "input/key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_VOLUME_UP\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputKeyPressKeyVolumeUp"
         },
         {
             "device_id": "device0",
@@ -350,7 +390,8 @@
             "operation": "input/key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_VOLUME_DOWN\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputKeyPressKeyVolumeDown"
         },
         {
             "device_id": "device0",
@@ -363,7 +404,8 @@
             "operation": "input/key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_MUTE\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputKeyPressKeyMute"
         },
         {
             "device_id": "device0",
@@ -376,7 +418,8 @@
             "operation": "input/key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_CHANNEL_UP\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputKeyPressKeyChannelUp"
         },
         {
             "device_id": "device0",
@@ -389,7 +432,8 @@
             "operation": "input/key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_CHANNEL_DOWN\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputKeyPressKeyChannelDown"
         },
         {
             "device_id": "device0",
@@ -402,7 +446,8 @@
             "operation": "input/key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_MENU\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputKeyPressKeyMenu"
         },
         {
             "device_id": "device0",
@@ -415,7 +460,8 @@
             "operation": "input/key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_EXIT\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputKeyPressKeyExit"
         },
         {
             "device_id": "device0",
@@ -428,7 +474,8 @@
             "operation": "input/key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_INFO\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputKeyPressKeyInfo"
         },
         {
             "device_id": "device0",
@@ -441,7 +488,8 @@
             "operation": "input/key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_GUIDE\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputKeyPressKeyGuide"
         },
         {
             "device_id": "device0",
@@ -454,7 +502,8 @@
             "operation": "input/key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_CAPTIONS\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputKeyPressKeyCaptions"
         },
         {
             "device_id": "device0",
@@ -467,7 +516,8 @@
             "operation": "input/key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_UP\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputKeyPressKeyUp"
         },
         {
             "device_id": "device0",
@@ -480,7 +530,8 @@
             "operation": "input/key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_PAGE_UP\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputKeyPressKeyPageUp"
         },
         {
             "device_id": "device0",
@@ -493,7 +544,8 @@
             "operation": "input/key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_PAGE_DOWN\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputKeyPressKeyPageDown"
         },
         {
             "device_id": "device0",
@@ -506,7 +558,8 @@
             "operation": "input/key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_RIGHT\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputKeyPressKeyRight"
         },
         {
             "device_id": "device0",
@@ -519,7 +572,8 @@
             "operation": "input/key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_DOWN\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputKeyPressKeyDown"
         },
         {
             "device_id": "device0",
@@ -532,7 +586,8 @@
             "operation": "input/key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_LEFT\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputKeyPressKeyLeft"
         },
         {
             "device_id": "device0",
@@ -545,7 +600,8 @@
             "operation": "input/key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_ENTER\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputKeyPressKeyEnter"
         },
         {
             "device_id": "device0",
@@ -558,7 +614,8 @@
             "operation": "input/key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_BACK\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputKeyPressKeyBack"
         },
         {
             "device_id": "device0",
@@ -571,7 +628,8 @@
             "operation": "input/key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_PLAY\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputKeyPressKeyPlay"
         },
         {
             "device_id": "device0",
@@ -584,7 +642,8 @@
             "operation": "input/key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_PLAY_PAUSE\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputKeyPressKeyPlayPause"
         },
         {
             "device_id": "device0",
@@ -597,7 +656,8 @@
             "operation": "input/key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_PAUSE\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputKeyPressKeyPause"
         },
         {
             "device_id": "device0",
@@ -610,7 +670,8 @@
             "operation": "input/key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_STOP\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputKeyPressKeyStop"
         },
         {
             "device_id": "device0",
@@ -623,7 +684,8 @@
             "operation": "input/key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_REWIND\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputKeyPressKeyRewind"
         },
         {
             "device_id": "device0",
@@ -636,7 +698,8 @@
             "operation": "input/key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_FAST_FORWARD\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputKeyPressKeyFastForward"
         },
         {
             "device_id": "device0",
@@ -649,7 +712,8 @@
             "operation": "input/key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_SKIP_REWIND\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputKeyPressKeySkipRewind"
         },
         {
             "device_id": "device0",
@@ -662,7 +726,8 @@
             "operation": "input/key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_SKIP_FAST_FORWARD\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputKeyPressKeySkipFastForward"
         },
         {
             "device_id": "device0",
@@ -675,7 +740,8 @@
             "operation": "input/key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_0\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputKeyPressKey0"
         },
         {
             "device_id": "device0",
@@ -688,7 +754,8 @@
             "operation": "input/key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_1\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputKeyPressKey1"
         },
         {
             "device_id": "device0",
@@ -701,7 +768,8 @@
             "operation": "input/key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_2\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputKeyPressKey2"
         },
         {
             "device_id": "device0",
@@ -714,7 +782,8 @@
             "operation": "input/key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_3\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputKeyPressKey3"
         },
         {
             "device_id": "device0",
@@ -727,7 +796,8 @@
             "operation": "input/key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_4\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputKeyPressKey4"
         },
         {
             "device_id": "device0",
@@ -740,7 +810,8 @@
             "operation": "input/key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_5\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputKeyPressKey5"
         },
         {
             "device_id": "device0",
@@ -753,7 +824,8 @@
             "operation": "input/key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_6\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputKeyPressKey6"
         },
         {
             "device_id": "device0",
@@ -766,7 +838,8 @@
             "operation": "input/key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_7\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputKeyPressKey7"
         },
         {
             "device_id": "device0",
@@ -779,7 +852,8 @@
             "operation": "input/key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_8\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputKeyPressKey8"
         },
         {
             "device_id": "device0",
@@ -792,7 +866,8 @@
             "operation": "input/key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_9\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputKeyPressKey9"
         },
         {
             "device_id": "device0",
@@ -805,7 +880,8 @@
             "operation": "input/long-key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_HOME\", \"durationMs\": 3000}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputLongKeyPressKeyHome"
         },
         {
             "device_id": "device0",
@@ -818,7 +894,8 @@
             "operation": "input/long-key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_VOLUME_UP\", \"durationMs\": 3000}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputLongKeyPressKeyVolumeUp"
         },
         {
             "device_id": "device0",
@@ -831,7 +908,8 @@
             "operation": "input/long-key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_VOLUME_DOWN\", \"durationMs\": 3000}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputLongKeyPressKeyVolumeDown"
         },
         {
             "device_id": "device0",
@@ -844,7 +922,8 @@
             "operation": "input/long-key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_MUTE\", \"durationMs\": 3000}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputLongKeyPressKeyMute"
         },
         {
             "device_id": "device0",
@@ -857,7 +936,8 @@
             "operation": "input/long-key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_CHANNEL_UP\", \"durationMs\": 3000}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputLongKeyPressKeyChannelUp"
         },
         {
             "device_id": "device0",
@@ -870,7 +950,8 @@
             "operation": "input/long-key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_CHANNEL_DOWN\", \"durationMs\": 3000}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputLongKeyPressKeyChannelDown"
         },
         {
             "device_id": "device0",
@@ -883,7 +964,8 @@
             "operation": "input/long-key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_MENU\", \"durationMs\": 3000}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputLongKeyPressKeyMenu"
         },
         {
             "device_id": "device0",
@@ -896,7 +978,8 @@
             "operation": "input/long-key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_EXIT\", \"durationMs\": 3000}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputLongKeyPressKeyExit"
         },
         {
             "device_id": "device0",
@@ -909,7 +992,8 @@
             "operation": "input/long-key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_INFO\", \"durationMs\": 3000}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputLongKeyPressKeyInfo"
         },
         {
             "device_id": "device0",
@@ -922,7 +1006,8 @@
             "operation": "input/long-key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_GUIDE\", \"durationMs\": 3000}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputLongKeyPressKeyGuide"
         },
         {
             "device_id": "device0",
@@ -935,7 +1020,8 @@
             "operation": "input/long-key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_CAPTIONS\", \"durationMs\": 3000}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputLongKeyPressKeyCaptions"
         },
         {
             "device_id": "device0",
@@ -948,7 +1034,8 @@
             "operation": "input/long-key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_UP\", \"durationMs\": 3000}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputLongKeyPressKeyUp"
         },
         {
             "device_id": "device0",
@@ -961,7 +1048,8 @@
             "operation": "input/long-key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_PAGE_UP\", \"durationMs\": 3000}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputLongKeyPressKeyPageUp"
         },
         {
             "device_id": "device0",
@@ -974,7 +1062,8 @@
             "operation": "input/long-key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_PAGE_DOWN\", \"durationMs\": 3000}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputLongKeyPressKeyPageDown"
         },
         {
             "device_id": "device0",
@@ -987,7 +1076,8 @@
             "operation": "input/long-key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_RIGHT\", \"durationMs\": 3000}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputLongKeyPressKeyRight"
         },
         {
             "device_id": "device0",
@@ -1000,7 +1090,8 @@
             "operation": "input/long-key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_DOWN\", \"durationMs\": 3000}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputLongKeyPressKeyDown"
         },
         {
             "device_id": "device0",
@@ -1013,7 +1104,8 @@
             "operation": "input/long-key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_LEFT\", \"durationMs\": 3000}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputLongKeyPressKeyLeft"
         },
         {
             "device_id": "device0",
@@ -1026,7 +1118,8 @@
             "operation": "input/long-key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_ENTER\", \"durationMs\": 3000}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputLongKeyPressKeyEnter"
         },
         {
             "device_id": "device0",
@@ -1039,7 +1132,8 @@
             "operation": "input/long-key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_BACK\", \"durationMs\": 3000}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputLongKeyPressKeyBack"
         },
         {
             "device_id": "device0",
@@ -1052,7 +1146,8 @@
             "operation": "input/long-key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_PLAY\", \"durationMs\": 3000}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputLongKeyPressKeyPlay"
         },
         {
             "device_id": "device0",
@@ -1065,7 +1160,8 @@
             "operation": "input/long-key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_PLAY_PAUSE\", \"durationMs\": 3000}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputLongKeyPressKeyPlayPause"
         },
         {
             "device_id": "device0",
@@ -1078,7 +1174,8 @@
             "operation": "input/long-key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_PAUSE\", \"durationMs\": 3000}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputLongKeyPressKeyPause"
         },
         {
             "device_id": "device0",
@@ -1091,7 +1188,8 @@
             "operation": "input/long-key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_STOP\", \"durationMs\": 3000}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputLongKeyPressKeyStop"
         },
         {
             "device_id": "device0",
@@ -1104,7 +1202,8 @@
             "operation": "input/long-key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_REWIND\", \"durationMs\": 3000}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputLongKeyPressKeyRewind"
         },
         {
             "device_id": "device0",
@@ -1117,7 +1216,8 @@
             "operation": "input/long-key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_FAST_FORWARD\", \"durationMs\": 3000}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputLongKeyPressKeyFastForward"
         },
         {
             "device_id": "device0",
@@ -1130,7 +1230,8 @@
             "operation": "input/long-key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_SKIP_REWIND\", \"durationMs\": 3000}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputLongKeyPressKeySkipRewind"
         },
         {
             "device_id": "device0",
@@ -1143,7 +1244,8 @@
             "operation": "input/long-key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_SKIP_FAST_FORWARD\", \"durationMs\": 3000}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputLongKeyPressKeySkipFastForward"
         },
         {
             "device_id": "device0",
@@ -1156,7 +1258,8 @@
             "operation": "input/long-key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_0\", \"durationMs\": 3000}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputLongKeyPressKey0"
         },
         {
             "device_id": "device0",
@@ -1169,7 +1272,8 @@
             "operation": "input/long-key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_1\", \"durationMs\": 3000}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputLongKeyPressKey1"
         },
         {
             "device_id": "device0",
@@ -1182,7 +1286,8 @@
             "operation": "input/long-key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_2\", \"durationMs\": 3000}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputLongKeyPressKey2"
         },
         {
             "device_id": "device0",
@@ -1195,7 +1300,8 @@
             "operation": "input/long-key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_3\", \"durationMs\": 3000}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputLongKeyPressKey3"
         },
         {
             "device_id": "device0",
@@ -1208,7 +1314,8 @@
             "operation": "input/long-key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_4\", \"durationMs\": 3000}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputLongKeyPressKey4"
         },
         {
             "device_id": "device0",
@@ -1221,7 +1328,8 @@
             "operation": "input/long-key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_5\", \"durationMs\": 3000}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputLongKeyPressKey5"
         },
         {
             "device_id": "device0",
@@ -1234,7 +1342,8 @@
             "operation": "input/long-key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_6\", \"durationMs\": 3000}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputLongKeyPressKey6"
         },
         {
             "device_id": "device0",
@@ -1247,7 +1356,8 @@
             "operation": "input/long-key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_7\", \"durationMs\": 3000}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputLongKeyPressKey7"
         },
         {
             "device_id": "device0",
@@ -1260,7 +1370,8 @@
             "operation": "input/long-key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_8\", \"durationMs\": 3000}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputLongKeyPressKey8"
         },
         {
             "device_id": "device0",
@@ -1273,7 +1384,8 @@
             "operation": "input/long-key-press",
             "outcome": "UNKNOWN",
             "request": "{\"keyCode\": \"KEY_9\", \"durationMs\": 3000}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "InputLongKeyPressKey9"
         },
         {
             "device_id": "device0",
@@ -1285,8 +1397,9 @@
             ],
             "operation": "output/image",
             "outcome": "UNKNOWN",
-            "request": "{\"outputLocation\": \"https://webhook.site/791918a1-cf5f-4a3e-9166-9f83af776232\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "request": "{}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "OutputImageConformance"
         },
         {
             "device_id": "device0",
@@ -1299,7 +1412,8 @@
             "operation": "device-telemetry/start",
             "outcome": "UNKNOWN",
             "request": "{\"durationMs\": 1000}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "DeviceTelemetryStartConformance"
         },
         {
             "device_id": "device0",
@@ -1312,7 +1426,8 @@
             "operation": "device-telemetry/stop",
             "outcome": "UNKNOWN",
             "request": "{}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "DeviceTelemetryStopConformance"
         },
         {
             "device_id": "device0",
@@ -1324,8 +1439,9 @@
             ],
             "operation": "app-telemetry/start",
             "outcome": "UNKNOWN",
-            "request": "{\"appId\": \"Cobalt\", \"durationMs\": 1000}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "request": "{\"appId\": \"YouTube\", \"durationMs\": 1000}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "AppTelemetryStartConformance"
         },
         {
             "device_id": "device0",
@@ -1337,8 +1453,9 @@
             ],
             "operation": "app-telemetry/stop",
             "outcome": "UNKNOWN",
-            "request": "{\"appId\": \"Cobalt\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "request": "{\"appId\": \"YouTube\"}",
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "AppTelemetryStopConformance"
         },
         {
             "device_id": "device0",
@@ -1351,7 +1468,8 @@
             "operation": "health-check/get",
             "outcome": "UNKNOWN",
             "request": "{}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "HealthCheckGetConformance"
         },
         {
             "device_id": "device0",
@@ -1364,7 +1482,8 @@
             "operation": "voice/list",
             "outcome": "UNKNOWN",
             "request": "{}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "VoiceListConformance"
         },
         {
             "device_id": "device0",
@@ -1377,7 +1496,8 @@
             "operation": "voice/set",
             "outcome": "UNKNOWN",
             "request": "{}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "VoiceSetConformance"
         },
         {
             "device_id": "device0",
@@ -1390,7 +1510,8 @@
             "operation": "voice/send-audio",
             "outcome": "UNKNOWN",
             "request": "{\"fileLocation\": \"https://storage.googleapis.com/ytlr-cert.appspot.com/voice/ladygaga.wav\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "VoiceSendAudioConformance"
         },
         {
             "device_id": "device0",
@@ -1403,7 +1524,8 @@
             "operation": "voice/send-text",
             "outcome": "UNKNOWN",
             "request": "{\"requestText\" : \"Play lady Gaga music on YouTube\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "VoiceSendTextConformance"
         },
         {
             "device_id": "device0",
@@ -1416,7 +1538,8 @@
             "operation": "voice/send-text",
             "outcome": "UNKNOWN",
             "request": "{\"requestText\" : \"Play lady Gaga music on YouTube\", \"voiceSystem\": \"Alexa\"}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "VoiceSendTextConformanceWithVa"
         },
         {
             "device_id": "device0",
@@ -1429,7 +1552,8 @@
             "operation": "version",
             "outcome": "UNKNOWN",
             "request": " {}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "VersionConformance"
         },
         {
             "device_id": "device0",
@@ -1442,7 +1566,8 @@
             "operation": "system/restart",
             "outcome": "UNKNOWN",
             "request": " {}",
-            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}"
+            "response": "{\n  \"status\": 501,\n  \"error\": \"The requested functionality is not implemented.\"\n}",
+            "test_id": "SystemRestartConformance"
         }
     ]
 }
