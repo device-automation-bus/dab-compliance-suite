@@ -12,14 +12,14 @@ def key_press(test_result, durationInMs=0, expectedLatencyMs=None):
     response  = jsons.loads(test_result.response)
     # No list available, assuming everything is required.
     if len(KeyList.key_list) <=0:
-        if response.status != 200:
+        if response['status'] != 200:
             return False
     else:
         if request.keyCode in KeyList.key_list:
-            if response.status != 200:
+            if response['status'] != 200:
                 return False
         else:
-            if response.status != 501:
+            if response['status'] != 501:
                 return False
     sleep(1)
     if type(expectedLatencyMs) == int:
@@ -33,14 +33,14 @@ def long_key_press(test_result, durationInMs=0, expectedLatencyMs=None):
     response  = jsons.loads(test_result.response)
     # No list available, assuming everything is required.
     if len(KeyList.key_list) <=0:
-        if response.status != 200:
+        if response['status'] != 200:
             return False
     else:
         if request.keyCode in KeyList.key_list:
-            if response.status != 200:
+            if response['status'] != 200:
                 return False
         else:
-            if response.status != 501:
+            if response['status'] != 501:
                 return False
 
     sleep(1)
@@ -52,7 +52,7 @@ def long_key_press(test_result, durationInMs=0, expectedLatencyMs=None):
 def list(test_result, durationInMs=0, expectedLatencyMs=0):
     dab_response_validator.validate_key_list_schema(test_result.response)
     response  = jsons.loads(test_result.response)
-    if response.status != 200:
+    if response['status'] != 200:
         return False
     if len(response.keyCodes) <=0:
         return False
