@@ -15,7 +15,7 @@ def key_press(test_result, durationInMs=0, expectedLatencyMs=None):
         if response['status'] != 200:
             return False
     else:
-        if request.keyCode in KeyList.key_list:
+        if request['keyCode'] in KeyList.key_list:
             if response['status'] != 200:
                 return False
         else:
@@ -36,7 +36,7 @@ def long_key_press(test_result, durationInMs=0, expectedLatencyMs=None):
         if response['status'] != 200:
             return False
     else:
-        if request.keyCode in KeyList.key_list:
+        if request['keyCode'] in KeyList.key_list:
             if response['status'] != 200:
                 return False
         else:
