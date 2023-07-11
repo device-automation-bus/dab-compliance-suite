@@ -54,9 +54,9 @@ def list(test_result, durationInMs=0, expectedLatencyMs=0):
     response  = jsons.loads(test_result.response)
     if response['status'] != 200:
         return False
-    if len(response.keyCodes) <=0:
+    if len(response['keyCodes']) <=0:
         return False
-    KeyList.key_list = response.keyCodes
+    KeyList.key_list = response['keyCodes']
     sleep(0.1)
     return Default_Validations(test_result, durationInMs, expectedLatencyMs)
 
