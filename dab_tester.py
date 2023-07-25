@@ -18,13 +18,10 @@ class DabTester:
             return 0
         else:
             return 1
-        
-    def to_test_id(self, input_string):
-        return ''.join(item.title() for item in split('([^a-zA-Z0-9])', input_string) if item.isalnum())
     
     def Execute_Test_Case(self, device_id, test_case):
         (dab_request_topic, dab_request_body, validate_output_function, expected_response, test_title)=test_case
-        test_result = TestResult(self.to_test_id(f"{dab_request_topic}/{test_title}"), device_id, dab_request_topic, dab_request_body, "UNKNOWN", "", [])
+        test_result = TestResult(to_test_id(f"{dab_request_topic}/{test_title}"), device_id, dab_request_topic, dab_request_body, "UNKNOWN", "", [])
         print("\ntesting", dab_request_topic, " ", dab_request_body, "... ", end='', flush=True)
         start = datetime.datetime.now()
         code = self.execute_cmd(device_id, dab_request_topic, dab_request_body)
@@ -90,3 +87,6 @@ def YesNoQuestion(test_result, question=""):
             return False
         else:
             continue
+
+def to_test_id(input_string):
+    return ''.join(item.title() for item in split('([^a-zA-Z0-9])', input_string) if item.isalnum())

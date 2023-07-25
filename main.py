@@ -1,5 +1,6 @@
 from dab_tester import DabTester
 from dab_tester import Default_Validations
+from dab_tester import to_test_id
 import config
 import dab.app_telemetry
 import dab.device
@@ -13,122 +14,17 @@ import dab.system
 import dab.output
 import dab.version
 import argparse
+import conformance
+import end_to_end_cobalt
+import voice_audio
+import voice_text
 
-# Implement the test cases
-Test_Cases = [
-    ("operations/list",'{}', dab.operations.list, 200, "Conformance"),
-    ("applications/list",'{}', dab.applications.list, 200, "Conformance"),
-    ("applications/launch",f'{{"appId": "{config.apps["youtube"]}"}}', dab.applications.launch, 10000, "Conformance"),
-    ("applications/launch",f'{{"appId": "{config.apps["youtube"]}", "parameters": "#/watch?list=OLAK5uy_mKAu6VNK3gMSq_L8fU_C6myQnuuuIzvWY"}}', dab.applications.launch, 10000, "with parameters"),
-    ("applications/launch-with-content",f'{{"appId": "{config.apps["youtube"]}", "contentId": "jfKfPfyJRdk"}}', dab.applications.launch_with_content, 10000, "Conformance"),
-    ("applications/get-state",f'{{"appId": "{config.apps["youtube"]}"}}', dab.applications.get_state, 200, "Conformance"),
-    ("applications/exit",f'{{"appId": "{config.apps["youtube"]}"}}', dab.applications.exit, 5000, "Conformance"),
-    ("device/info",'{}', dab.device.info, 200, "Conformance"),
-    ("system/settings/list",'{}', dab.system.list, 200, "Conformance"),
-    ("system/settings/get",'{}', dab.system.get, 200, "Conformance"),
-    ("system/settings/set",'{"language": "en-US"}', dab.system.set, 3000, "language"),
-    ("system/settings/set",'{"outputResolution": {"width": 3840, "height": 2160, "frequency": 60} }', dab.system.set, 3000, "outputResolution"),
-    ("system/settings/set",'{"memc": true}', dab.system.set, 3000, "memc"),
-    ("system/settings/set",'{"cec": true}', dab.system.set, 3000, "cec"),
-    ("system/settings/set",'{"lowLatencyMode": true}', dab.system.set, 3000, "lowLatencyMode"),
-    ("system/settings/set",'{"matchContentFrameRate": "EnabledSeamlessOnly"}', dab.system.set, 3000, "matchContentFrameRate"),
-    ("system/settings/set",'{"hdrOutputMode": "AlwaysHdr"}', dab.system.set, 3000, "hdrOutputMode"),
-    ("system/settings/set",'{"pictureMode": "Standard"}', dab.system.set, 3000, "pictureMode"),
-    ("system/settings/set",'{"audioOutputMode": "Auto"}', dab.system.set, 3000, "audioOutputMode"),
-    ("system/settings/set",'{"audioOutputSource": "HDMI"}', dab.system.set, 3000, "audioOutputSource"),
-    ("system/settings/set",'{"videoInputSource": "Other"}', dab.system.set, 3000, "videoInputSource"),
-    ("system/settings/set",'{"audioVolume": 20}', dab.system.set, 3000, "audioVolume"),
-    ("system/settings/set",'{"mute": false}', dab.system.set, 3000, "mute"),
-    ("system/settings/set",'{"textToSpeech": true}', dab.system.set, 3000, "textToSpeech"),
-    ("input/key/list",'{}', dab.input.list, 200, "Conformance"),
-    ("input/key-press",'{"keyCode": "KEY_HOME"}', dab.input.key_press, 1000, "KEY_HOME"),
-    ("input/key-press",'{"keyCode": "KEY_VOLUME_UP"}', dab.input.key_press, 1000, "KEY_VOLUME_UP"),
-    ("input/key-press",'{"keyCode": "KEY_VOLUME_DOWN"}', dab.input.key_press, 1000, "KEY_VOLUME_DOWN"),
-    ("input/key-press",'{"keyCode": "KEY_MUTE"}', dab.input.key_press, 1000, "KEY_MUTE"),
-    ("input/key-press",'{"keyCode": "KEY_CHANNEL_UP"}', dab.input.key_press, 1000, "KEY_CHANNEL_UP"),
-    ("input/key-press",'{"keyCode": "KEY_CHANNEL_DOWN"}', dab.input.key_press, 1000, "KEY_CHANNEL_DOWN"),
-    ("input/key-press",'{"keyCode": "KEY_MENU"}', dab.input.key_press, 1000, "KEY_MENU"),
-    ("input/key-press",'{"keyCode": "KEY_EXIT"}', dab.input.key_press, 1000, "KEY_EXIT"),
-    ("input/key-press",'{"keyCode": "KEY_INFO"}', dab.input.key_press, 1000, "KEY_INFO"),
-    ("input/key-press",'{"keyCode": "KEY_GUIDE"}', dab.input.key_press, 1000, "KEY_GUIDE"),
-    ("input/key-press",'{"keyCode": "KEY_CAPTIONS"}', dab.input.key_press, 1000, "KEY_CAPTIONS"),
-    ("input/key-press",'{"keyCode": "KEY_UP"}', dab.input.key_press, 1000, "KEY_UP"),
-    ("input/key-press",'{"keyCode": "KEY_PAGE_UP"}', dab.input.key_press, 1000, "KEY_PAGE_UP"),
-    ("input/key-press",'{"keyCode": "KEY_PAGE_DOWN"}', dab.input.key_press, 1000, "KEY_PAGE_DOWN"),
-    ("input/key-press",'{"keyCode": "KEY_RIGHT"}', dab.input.key_press, 1000, "KEY_RIGHT"),
-    ("input/key-press",'{"keyCode": "KEY_DOWN"}', dab.input.key_press, 1000, "KEY_DOWN"),
-    ("input/key-press",'{"keyCode": "KEY_LEFT"}', dab.input.key_press, 1000, "KEY_LEFT"),
-    ("input/key-press",'{"keyCode": "KEY_ENTER"}', dab.input.key_press, 1000, "KEY_ENTER"),
-    ("input/key-press",'{"keyCode": "KEY_BACK"}', dab.input.key_press, 1000, "KEY_BACK"),
-    ("input/key-press",'{"keyCode": "KEY_PLAY"}', dab.input.key_press, 1000, "KEY_PLAY"),
-    ("input/key-press",'{"keyCode": "KEY_PLAY_PAUSE"}', dab.input.key_press, 1000, "KEY_PLAY_PAUSE"),
-    ("input/key-press",'{"keyCode": "KEY_PAUSE"}', dab.input.key_press, 1000, "KEY_PAUSE"),
-    ("input/key-press",'{"keyCode": "KEY_STOP"}', dab.input.key_press, 1000, "KEY_STOP"),
-    ("input/key-press",'{"keyCode": "KEY_REWIND"}', dab.input.key_press, 1000, "KEY_REWIND"),
-    ("input/key-press",'{"keyCode": "KEY_FAST_FORWARD"}', dab.input.key_press, 1000, "KEY_FAST_FORWARD"),
-    ("input/key-press",'{"keyCode": "KEY_SKIP_REWIND"}', dab.input.key_press, 1000, "KEY_SKIP_REWIND"),
-    ("input/key-press",'{"keyCode": "KEY_SKIP_FAST_FORWARD"}', dab.input.key_press, 1000, "KEY_SKIP_FAST_FORWARD"),
-    ("input/key-press",'{"keyCode": "KEY_0"}', dab.input.key_press, 1000, "KEY_0"),
-    ("input/key-press",'{"keyCode": "KEY_1"}', dab.input.key_press, 1000, "KEY_1"),
-    ("input/key-press",'{"keyCode": "KEY_2"}', dab.input.key_press, 1000, "KEY_2"),
-    ("input/key-press",'{"keyCode": "KEY_3"}', dab.input.key_press, 1000, "KEY_3"),
-    ("input/key-press",'{"keyCode": "KEY_4"}', dab.input.key_press, 1000, "KEY_4"),
-    ("input/key-press",'{"keyCode": "KEY_5"}', dab.input.key_press, 1000, "KEY_5"),
-    ("input/key-press",'{"keyCode": "KEY_6"}', dab.input.key_press, 1000, "KEY_6"),
-    ("input/key-press",'{"keyCode": "KEY_7"}', dab.input.key_press, 1000, "KEY_7"),
-    ("input/key-press",'{"keyCode": "KEY_8"}', dab.input.key_press, 1000, "KEY_8"),
-    ("input/key-press",'{"keyCode": "KEY_9"}', dab.input.key_press, 1000, "KEY_9"),
-    ("input/long-key-press",'{"keyCode": "KEY_HOME", "durationMs": 3000}', dab.input.long_key_press, 5000, "KEY_HOME"),
-    ("input/long-key-press",'{"keyCode": "KEY_VOLUME_UP", "durationMs": 3000}', dab.input.long_key_press, 5000, "KEY_VOLUME_UP"),
-    ("input/long-key-press",'{"keyCode": "KEY_VOLUME_DOWN", "durationMs": 3000}', dab.input.long_key_press, 5000, "KEY_VOLUME_DOWN"),
-    ("input/long-key-press",'{"keyCode": "KEY_MUTE", "durationMs": 3000}', dab.input.long_key_press, 5000, "KEY_MUTE"),
-    ("input/long-key-press",'{"keyCode": "KEY_CHANNEL_UP", "durationMs": 3000}', dab.input.long_key_press, 5000, "KEY_CHANNEL_UP"),
-    ("input/long-key-press",'{"keyCode": "KEY_CHANNEL_DOWN", "durationMs": 3000}', dab.input.long_key_press, 5000, "KEY_CHANNEL_DOWN"),
-    ("input/long-key-press",'{"keyCode": "KEY_MENU", "durationMs": 3000}', dab.input.long_key_press, 5000, "KEY_MENU"),
-    ("input/long-key-press",'{"keyCode": "KEY_EXIT", "durationMs": 3000}', dab.input.long_key_press, 5000, "KEY_EXIT"),
-    ("input/long-key-press",'{"keyCode": "KEY_INFO", "durationMs": 3000}', dab.input.long_key_press, 5000, "KEY_INFO"),
-    ("input/long-key-press",'{"keyCode": "KEY_GUIDE", "durationMs": 3000}', dab.input.long_key_press, 5000, "KEY_GUIDE"),
-    ("input/long-key-press",'{"keyCode": "KEY_CAPTIONS", "durationMs": 3000}', dab.input.long_key_press, 5000, "KEY_CAPTIONS"),
-    ("input/long-key-press",'{"keyCode": "KEY_UP", "durationMs": 3000}', dab.input.long_key_press, 5000, "KEY_UP"),
-    ("input/long-key-press",'{"keyCode": "KEY_PAGE_UP", "durationMs": 3000}', dab.input.long_key_press, 5000, "KEY_PAGE_UP"),
-    ("input/long-key-press",'{"keyCode": "KEY_PAGE_DOWN", "durationMs": 3000}', dab.input.long_key_press, 5000, "KEY_PAGE_DOWN"),
-    ("input/long-key-press",'{"keyCode": "KEY_RIGHT", "durationMs": 3000}', dab.input.long_key_press, 5000, "KEY_RIGHT"),
-    ("input/long-key-press",'{"keyCode": "KEY_DOWN", "durationMs": 3000}', dab.input.long_key_press, 5000, "KEY_DOWN"),
-    ("input/long-key-press",'{"keyCode": "KEY_LEFT", "durationMs": 3000}', dab.input.long_key_press, 5000, "KEY_LEFT"),
-    ("input/long-key-press",'{"keyCode": "KEY_ENTER", "durationMs": 3000}', dab.input.long_key_press, 5000, "KEY_ENTER"),
-    ("input/long-key-press",'{"keyCode": "KEY_BACK", "durationMs": 3000}', dab.input.long_key_press, 5000, "KEY_BACK"),
-    ("input/long-key-press",'{"keyCode": "KEY_PLAY", "durationMs": 3000}', dab.input.long_key_press, 5000, "KEY_PLAY"),
-    ("input/long-key-press",'{"keyCode": "KEY_PLAY_PAUSE", "durationMs": 3000}', dab.input.long_key_press, 5000, "KEY_PLAY_PAUSE"),
-    ("input/long-key-press",'{"keyCode": "KEY_PAUSE", "durationMs": 3000}', dab.input.long_key_press, 5000, "KEY_PAUSE"),
-    ("input/long-key-press",'{"keyCode": "KEY_STOP", "durationMs": 3000}', dab.input.long_key_press, 5000, "KEY_STOP"),
-    ("input/long-key-press",'{"keyCode": "KEY_REWIND", "durationMs": 3000}', dab.input.long_key_press, 5000, "KEY_REWIND"),
-    ("input/long-key-press",'{"keyCode": "KEY_FAST_FORWARD", "durationMs": 3000}', dab.input.long_key_press, 5000, "KEY_FAST_FORWARD"),
-    ("input/long-key-press",'{"keyCode": "KEY_SKIP_REWIND", "durationMs": 3000}', dab.input.long_key_press, 5000, "KEY_SKIP_REWIND"),
-    ("input/long-key-press",'{"keyCode": "KEY_SKIP_FAST_FORWARD", "durationMs": 3000}', dab.input.long_key_press, 5000, "KEY_SKIP_FAST_FORWARD"),
-    ("input/long-key-press",'{"keyCode": "KEY_0", "durationMs": 3000}', dab.input.long_key_press, 5000, "KEY_0"),
-    ("input/long-key-press",'{"keyCode": "KEY_1", "durationMs": 3000}', dab.input.long_key_press, 5000, "KEY_1"),
-    ("input/long-key-press",'{"keyCode": "KEY_2", "durationMs": 3000}', dab.input.long_key_press, 5000, "KEY_2"),
-    ("input/long-key-press",'{"keyCode": "KEY_3", "durationMs": 3000}', dab.input.long_key_press, 5000, "KEY_3"),
-    ("input/long-key-press",'{"keyCode": "KEY_4", "durationMs": 3000}', dab.input.long_key_press, 5000, "KEY_4"),
-    ("input/long-key-press",'{"keyCode": "KEY_5", "durationMs": 3000}', dab.input.long_key_press, 5000, "KEY_5"),
-    ("input/long-key-press",'{"keyCode": "KEY_6", "durationMs": 3000}', dab.input.long_key_press, 5000, "KEY_6"),
-    ("input/long-key-press",'{"keyCode": "KEY_7", "durationMs": 3000}', dab.input.long_key_press, 5000, "KEY_7"),
-    ("input/long-key-press",'{"keyCode": "KEY_8", "durationMs": 3000}', dab.input.long_key_press, 5000, "KEY_8"),
-    ("input/long-key-press",'{"keyCode": "KEY_9", "durationMs": 3000}', dab.input.long_key_press, 5000, "KEY_9"),
-    ("output/image",'{}', dab.output.image, 2000, "Conformance"),
-    ("device-telemetry/start",'{"durationMs": 1000}', dab.device_telemetry.start, 200, "Conformance"),
-    ("device-telemetry/stop",'{}', dab.device_telemetry.stop, 200, "Conformance"),
-    ("app-telemetry/start",f'{{"appId": "{config.apps["youtube"]}", "durationMs": 1000}}', dab.app_telemetry.start, 200, "Conformance"),
-    ("app-telemetry/stop",f'{{"appId": "{config.apps["youtube"]}"}}', dab.app_telemetry.stop, 200, "Conformance"),
-    ("health-check/get",'{}', dab.health_check.get, 2000, "Conformance"),
-    ("voice/list",'{}', dab.voice.list, 200, "Conformance"),
-    ("voice/set",'{}', dab.voice.set, 5000, "Conformance"),
-    ("voice/send-audio",'{"fileLocation": "https://storage.googleapis.com/ytlr-cert.appspot.com/voice/ladygaga.wav"}',dab.voice.send_audio, 10000, "Conformance"),
-    ("voice/send-text",'{"requestText" : "Play lady Gaga music on YouTube"}', dab.voice.send_text, 10000, "Conformance"),
-    ("voice/send-text",'{"requestText" : "Play lady Gaga music on YouTube", "voiceSystem": "Alexa"}', dab.voice.send_text, 10000, "Conformance With VA"),
-    ("version",' {}', dab.version.default, 200, "Conformance"),
-    ("system/restart",' {}', dab.system.restart, 30000, "Conformance"),
-]
+ALL_SUITES = {
+    "conformance": conformance.CONFORMANCE_TEST_CASE,
+    "end_to_end_cobalt": end_to_end_cobalt.END_TO_END_TEST_CASE,
+    "voice_audio": voice_audio.SEND_VOICE_AUDIO_TEST_CASES,
+    "voice_text": voice_text.SEND_VOICE_TEXT_TEST_CASES
+}
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -151,12 +47,17 @@ if __name__ == "__main__":
                         default="localhost")
 
     parser.add_argument("-c","--case", 
-                        help="test only the specified case. Ex: -c 3",
-                        type=int)
+                        help="test only the specified case. Ex: -c InputLongKeyPressKeyDown",
+                        type=str)
 
     parser.add_argument("-o","--output", 
                         help="output location for the json file",
                         type=str)
+    
+    parser.add_argument("-s","--suite",
+                        help="set what test suite to run. Avaible test suite includes: conformance, voice_audio, voice_text, end_to_end_cobalt",
+                        type=str)
+
     parser.set_defaults(output="")
     
     parser.set_defaults(case=99999)
@@ -168,17 +69,32 @@ if __name__ == "__main__":
     Tester = DabTester(args.broker)
     
     Tester.verbose = args.verbose
-    
-    if(args.list == True):
-        for i in range(len(Test_Cases)):
-            print("[%02d]"%i,Test_Cases[i][0]," ",Test_Cases[i][1])
+
+    suite_to_run = {}
+
+    if (args.suite):
+        # Let dict throw KeyError here
+        suite_to_run.update({args.suite: ALL_SUITES[args.suite]})
     else:
-        if (args.case == 99999) or (not isinstance(args.case, (int))):
+        suite_to_run = ALL_SUITES
+
+
+    if(args.list == True):
+        for suite in suite_to_run:
+            for test_case in suite_to_run[suite]:
+                (dab_request_topic, dab_request_body, validate_output_function, expected_response, test_title) = test_case
+                print(to_test_id(f"{dab_request_topic}/{test_title}"))
+    else:
+        if (len(args.case) == 0) or (not isinstance(args.case, (str))):
             # Test all the cases
             print("Testing all cases")
-            Tester.Execute_All_Tests("main", device_id, Test_Cases, args.output)
+            for suite in suite_to_run:
+                Tester.Execute_All_Tests(suite, device_id, suite_to_run[suite], args.output)
         else:
             # Test a single case
-            Tester.Execute_Test_Case(device_id,(Test_Cases[args.case]))
-        
+            for suite in suite_to_run:
+                for test_case in suite_to_run[suite]:
+                    (dab_request_topic, dab_request_body, validate_output_function, expected_response, test_title) = test_case
+                    if (to_test_id(f"{dab_request_topic}/{test_title}") == args.case):
+                        Tester.Execute_Test_Case(device_id,(test_case))
     Tester.Close()
