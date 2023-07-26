@@ -20,7 +20,7 @@ This test doesn't check on functionality or endurance. This should be the first 
 
 The following is command to run Spec conformance Test Suite:
 ```
-❯ python3 main.py -v -b <mqtt-broker-ip> -I <dab-device-id>
+❯ python3 main.py -v -b <mqtt-broker-ip> -I <dab-device-id> -s "conformance"
 ```
 
 
@@ -30,19 +30,19 @@ Voice functionality tests focuses on voice assisstance intergration with the pla
 
 The following is command to run Send Text/Send Audio Voice Test Suite
 ```
-❯ python3 voice_audio.py -v -b <mqtt-broker-ip> -I <dab-device-id>
+❯ python3 main.py -v -b <mqtt-broker-ip> -I <dab-device-id> -s "voice_audio"
 
-❯ python3 voice_text.py -v -b <mqtt-broker-ip> -I <dab-device-id>
+❯ python3 main.py -v -b <mqtt-broker-ip> -I <dab-device-id> -s "voice_text"
 ```
 
 ### 3. End to End Cobalt Test Suite ###
 
 This end to end intergration test focuses on a mix of key presses and voice controls.
 
-The following is command to run End to End Cobalt Test Suit
+The following is command to run End to End Cobalt Test Suite
 
 ```
-❯ python3 end_to_end_cobalt.py -v -b <mqtt-broker-ip> -I <dab-device-id>
+❯ python3 main.py -v -b <mqtt-broker-ip> -I <dab-device-id> -s "end_to_end_cobalt"
 ```
 
 
@@ -61,7 +61,12 @@ options:
   -b BROKER, --broker BROKER
                         set the IP of the broker. Ex: -b 192.168.0.100
   -I ID, --ID ID        set the DAB Device ID. Ex: -I mydevice123
-  -c CASE, --case CASE  test only the specified case.Ex: -c 3
+  -c CASE, --case CASE  test only the specified case.Ex: -c 
+                        InputLongKeyPressKeyDown
+  -s SUITE, --suite SUITE
+                        set what test suite to run. Avaible test suite 
+                        includes: conformance, voice_audio, voice_text, 
+                        end_to_end_cobalt
 </pre>
 
 ```
@@ -80,16 +85,10 @@ To list the available test cases, type:
 ❯ python3 main.py -l
 ```
 
-To execute the first test only:
+To execute the InputLongKeyPressKeyDown test only:
 
 ```
-❯ python3 main.py -v -b <mqtt-broker-ip> -I <dab-device-id> -c 0
-```
-
-To execute the third test only:
-
-```
-❯ python3 main.py -v -b <mqtt-broker-ip> -I <dab-device-id> -c 2
+❯ python3 main.py -v -b <mqtt-broker-ip> -I <dab-device-id> -c InputLongKeyPressKeyDown
 ```
 
 To execute all the tests:
