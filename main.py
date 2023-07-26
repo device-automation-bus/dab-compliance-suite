@@ -85,7 +85,7 @@ if __name__ == "__main__":
                 (dab_request_topic, dab_request_body, validate_output_function, expected_response, test_title) = test_case
                 print(to_test_id(f"{dab_request_topic}/{test_title}"))
     else:
-        if (len(args.case) == 0) or (not isinstance(args.case, (str))):
+        if ((not isinstance(args.case, (str)) or len(args.case) == 0)):
             # Test all the cases
             print("Testing all cases")
             for suite in suite_to_run:

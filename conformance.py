@@ -1,5 +1,3 @@
-from dab_tester import DabTester
-from dab_tester import Default_Validations
 import config
 import dab.app_telemetry
 import dab.device
@@ -12,7 +10,6 @@ import dab.applications
 import dab.system
 import dab.output
 import dab.version
-import argparse
 
 # Implement the test cases for conformance test. 
 CONFORMANCE_TEST_CASE = [

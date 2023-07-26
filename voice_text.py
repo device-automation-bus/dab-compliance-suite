@@ -1,9 +1,5 @@
-from dab_tester import DabTester
-from dab_tester import Voice_Test
 import dab.applications
 import dab.system
-import argparse
-from schema import dab_response_validator
 import dab.voice
 
 # Voice action steps
