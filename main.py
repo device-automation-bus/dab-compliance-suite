@@ -18,15 +18,21 @@ import conformance
 import end_to_end_cobalt
 import voice_audio
 import voice_text
+import output_image
 
 ALL_SUITES = {
     "conformance": conformance.CONFORMANCE_TEST_CASE,
     "end_to_end_cobalt": end_to_end_cobalt.END_TO_END_TEST_CASE,
     "voice_audio": voice_audio.SEND_VOICE_AUDIO_TEST_CASES,
-    "voice_text": voice_text.SEND_VOICE_TEXT_TEST_CASES
+    "voice_text": voice_text.SEND_VOICE_TEXT_TEST_CASES,
+    "output_image": output_image.OUTPUT_IMAGE_TEST_CASES
 }
 
 if __name__ == "__main__":
+    test_suites_str = ""
+    for field_name in ALL_SUITES.keys():
+        test_suites_str += field_name + ", "
+    test_suites_str = test_suites_str[:-2]
     parser = argparse.ArgumentParser()
     parser.add_argument("-v","--verbose", 
                         help="increase output verbosity",
@@ -55,7 +61,7 @@ if __name__ == "__main__":
                         type=str)
     
     parser.add_argument("-s","--suite",
-                        help="set what test suite to run. Avaible test suite includes: conformance, voice_audio, voice_text, end_to_end_cobalt",
+                        help="set what test suite to run. Available test suite includes:" + test_suites_str,
                         type=str)
 
     parser.set_defaults(output="")
