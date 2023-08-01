@@ -306,10 +306,22 @@ set_system_settings_response_schema = {
     "properties": {
         "status": {"type": "integer"},
         "error": {"type": ["string", "null"]},
-        "system_setting_key": {"type": "string"},
-        "value": {},
+        "language": {"type": "string"},
+        "outputResolution": output_resolution_schema,
+        "memc": {"type": "boolean"},
+        "cec": {"type": "boolean"},
+        "lowLatencyMode": {"type": "boolean"},
+        "matchContentFrameRate": {"type": "string"},
+        "hdrOutputMode": {"type": "string"},
+        "pictureMode": {"type": "string"},
+        "audioOutputMode": {"type": "string"},
+        "audioOutputSource": {"type": "string"},
+        "videoInputSource": {"type": "string"},
+        "audioVolume": {"type": "integer"},
+        "mute": {"type": "boolean"},
+        "textToSpeech": {"type": "boolean"},
     },
-    "required": ["status", "system_setting_key", "value"]
+    "required": ["status"]
 }
 
 # Operation: input/key/list
