@@ -16,7 +16,7 @@ CONFORMANCE_TEST_CASE = [
     ("operations/list",'{}', dab.operations.list, 200, "Conformance"),
     ("applications/list",'{}', dab.applications.list, 200, "Conformance"),
     ("applications/launch",f'{{"appId": "{config.apps["youtube"]}"}}', dab.applications.launch, 10000, "Conformance"),
-    ("applications/launch",f'{{"appId": "{config.apps["youtube"]}", "parameters": "#/watch?list=OLAK5uy_mKAu6VNK3gMSq_L8fU_C6myQnuuuIzvWY"}}', dab.applications.launch, 10000, "with parameters"),
+    ("applications/launch",f'{{"appId": "{config.apps["youtube"]}", "parameters": ["#/watch?list=OLAK5uy_mKAu6VNK3gMSq_L8fU_C6myQnuuuIzvWY"]}}', dab.applications.launch, 10000, "with parameters"),
     ("applications/launch-with-content",f'{{"appId": "{config.apps["youtube"]}", "contentId": "jfKfPfyJRdk"}}', dab.applications.launch_with_content, 10000, "Conformance"),
     ("applications/get-state",f'{{"appId": "{config.apps["youtube"]}"}}', dab.applications.get_state, 200, "Conformance"),
     ("applications/exit",f'{{"appId": "{config.apps["youtube"]}"}}', dab.applications.exit, 5000, "Conformance"),
