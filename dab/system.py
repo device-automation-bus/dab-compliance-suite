@@ -4,7 +4,11 @@ import jsons
 from schema import dab_response_validator
 
 def restart(test_result, durationInMs=0,expectedLatencyMs=0):
-    dab_response_validator.validate_dab_response_schema(test_result.response)
+    try:
+        dab_response_validator.validate_dab_response_schema(test_result.response)
+    except Exception as error:
+        print("Schema error:", error)
+        return False
     response  = jsons.loads(test_result.response)
     if response['status'] != 200:
         return False
@@ -13,7 +17,11 @@ def restart(test_result, durationInMs=0,expectedLatencyMs=0):
     return YesNoQuestion(test_result, "Cobalt re-started?")
 
 def get(test_result, durationInMs=0,expectedLatencyMs=0):
-    dab_response_validator.validate_get_system_settings_response_schema(test_result.response)
+    try:
+        dab_response_validator.validate_get_system_settings_response_schema(test_result.response)
+    except Exception as error:
+        print("Schema error:", error)
+        return False
     response  = jsons.loads(test_result.response)
     if response['status'] != 200:
         return False
@@ -21,7 +29,11 @@ def get(test_result, durationInMs=0,expectedLatencyMs=0):
     return Default_Validations(test_result, durationInMs, expectedLatencyMs)
 
 def set(test_result, durationInMs=0,expectedLatencyMs=0):
-    dab_response_validator.validate_set_system_settings_response_schema(test_result.response)
+    try:
+        dab_response_validator.validate_set_system_settings_response_schema(test_result.response)
+    except Exception as error:
+        print("Schema error:", error)
+        return False
     response  = jsons.loads(test_result.response)
     if response['status'] != 200:
         return False
@@ -29,7 +41,11 @@ def set(test_result, durationInMs=0,expectedLatencyMs=0):
     return Default_Validations(test_result, durationInMs, expectedLatencyMs)
 
 def list(test_result, durationInMs=0,expectedLatencyMs=0):
-    dab_response_validator.validate_list_system_settings_schema(test_result.response)
+    try:
+        dab_response_validator.validate_list_system_settings_schema(test_result.response)
+    except Exception as error:
+        print("Schema error:", error)
+        return False
     response  = jsons.loads(test_result.response)
     if response['status'] != 200:
         return False

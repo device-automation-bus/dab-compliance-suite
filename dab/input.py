@@ -7,7 +7,11 @@ class KeyList:
     key_list = []
 
 def key_press(test_result, durationInMs=0, expectedLatencyMs=None):
-    dab_response_validator.validate_dab_response_schema(test_result.response)
+    try:
+        dab_response_validator.validate_dab_response_schema(test_result.response)
+    except Exception as error:
+        print("Schema error:", error)
+        return False
     request = jsons.loads(test_result.request)
     response  = jsons.loads(test_result.response)
     # No list available, assuming everything is required.
@@ -28,7 +32,11 @@ def key_press(test_result, durationInMs=0, expectedLatencyMs=None):
         return YesNoQuestion(test_result, expectedLatencyMs)
 
 def long_key_press(test_result, durationInMs=0, expectedLatencyMs=None):
-    dab_response_validator.validate_dab_response_schema(test_result.response)
+    try:
+        dab_response_validator.validate_dab_response_schema(test_result.response)
+    except Exception as error:
+        print("Schema error:", error)
+        return False
     request = jsons.loads(test_result.request)
     response  = jsons.loads(test_result.response)
     # No list available, assuming everything is required.
@@ -50,7 +58,11 @@ def long_key_press(test_result, durationInMs=0, expectedLatencyMs=None):
         return YesNoQuestion(test_result, expectedLatencyMs)
 
 def list(test_result, durationInMs=0, expectedLatencyMs=0):
-    dab_response_validator.validate_key_list_schema(test_result.response)
+    try:
+        dab_response_validator.validate_key_list_schema(test_result.response)
+    except Exception as error:
+        print("Schema error:", error)
+        return False
     response  = jsons.loads(test_result.response)
     if response['status'] != 200:
         return False
