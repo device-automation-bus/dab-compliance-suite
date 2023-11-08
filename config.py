@@ -2,5 +2,5 @@
 apps = dict(
     youtube = 'YouTube',
     netflix = 'Netflix',
-    amazon = 'primeLive'
+    amazon = 'PrimeVideo'
 )
