@@ -30,11 +30,20 @@ class DabTester:
             end = datetime.datetime.now()
             duration = end - start
             durationInMs = int(duration.total_seconds() * 1000)
-            if validate_output_function(test_result, durationInMs, expected_response) == True:
+            exception = None
+            try:
+                validate_result = validate_output_function(test_result, durationInMs, expected_response)
+            except Exception as e:
+                validate_result = False
+                exception = e
+            
+            if validate_result == True:
                 log(test_result, "\033[1;32m[ PASS ]\033[0m")
                 test_result.test_result = "PASS"
             else:
                 log(test_result, "\033[1;31m[ FAILED ]\033[0m")
+                if exception:
+                    log(test_result, f"{type(exception).__name__} raised during result validation:\n\033[0;31m{exception}\033[0m\n")
                 test_result.test_result = "FAILED"
         else:
             log(test_result, '\033[1;31m[ ')
