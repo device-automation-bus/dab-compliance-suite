@@ -119,7 +119,7 @@ CONFORMANCE_TEST_CASE = [
     ("app-telemetry/stop",f'{{"appId": "{config.apps["youtube"]}"}}', dab.app_telemetry.stop, 200, "Conformance"),
     ("health-check/get",'{}', dab.health_check.get, 2000, "Conformance"),
     ("voice/list",'{}', dab.voice.list, 200, "Conformance"),
-    ("voice/set",f'{{"voiceSystem": {config.va}}}', dab.voice.set, 5000, "Conformance"),
+    ("voice/set",f'{{"voiceSystem":{{"name":"{config.va}","enabled":true}}}}', dab.voice.set, 5000, "Conformance"),
     ("voice/send-audio",'{"fileLocation": "https://storage.googleapis.com/ytlr-cert.appspot.com/voice/ladygaga.wav"}',dab.voice.send_audio, 10000, "Conformance"),
     ("voice/send-text",'{"requestText" : "Play lady Gaga music on YouTube", "voiceSystem": "Alexa"}', dab.voice.send_text, 10000, "Conformance"),
     ("version",' {}', dab.version.default, 200, "Conformance"),
