@@ -10,6 +10,7 @@ import dab.applications
 import dab.system
 import dab.output
 import dab.version
+from util.enforcement_manager import EnforcementManager
 
 # Implement the test cases for conformance test. 
 CONFORMANCE_TEST_CASE = [
@@ -120,9 +121,8 @@ CONFORMANCE_TEST_CASE = [
     ("health-check/get",'{}', dab.health_check.get, 2000, "Conformance"),
     ("voice/list",'{}', dab.voice.list, 200, "Conformance"),
     ("voice/set",'{}', dab.voice.set, 5000, "Conformance"),
-    ("voice/send-audio",'{"fileLocation": "https://storage.googleapis.com/ytlr-cert.appspot.com/voice/ladygaga.wav"}',dab.voice.send_audio, 10000, "Conformance"),
-    ("voice/send-text",'{"requestText" : "Play lady Gaga music on YouTube"}', dab.voice.send_text, 10000, "Conformance"),
-    ("voice/send-text",'{"requestText" : "Play lady Gaga music on YouTube", "voiceSystem": "Alexa"}', dab.voice.send_text, 10000, "Conformance With VA"),
+    ("voice/send-audio",f'{{"fileLocation": "https://storage.googleapis.com/ytlr-cert.appspot.com/voice/ladygaga.wav", "voiceSystem": "{EnforcementManager().get_voice_assistant()}"}}',dab.voice.send_audio, 10000, "Conformance"),
+    ("voice/send-text",f'{{"requestText" : "Play lady Gaga music on YouTube", "voiceSystem": "{EnforcementManager().get_voice_assistant()}"}}', dab.voice.send_text, 10000, "Conformance With VA"),
     ("version",' {}', dab.version.default, 200, "Conformance"),
     ("system/restart",' {}', dab.system.restart, 30000, "Conformance"),
 ]

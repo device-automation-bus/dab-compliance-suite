@@ -1,6 +1,7 @@
 from time import sleep
 from schema import dab_response_validator
 from dab_tester import YesNoQuestion, Default_Validations
+from util.enforcement_manager import EnforcementManager
 import jsons
 
 def launch(test_result, durationInMs=0,expectedLatencyMs=0):
@@ -49,6 +50,7 @@ def list(test_result, durationInMs=0,expectedLatencyMs=0):
     response  = jsons.loads(test_result.response)
     if response['status'] != 200:
         return False
+    EnforcementManager().add_supported_application(response.applications)
     sleep(0.1)
     return Default_Validations(test_result, durationInMs, expectedLatencyMs)
 
