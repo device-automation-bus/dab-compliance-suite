@@ -24,11 +24,7 @@ def get(test_result, durationInMs=0,expectedLatencyMs=0):
         print("Schema error:", error)
         return False
     response  = jsons.loads(test_result.response)
-    request = jsons.loads(test_result.request)
-    if not EnforcementManager().is_setting_supported(request.system_setting_key):
-        if response['status'] != 501:
-            return False
-    elif response['status'] != 200:
+    if response['status'] != 200:
         return False
     sleep(0.1)
     return Default_Validations(test_result, durationInMs, expectedLatencyMs)
