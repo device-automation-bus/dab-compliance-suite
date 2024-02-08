@@ -13,6 +13,7 @@ def list(test_result, durationInMs=0,expectedLatencyMs=0):
     response  = jsons.loads(test_result.response)
     if response['status'] != 200:
         return False
-    EnforcementManager().add_supported_operation(response.operations)
+    for operation in response['operations']:
+        EnforcementManager().add_supported_operation(operation)
     sleep(0.1)
     return Default_Validations(test_result, durationInMs, expectedLatencyMs)
