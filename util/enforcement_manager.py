@@ -51,7 +51,7 @@ class EnforcementManager:
         return not self.supported_voice_assistants or voice_assistant in self.supported_voice_assistants
     
     def get_voice_assistant(self):
-        return "Alexa" if len(self.supported_voice_assistants) == 0 else self.supported_voice_assistants[0]
+        return "AmazonAlexa" if len(self.supported_voice_assistants) == 0 else self.supported_voice_assistants[0]
     
     def set_supported_settings(self, settings):
         self.supported_settings = settings
