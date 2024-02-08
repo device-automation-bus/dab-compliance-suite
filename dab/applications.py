@@ -50,7 +50,8 @@ def list(test_result, durationInMs=0,expectedLatencyMs=0):
     response  = jsons.loads(test_result.response)
     if response['status'] != 200:
         return False
-    EnforcementManager().add_supported_application(response.applications)
+    for application in response['applications']:
+        EnforcementManager().add_supported_application(application['appId'])
     sleep(0.1)
     return Default_Validations(test_result, durationInMs, expectedLatencyMs)
 
