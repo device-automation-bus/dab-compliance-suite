@@ -7,7 +7,7 @@ from util.enforcement_manager import EnforcementManager
 SEND_VOICE_TEXT_TEST_CASES = [
     ("voice/list",'{}', dab.voice.list, 200, "Voice List"),
     ("voice/send-text",f'{{"requestText" : "Play lady Gaga music on YouTube", "voiceSystem": "{EnforcementManager().get_voice_assistant()}"}}', dab.voice.send_text, "Are you on search page with Lady Gaga?", "Voice launch Lady gaga"),
-    ("voice/send-text",f'{{"requestText" : "Press enter", "voiceSystem": "{EnforcementManager().get_voice_assistant()}"}}', dab.voice.send_text, "Is video playing?", "Voice play video", "Voice play video"),
+    ("voice/send-text",f'{{"requestText" : "Press enter", "voiceSystem": "{EnforcementManager().get_voice_assistant()}"}}', dab.voice.send_text, "Is video playing?", "Voice play video"),
     ("voice/send-text",f'{{"requestText" : "Play video", "voiceSystem": "{EnforcementManager().get_voice_assistant()}"}}', dab.voice.send_text, "If video was not playing, is it playing now?", "Voice resume video"),
     ("voice/send-text",f'{{"requestText" : "Set volume 0", "voiceSystem": "{EnforcementManager().get_voice_assistant()}"}}', dab.voice.send_text, "Did volume of the video changed?", "voice mute"),
     ("voice/send-text",f'{{"requestText" : "Set volume 5", "voiceSystem": "{EnforcementManager().get_voice_assistant()}"}}', dab.voice.send_text, "Did volume of the video changed?", "voice volume up"),
