@@ -273,44 +273,75 @@ list_system_settings_schema = {
                  "audioOutputSource", "videoInputSource", "audioVolume", "mute", "textToSpeech"]
 }
 
+system_settings_schema = {
+    "language": {"type": "string"},
+    "outputResolution": output_resolution_schema,
+    "memc": {"type": "boolean"},
+    "cec": {"type": "boolean"},
+    "lowLatencyMode": {"type": "boolean"},
+    "matchContentFrameRate": {"type": "string"},
+    "hdrOutputMode": {"type": "string"},
+    "pictureMode": {"type": "string"},
+    "audioOutputMode": {"type": "string"},
+    "audioOutputSource": {"type": "string"},
+    "videoInputSource": {"type": "string"},
+    "audioVolume": {"type": "integer"},
+    "mute": {"type": "boolean"},
+    "textToSpeech": {"type": "boolean"},
+}
+
 # Operation: system/settings/get
 # GetSystemSettingsResponse
 get_system_settings_response_schema = {
     "type": "object",
     "properties": {
-        "status": {"type": "integer"},
-        "error": {"type": ["string", "null"]},
-        "language": {"type": "string"},
-        "outputResolution": output_resolution_schema,
-        "memc": {"type": "boolean"},
-        "cec": {"type": "boolean"},
-        "lowLatencyMode": {"type": "boolean"},
-        "matchContentFrameRate": {"type": "string"},
-        "hdrOutputMode": {"type": "string"},
-        "pictureMode": {"type": "string"},
-        "audioOutputMode": {"type": "string"},
-        "audioOutputSource": {"type": "string"},
-        "videoInputSource": {"type": "string"},
-        "audioVolume": {"type": "integer"},
-        "mute": {"type": "boolean"},
-        "textToSpeech": {"type": "boolean"},
+        "status": {"type": "integer"}
     },
-    "required": ["status", "language", "outputResolution", "memc", "cec", "lowLatencyMode",
-                 "matchContentFrameRate", "hdrOutputMode", "pictureMode", "audioOutputMode",
-                 "audioOutputSource", "videoInputSource", "audioVolume", "mute", "textToSpeech"]
+    "required": ["status"],
+
+    "if": {
+        "properties": {
+            "status": { "const": 200 }
+        }
+    },
+    "then": {
+        "properties": system_settings_schema,
+        "required": system_settings_schema.keys()
+    },
+    "else": {
+        "properties": {
+            "error": {"type": ["string", "null"]}
+        },
+        "required": ["error"]
+    },
+
+    "unevaluatedProperties": False
 }
 
 # SetSystemSettingsResponse
 set_system_settings_response_schema = {
     "type": "object",
     "properties": {
-        "status": {"type": "integer"},
-        "error": {"type": ["string", "null"]},
-        "system_setting_key": {"type": "string"},
-        "value": {},
+        "status": {"type": "integer"}
     },
-    "required": ["status", "system_setting_key", "value"]
-}
+    "required": ["status"],
+
+    "if": {
+        "properties": {
+            "status": { "const": 200 }
+        }
+    },
+    "then": {
+        "properties": system_settings_schema
+    },
+    "else": {
+        "properties": {
+            "error": {"type": ["string", "null"]}
+        },
+        "required": ["error"]
+    },
+
+    "unevaluatedProperties": False
 
 # Operation: input/key/list
 # KeyList
