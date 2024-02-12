@@ -6,4 +6,4 @@ apps = dict(
 )
 
 # Please set the voice asssitant you want to set here.
-va = 'AAlexa'
+va = 'AmazonAlexa'
