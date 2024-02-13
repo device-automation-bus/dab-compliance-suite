@@ -342,6 +342,7 @@ set_system_settings_response_schema = {
     },
 
     "unevaluatedProperties": False
+}
 
 # Operation: input/key/list
 # KeyList
