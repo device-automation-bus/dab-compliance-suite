@@ -1,5 +1,5 @@
 ###### Requirements without Version Specifiers ######
-paho-mqtt
+paho-mqtt == 1.6.1
 readchar
 FileCache
 jsons
