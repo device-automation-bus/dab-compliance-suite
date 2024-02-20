@@ -121,7 +121,7 @@ CONFORMANCE_TEST_CASE = [
     ("voice/list",'{}', dab.voice.list, 200, "Conformance"),
     ("voice/set",f'{{"voiceSystem":{{"name":"{config.va}","enabled":true}}}}', dab.voice.set, 5000, "Conformance"),
     ("voice/send-audio",'{"fileLocation": "https://storage.googleapis.com/ytlr-cert.appspot.com/voice/ladygaga.wav"}',dab.voice.send_audio, 10000, "Conformance"),
-    ("voice/send-text",'{"requestText" : "Play lady Gaga music on YouTube", "voiceSystem": "Alexa"}', dab.voice.send_text, 10000, "Conformance"),
+    ("voice/send-text",f'{{"requestText" : "Play lady Gaga music on YouTube", "voiceSystem" : "{config.va}"}}', dab.voice.send_text, 10000, "Conformance"),
     ("version",' {}', dab.version.default, 200, "Conformance"),
     ("system/restart",' {}', dab.system.restart, 30000, "Conformance"),
 ]
