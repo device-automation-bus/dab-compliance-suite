@@ -6,7 +6,7 @@ import config
 
 # Voice action steps
 END_TO_END_TEST_CASE = [
-    ("voice/send-text",'{"requestText" : "Play lady Gaga music on YouTube", "voiceSystem": "Alexa"}', dab.voice.send_text, "Are you on search page with Lady Gaga?", "End to end launch"),
+    ("voice/send-text",f'{{"requestText" : "Play lady Gaga music on YouTube", "voiceSystem" : "{config.va}"}}', dab.voice.send_text, "Are you on search page with Lady Gaga?", "End to end launch"),
     ("input/key-press",'{"keyCode": "KEY_ENTER"}', dab.input.key_press, "Is video playing?", "End to end key press Enter"),
     ("input/long-key-press",'{"keyCode": "KEY_VOLUME_UP", "durationMs": 3000}', dab.input.long_key_press, "Is volume going up?", "End to end volume up"),
     ("input/long-key-press",'{"keyCode": "KEY_VOLUME_DOWN", "durationMs": 2000}', dab.input.long_key_press, "Is volume going down?", "End to End volume down"),
