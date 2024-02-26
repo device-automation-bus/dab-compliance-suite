@@ -1,2 +1,4 @@
 __pycache__/
-.DA_Store
+.DS_Store
+screenshot.html
+test_result/output_image.json

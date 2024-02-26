@@ -12,5 +12,9 @@ def image(test_result, durationInMs=0,expectedLatencyMs=0):
     response  = jsons.loads(test_result.response)
     if response['status'] != 200:
         return False
-    sleep(5)
-    return YesNoQuestion(test_result, f"Can you verify the image has been uploaded?") and Default_Validations(test_result, durationInMs, expectedLatencyMs)
+
+    SCREENSHOT_FILENAME = "screenshot.html"
+
+    with open(SCREENSHOT_FILENAME, "w") as outfile:
+        outfile.write('<div><img src="' + response['outputImage'] + '"</div>')
+    return YesNoQuestion(test_result, f"Verify if the {SCREENSHOT_FILENAME} file was created and contains the screenshot") and Default_Validations(test_result, durationInMs, expectedLatencyMs)
