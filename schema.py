@@ -306,7 +306,7 @@ get_system_settings_response_schema = {
     },
     "then": {
         "properties": system_settings_schema,
-        "required": system_settings_schema.keys()
+        "required": list(system_settings_schema.keys())
     },
     "else": {
         "properties": {
