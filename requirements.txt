@@ -4,3 +4,4 @@ readchar
 FileCache
 jsons
 jsonschema
+singleton_decorator
