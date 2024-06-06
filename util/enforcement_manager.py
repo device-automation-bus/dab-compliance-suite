@@ -72,9 +72,6 @@ class EnforcementManager:
 
         if isinstance(self.supported_settings.get(setting), List) and len(self.supported_settings.get(setting)) == 0:
             return True
-
-        if isinstance(self.supported_settings.get(setting), bool) and self.supported_settings.get(setting):
-            return True
     
     def add_supported_application(self, application):
         self.supported_applications.add(application)
