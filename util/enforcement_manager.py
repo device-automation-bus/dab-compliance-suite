@@ -1,5 +1,5 @@
 from singleton_decorator import singleton
-from typing import List
+from typing import List, Dict
 
 class Resolution:
     width: int
@@ -76,6 +76,15 @@ class EnforcementManager:
         if isinstance(self.supported_settings.get(setting), bool) and self.supported_settings.get(setting):
             return True
     
+        if (
+               setting == 'audioVolume' and
+               isinstance(self.supported_settings.get(setting), Dict) and
+               any('min' in d for d in self.supported_settings.get(setting)) and
+               any('max' in d for d in self.supported_settings.get(setting)) and
+               self.supported_settings.get(setting)['min'] != self.supported_settings.get(setting)['max']
+           ):
+            return True
+
     def add_supported_application(self, application):
         self.supported_applications.add(application)
 
