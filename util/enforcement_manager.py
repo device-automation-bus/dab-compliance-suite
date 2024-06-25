@@ -73,9 +73,6 @@ class EnforcementManager:
         if isinstance(self.supported_settings.get(setting), List) and self.supported_settings.get(setting):
             return True
 
-        if isinstance(self.supported_settings.get(setting), Dict) and self.supported_settings.get(setting):
-            return True
-
         if isinstance(self.supported_settings.get(setting), bool) and self.supported_settings.get(setting):
             return True
     
