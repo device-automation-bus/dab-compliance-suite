@@ -120,9 +120,9 @@ CONFORMANCE_TEST_CASE = [
     ("app-telemetry/stop",f'{{"appId": "{config.apps["youtube"]}"}}', dab.app_telemetry.stop, 200, "Conformance"),
     ("health-check/get",'{}', dab.health_check.get, 2000, "Conformance"),
     ("voice/list",'{}', dab.voice.list, 200, "Conformance"),
-    ("voice/set",f'{{"voiceSystem":{{"name":"{EnforcementManager().get_voice_assistant()}","enabled":true}}}}', dab.voice.set, 5000, "Conformance"),
-    ("voice/send-audio",f'{{"fileLocation": "https://storage.googleapis.com/ytlr-cert.appspot.com/voice/ladygaga.wav", "voiceSystem": "{EnforcementManager().get_voice_assistant()}"}}',dab.voice.send_audio, 10000, "Conformance"),
-    ("voice/send-text",f'{{"requestText" : "Play lady Gaga music on YouTube", "voiceSystem": "{EnforcementManager().get_voice_assistant()}"}}', dab.voice.send_text, 10000, "Conformance With VA"),
+    ("voice/set",f'{{"voiceSystem":{{"name":"{config.va}","enabled":true}}}}', dab.voice.set, 5000, "Conformance"),
+    ("voice/send-audio",f'{{"fileLocation": "https://storage.googleapis.com/ytlr-cert.appspot.com/voice/ladygaga.wav", "voiceSystem": "{config.va}"}}',dab.voice.send_audio, 10000, "Conformance"),
+    ("voice/send-text",f'{{"requestText" : "Play lady Gaga music on YouTube", "voiceSystem": "{config.va}"}}', dab.voice.send_text, 10000, "Conformance With VA"),
     ("version",' {}', dab.version.default, 200, "Conformance"),
     ("system/restart",' {}', dab.system.restart, 30000, "Conformance"),
 ]
