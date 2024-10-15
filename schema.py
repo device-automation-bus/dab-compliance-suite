@@ -230,9 +230,18 @@ list_system_settings_schema = {
             "type": "array",
             "items": output_resolution_schema
         },
-        "memc": {"type": "boolean"},
-        "cec": {"type": "boolean"},
-        "lowLatencyMode": {"type": "boolean"},
+        "memc": {
+            "type": "array",
+            "items": {"type": "boolean"}
+        },
+        "cec": {
+            "type": "array",
+            "items": {"type": "boolean"}
+        },
+        "lowLatencyMode": {
+            "type": "array",
+            "items": {"type": "boolean"}
+        },
         "matchContentFrameRate": {
             "type": "array",
             "items": {"type": "string"}
@@ -265,8 +274,14 @@ list_system_settings_schema = {
             },
             "required": ["min", "max"]
         },
-        "mute": {"type": "boolean"},
-        "textToSpeech": {"type": "boolean"}
+        "mute": {
+            "type": "array",
+            "items": {"type": "boolean"}
+        },
+        "textToSpeech": {
+            "type": "array",
+            "items": {"type": "boolean"}
+        },
     },
     "required": ["status", "language", "outputResolution", "memc", "cec", "lowLatencyMode",
                  "matchContentFrameRate", "hdrOutputMode", "pictureMode", "audioOutputMode",
