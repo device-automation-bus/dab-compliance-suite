@@ -15,7 +15,7 @@ def restart(test_result, durationInMs=0,expectedLatencyMs=0):
         return False
     print("restarting...wait 60s...",end='',flush=True)
     sleep(60)
-    return YesNoQuestion(test_result, "Cobalt re-started?")
+    return YesNoQuestion(test_result, "Device re-started?")
 
 def get(test_result, durationInMs=0,expectedLatencyMs=0):
     try:
