@@ -15,7 +15,6 @@ import dab.output
 import dab.version
 import argparse
 import conformance
-import end_to_end_cobalt
 import voice_audio
 import voice_text
 import output_image
@@ -23,7 +22,6 @@ import netflix
 
 ALL_SUITES = {
     "conformance": conformance.CONFORMANCE_TEST_CASE,
-    "end_to_end_cobalt": end_to_end_cobalt.END_TO_END_TEST_CASE,
     "voice_audio": voice_audio.SEND_VOICE_AUDIO_TEST_CASES,
     "voice_text": voice_text.SEND_VOICE_TEXT_TEST_CASES,
     "output_image": output_image.OUTPUT_IMAGE_TEST_CASES,
