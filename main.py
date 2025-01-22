@@ -1,3 +1,5 @@
+import signal
+import sys
 from dab_tester import DabTester
 from dab_tester import Default_Validations
 from dab_tester import to_test_id
@@ -28,7 +30,20 @@ ALL_SUITES = {
     "netflix": netflix.NETFLIX_TEST_CASES
 }
 
+def signal_handler(signal, frame):
+    """Handles SIGINT and SIGTERM signals."""
+    print("\nExecution interrupted. Cleaning up...")
+    try:
+        Tester.Close()  # Close the tester if it's still open
+    except NameError:
+        pass  # Tester not initialized
+    sys.exit(0)
+
 if __name__ == "__main__":
+    # Set up signal handlers
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
     test_suites_str = ""
     for field_name in ALL_SUITES.keys():
         test_suites_str += field_name + ", "
@@ -84,23 +99,26 @@ if __name__ == "__main__":
     else:
         suite_to_run = ALL_SUITES
 
-
-    if(args.list == True):
-        for suite in suite_to_run:
-            for test_case in suite_to_run[suite]:
-                (dab_request_topic, dab_request_body, validate_output_function, expected_response, test_title) = test_case
-                print(to_test_id(f"{dab_request_topic}/{test_title}"))
-    else:
-        if ((not isinstance(args.case, (str)) or len(args.case) == 0)):
-            # Test all the cases
-            print("Testing all cases")
-            for suite in suite_to_run:
-                Tester.Execute_All_Tests(suite, device_id, suite_to_run[suite], args.output)
-        else:
-            # Test a single case
+    try:
+        if(args.list == True):
             for suite in suite_to_run:
                 for test_case in suite_to_run[suite]:
                     (dab_request_topic, dab_request_body, validate_output_function, expected_response, test_title) = test_case
-                    if (to_test_id(f"{dab_request_topic}/{test_title}") == args.case):
-                        Tester.Execute_Test_Case(device_id,(test_case))
-    Tester.Close()
+                    print(to_test_id(f"{dab_request_topic}/{test_title}"))
+        else:
+            if ((not isinstance(args.case, (str)) or len(args.case) == 0)):
+                # Test all the cases
+                print("Testing all cases")
+                for suite in suite_to_run:
+                    Tester.Execute_All_Tests(suite, device_id, suite_to_run[suite], args.output)
+            else:
+                # Test a single case
+                for suite in suite_to_run:
+                    for test_case in suite_to_run[suite]:
+                        (dab_request_topic, dab_request_body, validate_output_function, expected_response, test_title) = test_case
+                        if (to_test_id(f"{dab_request_topic}/{test_title}") == args.case):
+                            Tester.Execute_Test_Case(device_id, (test_case))
+    except KeyboardInterrupt:
+        signal_handler(None, None)  # Handles unexpected Ctrl-C mid-process
+    finally:
+        Tester.Close()

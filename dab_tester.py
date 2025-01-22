@@ -5,6 +5,8 @@ from readchar import readchar
 from re import split
 import datetime
 import jsons
+import signal
+import sys
 
 class DabTester:
     def __init__(self,broker):
@@ -20,9 +22,14 @@ class DabTester:
             return 1
     
     def Execute_Test_Case(self, device_id, test_case):
-        (dab_request_topic, dab_request_body, validate_output_function, expected_response, test_title)=test_case
+        (dab_request_topic, dab_request_body, validate_output_function, expected_response, test_title, *preparation)=test_case
         test_result = TestResult(to_test_id(f"{dab_request_topic}/{test_title}"), device_id, dab_request_topic, dab_request_body, "UNKNOWN", "", [])
         print("\ntesting", dab_request_topic, " ", dab_request_body, "... ", end='', flush=True)
+        
+        if preparation:
+            print(''.join(preparation), end='', flush=True)
+            input(", press ENTER when ready.")
+        
         start = datetime.datetime.now()
         code = self.execute_cmd(device_id, dab_request_topic, dab_request_body)
         test_result.response = self.dab_client.response()
@@ -86,16 +93,26 @@ def YesNoQuestion(test_result, question=""):
     negative = ['no', 'n']
 
     while True:
-        # user_input = input(question+'(Y/N): ')
-        log(test_result, f"{question}(Y/N)")
-        user_input=readchar()
-        log(test_result, f"[{user_input}]")
-        if user_input.lower() in positive:
-            return True
-        elif user_input.lower() in negative:
-            return False
-        else:
-            continue
+        try:
+            # user_input = input(question+'(Y/N): ')
+            log(test_result, f"{question}(Y/N)")
+            user_input=readchar()
+            log(test_result, f"[{user_input}]")
+            if user_input.lower() in positive:
+                return True
+            elif user_input.lower() in negative:
+                return False
+        except KeyboardInterrupt:
+            print("\nOperation interrupted by user.")
+            sys.exit(0)
 
 def to_test_id(input_string):
     return ''.join(item.title() for item in split('([^a-zA-Z0-9])', input_string) if item.isalnum())
+
+# Signal handler for CTRL+C
+def signal_handler(signal, frame):
+    print("\nCTRL+C detected. Exiting gracefully.")
+    sys.exit(0)
+
+# Set the CTRL+C signal handler
+signal.signal(signal.SIGINT, signal_handler)
