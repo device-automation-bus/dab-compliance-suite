@@ -7,6 +7,7 @@ import datetime
 import jsons
 import signal
 import sys
+import os
 
 class DabTester:
     def __init__(self,broker):
@@ -102,6 +103,10 @@ def YesNoQuestion(test_result, question=""):
                 return True
             elif user_input.lower() in negative:
                 return False
+            elif user_input == '\x03':
+                os.kill(os.getpid(), signal.SIGINT)
+            elif user_input == '\x1a':
+                os.kill(os.getpid(), signal.SIGTSTP)
         except KeyboardInterrupt:
             print("\nOperation interrupted by user.")
             sys.exit(0)
