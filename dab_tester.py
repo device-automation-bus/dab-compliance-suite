@@ -105,6 +105,8 @@ def YesNoQuestion(test_result, question=""):
                 return False
             elif user_input == '\x03':
                 os.kill(os.getpid(), signal.SIGINT)
+            elif user_input == '\x04':
+                os.kill(os.getpid(), signal.SIGQUIT)
             elif user_input == '\x1a':
                 os.kill(os.getpid(), signal.SIGTSTP)
         except KeyboardInterrupt:
