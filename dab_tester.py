@@ -5,6 +5,8 @@ from readchar import readchar
 from re import split
 import datetime
 import jsons
+import os
+import signal
 
 class DabTester:
     def __init__(self,broker):
@@ -94,6 +96,12 @@ def YesNoQuestion(test_result, question=""):
             return True
         elif user_input.lower() in negative:
             return False
+        elif user_input == '\x03':
+            os.kill(os.getpid(), signal.SIGINT)
+        elif user_input == '\x04':
+            os.kill(os.getpid(), signal.SIGQUIT)
+        elif user_input == '\x1a':
+            os.kill(os.getpid(), signal.SIGTSTP)
         else:
             continue
 
