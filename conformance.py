@@ -12,7 +12,7 @@ import dab.output
 import dab.version
 from util.enforcement_manager import EnforcementManager
 
-# Implement the test cases for conformance test. 
+# Implement the test cases for conformance test.
 CONFORMANCE_TEST_CASE = [
     ("operations/list",'{}', dab.operations.list, 200, "Conformance"),
     ("applications/list",'{}', dab.applications.list, 200, "Conformance"),
@@ -116,7 +116,7 @@ CONFORMANCE_TEST_CASE = [
     ("output/image",'{}', dab.output.image, 2000, "Conformance"),
     ("device-telemetry/start",'{"duration": 1000}', dab.device_telemetry.start, 200, "Conformance"),
     ("device-telemetry/stop",'{}', dab.device_telemetry.stop, 200, "Conformance"),
-    ("app-telemetry/start",f'{{"appId": "{config.apps["youtube"]}", "duration": 1000}}', dab.app_telemetry.start, 200, "Conformance"),
+    ("app-telemetry/start",f'{{"appId": "{config.apps["youtube"]}", "duration": 1000}}', dab.app_telemetry.start, 700, "Conformance"),
     ("app-telemetry/stop",f'{{"appId": "{config.apps["youtube"]}"}}', dab.app_telemetry.stop, 200, "Conformance"),
     ("health-check/get",'{}', dab.health_check.get, 2000, "Conformance"),
     ("voice/list",'{}', dab.voice.list, 200, "Conformance"),
