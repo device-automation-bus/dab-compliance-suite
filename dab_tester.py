@@ -20,9 +20,12 @@ class DabTester:
             return 1
     
     def Execute_Test_Case(self, device_id, test_case):
-        (dab_request_topic, dab_request_body, validate_output_function, expected_response, test_title)=test_case
+        (dab_request_topic, dab_request_body, validate_output_function, expected_response, test_title, *opt)=test_case
         test_result = TestResult(to_test_id(f"{dab_request_topic}/{test_title}"), device_id, dab_request_topic, dab_request_body, "UNKNOWN", "", [])
         print("\ntesting", dab_request_topic, " ", dab_request_body, "... ", end='', flush=True)
+        # Optionally prompt tester if a manual preparation is required.
+        if opt:
+            input(opt[0] + ", press ENTER when ready.")
         start = datetime.datetime.now()
         code = self.execute_cmd(device_id, dab_request_topic, dab_request_body)
         test_result.response = self.dab_client.response()
