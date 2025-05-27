@@ -6,6 +6,10 @@ from readchar import readchar
 from re import split
 import datetime
 import jsons
+from result_json import TestSuite
+import datetime
+import os
+
 
 class DabTester:
     def __init__(self,broker):
@@ -71,6 +75,26 @@ class DabTester:
         file_dump = jsons.dumps(result_list, indent = 4)
         with open(test_result_output_path, "w") as outfile:
                 outfile.write(file_dump)
+
+    def Execute_Single_Test(self, suite_name, device_id, test_case, test_result_output_path):
+        result_list = TestSuite([], suite_name)
+        if not isinstance(test_case, tuple) or len(test_case) < 5:
+            raise ValueError("Invalid test_case structure. Expected tuple with 5 elements.")
+        result_list.test_result_list.append(self.Execute_Test_Case(device_id, test_case))
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        if not test_result_output_path or os.path.isdir(test_result_output_path):
+            output_dir = test_result_output_path if test_result_output_path else "./test_result"
+            os.makedirs(output_dir, exist_ok=True)
+            test_result_output_path = os.path.join(output_dir, f"{suite_name}_single_{timestamp}.json")
+        else:
+            os.makedirs(os.path.dirname(test_result_output_path), exist_ok=True)
+        try:
+            file_dump = jsons.dumps(result_list, indent=4)
+            with open(test_result_output_path, "w") as outfile:
+               outfile.write(file_dump)
+        except Exception as e:
+            print(f"[ERROR] Failed to write test result to {test_result_output_path}: {e}")
+            raise
 
 
     def Close(self):
