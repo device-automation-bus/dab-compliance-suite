@@ -1,4 +1,5 @@
 from dab_client import DabClient
+from dab_checker import DabChecker
 from result_json import TestResult, TestSuite
 from time import sleep
 from readchar import readchar
@@ -10,6 +11,7 @@ class DabTester:
     def __init__(self,broker):
         self.dab_client = DabClient()
         self.dab_client.connect(broker,1883)
+        self.dab_checker = DabChecker(self)
         self.verbose = False
 
     def execute_cmd(self,device_id,dab_request_topic,dab_request_body="{}"):
@@ -33,6 +35,10 @@ class DabTester:
             exception = None
             try:
                 validate_result = validate_output_function(test_result, durationInMs, expected_response)
+                if validate_result == True:
+                    validate_result, checker_log = self.dab_checker.check(device_id, dab_request_topic, dab_request_body)
+                    if checker_log:
+                        log(test_result, checker_log)
             except Exception as e:
                 validate_result = False
                 exception = e
@@ -51,7 +57,8 @@ class DabTester:
             self.dab_client.last_error_msg()
             log(test_result, ' ]\033[0m')
         if ((self.verbose == True)):
-            log(test_result, self.dab_client.response())
+            #log(test_result, self.dab_client.response())
+            log(test_result, test_result.response)
         return test_result
 
     def Execute_All_Tests(self, suite_name, device_id, Test_Set, test_result_output_path):
