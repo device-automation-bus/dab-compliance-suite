@@ -67,19 +67,33 @@ class DabTester:
             result_list.test_result_list.append(self.Execute_Test_Case(device_id, test))
             #sleep(5)
         if (len(test_result_output_path) == 0):
-            test_result_output_path = f"./test_result/{suite_name}.json"
-        
+            test_result_output_path = f"./test_result/{suite_name}.json"      
         # Construct the output including test_version
         output = {
             "test_version": get_test_tool_version(),
             "suite_name": suite_name,
             "test_result_list": result_list.test_result_list
         }
-
         file_dump = jsons.dumps(output, indent=4)
         with open(test_result_output_path, "w") as outfile:
             outfile.write(file_dump)
+            print(f"Results path: {test_result_output_path}")
 
+    def Execute_Single_Test(self, suite_name, device_id, test_case, test_result_output_path=""):
+        result = self.Execute_Test_Case(device_id, test_case)
+        result_list = TestSuite([], suite_name)
+        result_list.test_result_list.append(result)
+        if len(test_result_output_path) == 0:
+            test_result_output_path = f"./test_result/{suite_name}_single.json"
+        output = {
+            "test_version": get_test_tool_version(),
+            "suite_name": suite_name,
+            "test_result_list": result_list.test_result_list
+        }
+        file_dump = jsons.dumps(output, indent=4)
+        with open(test_result_output_path, "w") as outfile:
+            outfile.write(file_dump)
+            print(f"Result path: {test_result_output_path}")
 
     def Close(self):
         self.dab_client.disconnect()
