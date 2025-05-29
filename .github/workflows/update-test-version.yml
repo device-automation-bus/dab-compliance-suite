@@ -1,0 +1,37 @@
+name: Generate Version and Build Artifacts
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Get current date and run number for versioning
+      id: version_info
+      run: |
+        DATE_CODE=$(date +'%y%m%d')
+        RUN_NUMBER_PADDED=$(printf "%02d" $((GITHUB_RUN_NUMBER % 100)))
+        VERSION_STRING="${DATE_CODE}${RUN_NUMBER_PADDED}"
+        echo "VERSION_STRING=${VERSION_STRING}" >> $GITHUB_OUTPUT
+
+    - name: Create test_version.txt
+      run: |
+        echo "${{ steps.version_info.outputs.VERSION_STRING }}" > test_version.txt
+        cat test_version.txt
+
+    - name: Zip entire repository
+      run: |
+        zip -r dab-compliance-suite.zip . -x ".git/*" -x "dab-compliance-suite.zip"
+
+    - name: Upload zipped code as artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: dab-compliance-suite
+        path: dab-compliance-suite.zip

@@ -68,9 +68,17 @@ class DabTester:
             #sleep(5)
         if (len(test_result_output_path) == 0):
             test_result_output_path = f"./test_result/{suite_name}.json"
-        file_dump = jsons.dumps(result_list, indent = 4)
+        
+        # Construct the output including test_version
+        output = {
+            "test_version": get_test_tool_version(),
+            "suite_name": suite_name,
+            "test_result_list": result_list.test_result_list
+        }
+
+        file_dump = jsons.dumps(output, indent=4)
         with open(test_result_output_path, "w") as outfile:
-                outfile.write(file_dump)
+            outfile.write(file_dump)
 
 
     def Close(self):
@@ -83,6 +91,13 @@ def Default_Validations(test_result, durationInMs=0, expectedLatencyMs=0):
         log(test_result, f"{test_result.operation} took more time than expected.\n")
         return False
     return True
+
+def get_test_tool_version():
+    try:
+        with open("test_version.txt", "r") as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        return "dev.000000"
 
 def log(test_result, str_print):
     test_result.logs.append(str_print)
