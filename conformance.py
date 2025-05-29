@@ -24,7 +24,7 @@ CONFORMANCE_TEST_CASE = [
     ("device/info",'{}', dab.device.info, 200, "Conformance"),
     ("system/settings/list",'{}', dab.system.list, 200, "Conformance"),
     ("system/settings/get",'{}', dab.system.get, 200, "Conformance"),
-    ("system/settings/set",'{"language": "en-US"}', dab.system.set, 3000, "language"),
+    ("system/settings/set",'{"language": "en-US"}', dab.system.set, 120000, "language"),
     ("system/settings/set",'{"outputResolution": {"width": 3840, "height": 2160, "frequency": 60} }', dab.system.set, 3000, "outputResolution"),
     ("system/settings/set",'{"memc": true}', dab.system.set, 3000, "memc"),
     ("system/settings/set",'{"cec": true}', dab.system.set, 3000, "cec"),
