@@ -11,6 +11,8 @@ class DabChecker:
                 return self.__check_application_state(device_id, dab_request_body)
             case 'applications/exit':
                 return self.__check_application_state(device_id, dab_request_body, 'EXIT')
+            case 'system/settings/set':
+                return self.__check_system_settings_set(device_id, dab_request_body)
             case _:
                 return True, ""
 
@@ -48,5 +50,35 @@ class DabChecker:
 
         if validate_result == False:
             checker_log = checker_log + f"\napplication {appId} state is not expected state.\n"
+
+        return validate_result, checker_log
+
+    def __check_system_settings_set(self, device_id, dab_request_body):
+        dab_check_topic = "system/settings/get"
+        request_body = jsons.loads(dab_request_body)
+        (request_key, request_value), = request_body.items()
+
+        code = self.dab_tester.execute_cmd(device_id, dab_check_topic)
+
+        validate_result = False
+        actual_value = 'UNKNOWN'
+        check_response = self.dab_tester.dab_client.response()
+
+        if code == 0:
+            try:
+                response = jsons.loads(check_response)
+                if response['status'] != 200:
+                    validate_result = False
+                else:
+                    actual_value = response[request_key]
+                    validate_result = True if actual_value == request_value else False
+
+            except Exception as e:
+                validate_result = False
+
+        checker_log = f"\nsystem settings set {request_key} Value, Expected: {request_value}, Actual: {actual_value}\n"
+
+        if validate_result == False:
+            checker_log = checker_log + f"\nsystem settings set {request_key} value is not expected value.\n"
 
         return validate_result, checker_log
