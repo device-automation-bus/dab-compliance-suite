@@ -35,16 +35,6 @@ The following is command to run Send Text/Send Audio Voice Test Suite
 ❯ python3 main.py -v -b <mqtt-broker-ip> -I <dab-device-id> -s "voice_text"
 ```
 
-### 3. End to End Cobalt Test Suite ###
-
-This end to end intergration test focuses on a mix of key presses and voice controls.
-
-The following is command to run End to End Cobalt Test Suite
-
-```
-❯ python3 main.py -v -b <mqtt-broker-ip> -I <dab-device-id> -s "end_to_end_cobalt"
-```
-
 
 ## Commands ##
 
