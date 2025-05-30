@@ -102,5 +102,11 @@ if __name__ == "__main__":
                 for test_case in suite_to_run[suite]:
                     (dab_request_topic, dab_request_body, validate_output_function, expected_response, test_title) = test_case
                     if (to_test_id(f"{dab_request_topic}/{test_title}") == args.case):
-                        Tester.Execute_Test_Case(device_id,(test_case))
+                        Tester.Execute_Single_Test(suite, device_id, test_case, args.output)
+                        break
+                else:
+                    continue
+                break
+            else:
+                print(f"Test case '{args.case}' not found.")
     Tester.Close()
