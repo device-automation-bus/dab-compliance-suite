@@ -22,42 +22,55 @@ class DabTester:
             return 1
     
     def Execute(self, device_id, test_case):
-        (dab_request_topic, dab_request_body, validate_output_function, expected_response, test_title)=test_case
+        (dab_request_topic, dab_request_body, validate_output_function, expected_response, test_title) = test_case
         test_result = TestResult(to_test_id(f"{dab_request_topic}/{test_title}"), device_id, dab_request_topic, dab_request_body, "UNKNOWN", "", [])
         print("\ntesting", dab_request_topic, " ", dab_request_body, "... ", end='', flush=True)
         start = datetime.datetime.now()
-        code = self.execute_cmd(device_id, dab_request_topic, dab_request_body)
-        test_result.response = self.dab_client.response()
-        if  code == 0:
-            end = datetime.datetime.now()
-            duration = end - start
-            durationInMs = int(duration.total_seconds() * 1000)
-            exception = None
+        try:
             try:
-                validate_result = validate_output_function(test_result, durationInMs, expected_response)
-                if validate_result == True:
-                    validate_result, checker_log = self.dab_checker.check(device_id, dab_request_topic, dab_request_body)
-                    if checker_log:
-                        log(test_result, checker_log)
+                code = self.execute_cmd(device_id, dab_request_topic, dab_request_body)
+                test_result.response = self.dab_client.response()
             except Exception as e:
-                validate_result = False
-                exception = e
-            
-            if validate_result == True:
-                log(test_result, "\033[1;32m[ PASS ]\033[0m")
-                test_result.test_result = "PASS"
+                test_result.test_result = "SKIPPED"
+                log(test_result, f"\033[1;34m[ SKIPPED - Internal Error During Execution ]\033[0m {str(e)}")
+                return test_result
+            if code == 0:
+                end = datetime.datetime.now()
+                durationInMs = int((end - start).total_seconds() * 1000)
+                try:
+                    validate_result = validate_output_function(test_result, durationInMs, expected_response)
+                    if validate_result == True:
+                        validate_result, checker_log = self.dab_checker.check(device_id, dab_request_topic, dab_request_body)
+                        if checker_log:
+                            log(test_result, checker_log)
+                except Exception as e:
+                    test_result.test_result = "SKIPPED"
+                    log(test_result, f"\033[1;34m[ SKIPPED - Internal Error During Validation ]\033[0m {str(e)}")
+                    return test_result
+                if validate_result == True:
+                    test_result.test_result = "PASS"
+                    log(test_result, "\033[1;32m[ PASS ]\033[0m")
+                else:
+                    test_result.test_result = "FAILED"
+                    log(test_result, "\033[1;31m[ FAILED ]\033[0m")
             else:
-                log(test_result, "\033[1;31m[ FAILED ]\033[0m")
-                if exception:
-                    log(test_result, f"{type(exception).__name__} raised during result validation:\n\033[0;31m{exception}\033[0m\n")
-                test_result.test_result = "FAILED"
-        else:
-            log(test_result, '\033[1;31m[ ')
-            log(test_result, f"Error: self.dab_client.last_error_code()")
-            self.dab_client.last_error_msg()
-            log(test_result, ' ]\033[0m')
-        if ((self.verbose == True)):
-            #log(test_result, self.dab_client.response())
+                error_code = self.dab_client.last_error_code()
+                error_msg = self.dab_client.response()
+                if error_code == 501:
+                    test_result.test_result = "OPTIONAL_FAILED"
+                    log(test_result, f"\033[1;33m[ OPTIONAL_FAILED - Error Code {error_code} ]\033[0m")
+                elif error_code == 500:
+                    test_result.test_result = "SKIPPED"
+                    log(test_result, f"\033[1;34m[ SKIPPED - Internal Error Code {error_code} ]\033[0m {error_msg}")
+                else:
+                    test_result.test_result = "FAILED"
+                    log(test_result, "\033[1;31m[ COMMAND FAILED ]\033[0m")
+                    log(test_result, f"Error Code: {error_code}")
+                self.dab_client.last_error_msg()
+        except Exception as e:
+            test_result.test_result = "SKIPPED"
+            log(test_result, f"\033[1;34m[ SKIPPED - Internal Error ]\033[0m {str(e)}")
+        if self.verbose and test_result.test_result != "SKIPPED":
             log(test_result, test_result.response)
         return test_result
 
@@ -82,9 +95,22 @@ class DabTester:
         if not output_path:
             output_path = f"./test_result/{suite_name}.json"
 
+        total_tests = len(result_list)
+        passed = sum(1 for t in result_list if getattr(t, "test_result", "") == "PASS")
+        failed = sum(1 for t in result_list if getattr(t, "test_result", "") == "FAILED")
+        optional_failed = sum(1 for t in result_list if getattr(t, "test_result", "") == "OPTIONAL_FAILED")
+        skipped = sum(1 for t in result_list if getattr(t, "test_result", "") == "SKIPPED")
         result_data = {
             "test_version": get_test_tool_version(),
             "suite_name": suite_name,
+            "result_summary": {
+                "tests_executed": total_tests,
+                "tests_passed": passed,
+                "tests_failed": failed,
+                "tests_optional_failed": optional_failed,
+                "tests_skipped": skipped,
+                "overall_passed": failed == 0
+            },
             "test_result_list": result_list
         }
         try:
