@@ -68,16 +68,7 @@ class DabTester:
             #sleep(5)
         if (len(test_result_output_path) == 0):
             test_result_output_path = f"./test_result/{suite_name}.json"      
-        # Construct the output including test_version
-        output = {
-            "test_version": get_test_tool_version(),
-            "suite_name": suite_name,
-            "test_result_list": result_list.test_result_list
-        }
-        file_dump = jsons.dumps(output, indent=4)
-        with open(test_result_output_path, "w") as outfile:
-            outfile.write(file_dump)
-            print(f"Results path: {test_result_output_path}")
+        self.write_test_result_json(suite_name, result_list.test_result_list, test_result_output_path)
 
     def Execute_Single_Test(self, suite_name, device_id, test_case, test_result_output_path=""):
         result = self.Execute(device_id, test_case)
@@ -85,15 +76,23 @@ class DabTester:
         result_list.test_result_list.append(result)
         if len(test_result_output_path) == 0:
             test_result_output_path = f"./test_result/{suite_name}_single.json"
-        output = {
+        self.write_test_result_json(suite_name, result_list.test_result_list, test_result_output_path)
+        
+    def write_test_result_json(self, suite_name, result_list, output_path=""):
+        if not output_path:
+            output_path = f"./test_result/{suite_name}.json"
+
+        result_data = {
             "test_version": get_test_tool_version(),
             "suite_name": suite_name,
-            "test_result_list": result_list.test_result_list
+            "test_result_list": result_list
         }
-        file_dump = jsons.dumps(output, indent=4)
-        with open(test_result_output_path, "w") as outfile:
-            outfile.write(file_dump)
-            print(f"Result path: {test_result_output_path}")
+        try:
+            with open(output_path, "w") as f:
+                f.write(jsons.dumps(result_data, indent=4))
+        except FileNotFoundError:
+            print(f"[ERROR] Output path {output_path} is invalid. Please create the directory manually.")
+        return output_path
 
     def Close(self):
         self.dab_client.disconnect()
