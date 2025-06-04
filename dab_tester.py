@@ -116,8 +116,8 @@ class DabTester:
         try:
             with open(output_path, "w") as f:
                 f.write(jsons.dumps(result_data, indent=4))
-        except FileNotFoundError:
-            print(f"[ERROR] Output path {output_path} is invalid. Please create the directory manually.")
+        except (FileNotFoundError, PermissionError, OSError) as e:
+            print(f"[ERROR] Failed to write JSON to {output_path}: {e}")
         return output_path
 
     def Close(self):
