@@ -94,6 +94,14 @@ class DabTester:
     def write_test_result_json(self, suite_name, result_list, output_path=""):
         if not output_path:
             output_path = f"./test_result/{suite_name}.json"
+            # Filter valid test results
+        valid_results = []
+        for result in result_list:
+            required_fields = ["test_id", "device_id", "operation", "request", "test_result"]
+            if all(hasattr(result, field) and getattr(result, field) is not None for field in required_fields):
+                valid_results.append(result)
+            else:
+                print(f"[WARNING] Skipping incomplete test result: {result}")
 
         total_tests = len(result_list)
         passed = sum(1 for t in result_list if getattr(t, "test_result", "") == "PASS")
