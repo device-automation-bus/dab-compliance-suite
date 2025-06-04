@@ -56,13 +56,21 @@ class DabTester:
             else:
                 error_code = self.dab_client.last_error_code()
                 error_msg = self.dab_client.response()
+
                 if error_code == 501:
+                    # 501 Not Implemented: The feature is not supported on this platform/device.
+                    # Considered OPTIONAL_FAILED because it's valid but not mandatory.
                     test_result.test_result = "OPTIONAL_FAILED"
                     log(test_result, f"\033[1;33m[ OPTIONAL_FAILED - Error Code {error_code} ]\033[0m")
+
                 elif error_code == 500:
+                    # 500 Internal Server Error: Indicates a crash or failure not caused by the test itself.
+                    # Marked as SKIPPED to avoid counting it as a hard failure.
                     test_result.test_result = "SKIPPED"
                     log(test_result, f"\033[1;34m[ SKIPPED - Internal Error Code {error_code} ]\033[0m {error_msg}")
+
                 else:
+                    # All other non-zero error codes indicate test failure.
                     test_result.test_result = "FAILED"
                     log(test_result, "\033[1;31m[ COMMAND FAILED ]\033[0m")
                     log(test_result, f"Error Code: {error_code}")
@@ -92,6 +100,17 @@ class DabTester:
         self.write_test_result_json(suite_name, result_list.test_result_list, test_result_output_path)
         
     def write_test_result_json(self, suite_name, result_list, output_path=""):
+        """
+        Serialize and write the test results to a JSON file in a structured format.
+
+        Args:
+            suite_name (str): The name of the test suite executed.
+            result_list (list): List of TestResult objects containing individual test outcomes.
+            output_path (str): The file path where the JSON output should be saved.
+
+        This function computes a result summary, validates the result content,
+        and writes a detailed structured JSON with summary and test details.
+        """
         if not output_path:
             output_path = f"./test_result/{suite_name}.json"
             # Filter valid test results
