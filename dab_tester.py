@@ -117,7 +117,7 @@ class DabTester:
                 "tests_failed": failed,
                 "tests_optional_failed": optional_failed,
                 "tests_skipped": skipped,
-                "overall_passed": failed == 0
+                "overall_passed": failed == 0 and skipped == 0
             },
             "test_result_list": result_list
         }
