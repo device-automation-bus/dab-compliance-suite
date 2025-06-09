@@ -6,6 +6,7 @@ from readchar import readchar
 from re import split
 import datetime
 import jsons
+import os
 
 class DabTester:
     def __init__(self,broker):
@@ -141,11 +142,16 @@ class DabTester:
             "test_result_list": result_list
         }
         try:
-            with open(output_path, "w") as f:
-                f.write(jsons.dumps(result_data, indent=4))
-        except (FileNotFoundError, PermissionError, OSError) as e:
-            print(f"[ERROR] Failed to write JSON to {output_path}: {e}")
-        return output_path
+            with open(output_path, "w", encoding="utf-8") as f:
+                # Beautify using jsons and indent=4 passed through jdkwargs
+                f.write(jsons.dumps(result_data, jdkwargs={"indent": 4}))
+            print(f"[✔] JSON saved to {os.path.abspath(output_path)}")
+            return os.path.abspath(output_path)
+
+        except (OSError, PermissionError, FileNotFoundError, TypeError) as e:
+            # Catch only expected serialization or file write errors
+            print(f"[✖] Failed to write JSON to {output_path}: {e}")
+            return ""
 
     def Close(self):
         self.dab_client.disconnect()
