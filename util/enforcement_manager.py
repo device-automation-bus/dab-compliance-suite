@@ -30,6 +30,7 @@ class EnforcementManager:
         self.supported_keys = set()
         self.supported_voice_assistants = set()
         self.supported_settings = None
+        self.has_checked_settings = False
         self.supported_applications = set()
 
     def add_supported_operation(self, operation):
@@ -52,9 +53,13 @@ class EnforcementManager:
     
     def get_voice_assistant(self):
         return "AmazonAlexa" if len(self.supported_voice_assistants) == 0 else self.supported_voice_assistants[0]
-    
+
+    def check_supported_settings(self):
+        return self.has_checked_settings
+
     def set_supported_settings(self, settings):
         self.supported_settings = settings
+        self.has_checked_settings = True
 
     def is_setting_supported(self, setting):
         """
@@ -64,17 +69,19 @@ class EnforcementManager:
             setting: The name of the setting.
 
         Returns:
-            True if the setting is supported, False otherwise.
+            0, target supports the setting.
+            1, target doesn't support the setting.
+            2, uncertain whether the target support the setting.
         """
 
         if not self.supported_settings:
-            return True
+            return 2
 
         if isinstance(self.supported_settings.get(setting), List) and self.supported_settings.get(setting):
-            return True
+            return 0
 
         if isinstance(self.supported_settings.get(setting), bool) and self.supported_settings.get(setting):
-            return True
+            return 0
     
         if (
                setting == 'audioVolume' and
@@ -83,7 +90,9 @@ class EnforcementManager:
                any('max' in d for d in self.supported_settings.get(setting)) and
                self.supported_settings.get(setting)['min'] != self.supported_settings.get(setting)['max']
            ):
-            return True
+            return 0
+
+        return 1
 
     def add_supported_application(self, application):
         self.supported_applications.add(application)

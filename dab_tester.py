@@ -26,6 +26,16 @@ class DabTester:
         (dab_request_topic, dab_request_body, validate_output_function, expected_response, test_title) = test_case
         test_result = TestResult(to_test_id(f"{dab_request_topic}/{test_title}"), device_id, dab_request_topic, dab_request_body, "UNKNOWN", "", [])
         print("\ntesting", dab_request_topic, " ", dab_request_body, "... ", end='', flush=True)
+
+        validate_code, prechecker_log = self.dab_checker.precheck(device_id, dab_request_topic, dab_request_body)
+        if validate_code == 1:
+            test_result.test_result = "SKIPPED"
+            log(test_result, prechecker_log)
+            log(test_result, f"\033[1;34m[ SKIPPED ]\033[0m")
+            return test_result
+        else:
+            log(test_result, prechecker_log)
+
         start = datetime.datetime.now()
         try:
             try:
