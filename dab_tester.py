@@ -16,6 +16,15 @@ class DabTester:
         self.dab_checker = DabChecker(self)
         self.verbose = False
 
+        # Load valid DAB topics using jsons
+        try:
+            with open("valid_dab_topics.json", "r", encoding="utf-8") as f:
+                self.valid_dab_topics = set(jsons.load(jsons.loads(f.read())))
+
+        except Exception as e:
+            print(f"[ERROR] Failed to load valid DAB topics: {e}")
+            self.valid_dab_topics = set()
+
     def execute_cmd(self,device_id,dab_request_topic,dab_request_body="{}"):
         self.dab_client.request(device_id,dab_request_topic,dab_request_body)
         if self.dab_client.last_error_code() == 200:
@@ -24,11 +33,10 @@ class DabTester:
             return 1
     
     def Execute(self, device_id, test_case):
-        (dab_request_topic, dab_request_body, validate_output_function, expected_response, test_title) = DabTester.unpack_test_case(test_case)
-
+        (dab_request_topic, dab_request_body, validate_output_function, expected_response, test_title) = self.unpack_test_case(test_case)
         if dab_request_topic is None:
             return None
-        
+
         test_result = TestResult(to_test_id(f"{dab_request_topic}/{test_title}"), device_id, dab_request_topic, dab_request_body, "UNKNOWN", "", [])
         print("\ntesting", dab_request_topic, " ", dab_request_body, "... ", end='', flush=True)
 
@@ -168,7 +176,7 @@ class DabTester:
             print(f"[✖] Failed to write JSON to {output_path}: {e}")
             return ""
         
-    def unpack_test_case(test_case):
+    def unpack_test_case(self, test_case):
         def fail(reason):
             print(f"[SKIPPED] Invalid test case: {reason} → {test_case}")
             return (None,) * 5
@@ -181,6 +189,9 @@ class DabTester:
 
         if not isinstance(topic, str) or not topic.strip():
             return fail("Invalid or empty topic")
+        
+        if topic.strip() not in self.valid_dab_topics:
+            return fail(f"Unknown or unsupported DAB topic: {topic}")
 
         if body_str is not None and not isinstance(body_str, str):
             return fail("Body must be a string or None")
