@@ -24,7 +24,11 @@ class DabTester:
             return 1
     
     def Execute(self, device_id, test_case):
-        (dab_request_topic, dab_request_body, validate_output_function, expected_response, test_title) = test_case
+        (dab_request_topic, dab_request_body, validate_output_function, expected_response, test_title) = DabTester.unpack_test_case(test_case)
+
+        if dab_request_topic is None:
+            return None
+        
         test_result = TestResult(to_test_id(f"{dab_request_topic}/{test_title}"), device_id, dab_request_topic, dab_request_body, "UNKNOWN", "", [])
         print("\ntesting", dab_request_topic, " ", dab_request_body, "... ", end='', flush=True)
 
@@ -163,6 +167,35 @@ class DabTester:
             # Catch only expected serialization or file write errors
             print(f"[✖] Failed to write JSON to {output_path}: {e}")
             return ""
+        
+    def unpack_test_case(test_case):
+        def fail(reason):
+            print(f"[SKIPPED] Invalid test case: {reason} → {test_case}")
+            return (None,) * 5
+        if not isinstance(test_case, tuple):
+            return fail("Not a tuple")
+        if len(test_case) != 5:
+            return fail(f"Expected 5 elements, got {len(test_case)}")
+
+        topic, body_str, func, expected, title = test_case
+
+        if not isinstance(topic, str) or not topic.strip():
+            return fail("Invalid or empty topic")
+
+        if body_str is not None and not isinstance(body_str, str):
+            return fail("Body must be a string or None")
+
+        if not callable(func):
+            return fail("Validator function is not callable")
+
+        if not ((isinstance(expected, int) and expected >= 0) or 
+                (isinstance(expected, str) and expected.strip())):
+            return fail("Expected response must be non-negative int or non-empty string")
+
+        if not isinstance(title, str) or not title.strip():
+            return fail("Invalid or empty test title")
+
+        return topic, body_str, func, expected, title
 
     def Close(self):
         self.dab_client.disconnect()
