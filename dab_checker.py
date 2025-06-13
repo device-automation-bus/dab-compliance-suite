@@ -1,6 +1,7 @@
 from dab_client import DabClient
 from schema import dab_response_validator
 from util.enforcement_manager import EnforcementManager
+from util.enforcement_manager import ValidateCode
 import jsons
 
 class DabChecker:
@@ -18,9 +19,9 @@ class DabChecker:
 
          Returns:
             validate_code:
-                0, target supports this DAB operation.
-                1, target doesn't support this DAB operation.
-                2, uncertain whether the target support this DAB operation.
+                ValidateCode.SUPPORT, target supports this DAB operation.
+                ValidateCode.UNSUPPORT, target doesn't support this DAB operation.
+                ValidateCode.UNCERTAIN, uncertain whether the target support this DAB operation.
             prechecker_log:
                 output message
         """
@@ -35,7 +36,7 @@ class DabChecker:
         request_body = jsons.loads(dab_request_body)
         (request_key, request_value), = request_body.items()
 
-        validate_code = 2
+        validate_code = ValidateCode.UNCERTAIN
         prechecker_log = f"\nsystem settings set {request_key} is uncertain whether it is supported on this device. Ongoing...\n"
 
         if EnforcementManager().check_supported_settings() == False:
@@ -58,9 +59,9 @@ class DabChecker:
 
         for setting in request_body:
             validate_code = EnforcementManager().is_setting_supported(setting)
-            if validate_code == 0:
+            if validate_code == ValidateCode.SUPPORT:
                 prechecker_log = f"\nsystem settings set {request_key} is supported on this device. Ongoing...\n"
-            elif validate_code == 1:
+            elif validate_code == ValidateCode.UNSUPPORT:
                 prechecker_log = f"\nsystem settings set {request_key} is NOT supported on this device. Skip the test...\n"
 
         return validate_code, prechecker_log
@@ -122,9 +123,6 @@ class DabChecker:
 
         checker_log = f"\napplication {appId} State, Expected: {expected_state}, Actual: {actual_state}\n"
 
-        #if validate_result == False:
-        #    checker_log = checker_log + f"\napplication {appId} state is not expected state.\n"
-
         return validate_result, checker_log
 
     def __check_system_settings_set(self, device_id, dab_request_body):
@@ -151,8 +149,5 @@ class DabChecker:
                 validate_result = False
 
         checker_log = f"\nsystem settings set {request_key} Value, Expected: {request_value}, Actual: {actual_value}\n"
-
-        #if validate_result == False:
-        #    checker_log = checker_log + f"\nsystem settings set {request_key} value is not expected value.\n"
 
         return validate_result, checker_log

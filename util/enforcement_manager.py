@@ -1,5 +1,6 @@
 from singleton_decorator import singleton
 from typing import List, Dict
+from enum import Enum
 
 class Resolution:
     width: int
@@ -22,6 +23,11 @@ class Settings:
     audioVolume: bool
     mute: bool
     textToSpeech: bool
+
+class ValidateCode(Enum):
+    SUPPORT = 0
+    UNSUPPORT = 1
+    UNCERTAIN = 2
 
 @singleton
 class EnforcementManager:
@@ -69,20 +75,20 @@ class EnforcementManager:
             setting: The name of the setting.
 
         Returns:
-            0, target supports the setting.
-            1, target doesn't support the setting.
-            2, uncertain whether the target support the setting.
+            ValidateCode.SUPPORT, target supports the setting.
+            ValidateCode.UNSUPPORT, target doesn't support the setting.
+            ValidateCode.UNCERTAIN, uncertain whether the target support the setting.
         """
 
         if not self.supported_settings:
-            return 2
+            return ValidateCode.UNCERTAIN
 
         if isinstance(self.supported_settings.get(setting), List) and self.supported_settings.get(setting):
-            return 0
+            return ValidateCode.SUPPORT
 
         if isinstance(self.supported_settings.get(setting), bool) and self.supported_settings.get(setting):
-            return 0
-    
+            return ValidateCode.SUPPORT
+
         if (
                setting == 'audioVolume' and
                isinstance(self.supported_settings.get(setting), Dict) and
@@ -90,9 +96,9 @@ class EnforcementManager:
                any('max' in d for d in self.supported_settings.get(setting)) and
                self.supported_settings.get(setting)['min'] != self.supported_settings.get(setting)['max']
            ):
-            return 0
+            return ValidateCode.SUPPORT
 
-        return 1
+        return ValidateCode.UNSUPPORT
 
     def add_supported_application(self, application):
         self.supported_applications.add(application)

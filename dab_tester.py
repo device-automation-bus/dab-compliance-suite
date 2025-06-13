@@ -7,6 +7,7 @@ from re import split
 import datetime
 import jsons
 import os
+from util.enforcement_manager import ValidateCode
 
 class DabTester:
     def __init__(self,broker):
@@ -28,7 +29,7 @@ class DabTester:
         print("\ntesting", dab_request_topic, " ", dab_request_body, "... ", end='', flush=True)
 
         validate_code, prechecker_log = self.dab_checker.precheck(device_id, dab_request_topic, dab_request_body)
-        if validate_code == 1:
+        if validate_code == ValidateCode.UNSUPPORT:
             test_result.test_result = "SKIPPED"
             log(test_result, prechecker_log)
             log(test_result, f"\033[1;34m[ SKIPPED ]\033[0m")
