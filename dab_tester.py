@@ -71,6 +71,8 @@ class DabTester:
                         if checker_log:
                             log(test_result, checker_log)
                 except Exception as e:
+                    # If this is a negative test case and validation fails (e.g., 200 response with incorrect behavior),
+                    # treat it as PASS because failure was the expected outcome in this scenario.
                     if is_negative:
                         test_result.test_result = "PASS"
                         log(test_result, f"\033[1;33m[ NEGATIVE TEST PASSED - Exception as Expected ]\033[0m {str(e)}")
@@ -123,9 +125,6 @@ class DabTester:
             log(test_result, test_result.response)
 
         return test_result
-
-
-
 
     def Execute_All_Tests(self, suite_name, device_id, Test_Set, test_result_output_path):
         result_list = TestSuite([], suite_name)
@@ -210,6 +209,9 @@ class DabTester:
             return fail(f"Expected 5 or 6 elements, got {len(test_case)}")
 
         try:
+            # Support both 5-element and 6-element test case tuples:
+            #  - 5 elements: (topic, body_str, func, expected, title) — standard positive test
+            #  - 6 elements: (topic, body_str, func, expected, title, is_negative) — includes negative test flag
             topic, body_str, func, expected, title = test_case[:5]
             is_negative = test_case[5] if len(test_case) == 6 else False
 
