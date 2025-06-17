@@ -16,6 +16,15 @@ class DabTester:
         self.dab_checker = DabChecker(self)
         self.verbose = False
 
+        # Load valid DAB topics using jsons
+        try:
+            with open("valid_dab_topics.json", "r", encoding="utf-8") as f:
+                self.valid_dab_topics = set(jsons.load(jsons.loads(f.read())))
+
+        except Exception as e:
+            print(f"[ERROR] Failed to load valid DAB topics: {e}")
+            self.valid_dab_topics = set()
+
     def execute_cmd(self,device_id,dab_request_topic,dab_request_body="{}"):
         self.dab_client.request(device_id,dab_request_topic,dab_request_body)
         if self.dab_client.last_error_code() == 200:
@@ -24,7 +33,11 @@ class DabTester:
             return 1
     
     def Execute(self, device_id, test_case):
-        (dab_request_topic, dab_request_body, validate_output_function, expected_response, test_title) = test_case
+        (dab_request_topic, dab_request_body, validate_output_function, expected_response, test_title, is_negative) = self.unpack_test_case(test_case)
+
+        if dab_request_topic is None:
+            return None
+
         test_result = TestResult(to_test_id(f"{dab_request_topic}/{test_title}"), device_id, dab_request_topic, dab_request_body, "UNKNOWN", "", [])
         print("\ntesting", dab_request_topic, " ", dab_request_body, "... ", end='', flush=True)
 
@@ -38,6 +51,7 @@ class DabTester:
             log(test_result, prechecker_log)
 
         start = datetime.datetime.now()
+
         try:
             try:
                 code = self.execute_cmd(device_id, dab_request_topic, dab_request_body)
@@ -46,6 +60,7 @@ class DabTester:
                 test_result.test_result = "SKIPPED"
                 log(test_result, f"\033[1;34m[ SKIPPED - Internal Error During Execution ]\033[0m {str(e)}")
                 return test_result
+
             if code == 0:
                 end = datetime.datetime.now()
                 durationInMs = int((end - start).total_seconds() * 1000)
@@ -56,42 +71,59 @@ class DabTester:
                         if checker_log:
                             log(test_result, checker_log)
                 except Exception as e:
-                    test_result.test_result = "SKIPPED"
-                    log(test_result, f"\033[1;34m[ SKIPPED - Internal Error During Validation ]\033[0m {str(e)}")
-                    return test_result
+                    # If this is a negative test case and validation fails (e.g., 200 response with incorrect behavior),
+                    # treat it as PASS because failure was the expected outcome in this scenario.
+                    if is_negative:
+                        test_result.test_result = "PASS"
+                        log(test_result, f"\033[1;33m[ NEGATIVE TEST PASSED - Exception as Expected ]\033[0m {str(e)}")
+                        return test_result
+                    else:
+                        test_result.test_result = "SKIPPED"
+                        log(test_result, f"\033[1;34m[ SKIPPED - Internal Error During Validation ]\033[0m {str(e)}")
+                        return test_result
+
                 if validate_result == True:
                     test_result.test_result = "PASS"
                     log(test_result, "\033[1;32m[ PASS ]\033[0m")
                 else:
-                    test_result.test_result = "FAILED"
-                    log(test_result, "\033[1;31m[ FAILED ]\033[0m")
+                    if is_negative:
+                        test_result.test_result = "PASS"
+                        log(test_result, "\033[1;33m[ NEGATIVE TEST PASSED - Validation Failed as Expected ]\033[0m")
+                    else:
+                        test_result.test_result = "FAILED"
+                        log(test_result, "\033[1;31m[ FAILED ]\033[0m")
+
             else:
                 error_code = self.dab_client.last_error_code()
                 error_msg = self.dab_client.response()
 
-                if error_code == 501:
+                if is_negative and error_code in (400, 404):
+                    test_result.test_result = "PASS"
+                    log(test_result, f"\033[1;33m[ NEGATIVE TEST PASSED - Expected Error Code {error_code} ]\033[0m")
+                elif error_code == 501:
                     # 501 Not Implemented: The feature is not supported on this platform/device.
                     # Considered OPTIONAL_FAILED because it's valid but not mandatory.
                     test_result.test_result = "OPTIONAL_FAILED"
                     log(test_result, f"\033[1;33m[ OPTIONAL_FAILED - Error Code {error_code} ]\033[0m")
-
                 elif error_code == 500:
                     # 500 Internal Server Error: Indicates a crash or failure not caused by the test itself.
                     # Marked as SKIPPED to avoid counting it as a hard failure.
                     test_result.test_result = "SKIPPED"
                     log(test_result, f"\033[1;34m[ SKIPPED - Internal Error Code {error_code} ]\033[0m {error_msg}")
-
                 else:
                     # All other non-zero error codes indicate test failure.
                     test_result.test_result = "FAILED"
                     log(test_result, "\033[1;31m[ COMMAND FAILED ]\033[0m")
                     log(test_result, f"Error Code: {error_code}")
                 self.dab_client.last_error_msg()
+
         except Exception as e:
             test_result.test_result = "SKIPPED"
             log(test_result, f"\033[1;34m[ SKIPPED - Internal Error ]\033[0m {str(e)}")
+
         if self.verbose and test_result.test_result != "SKIPPED":
             log(test_result, test_result.response)
+
         return test_result
 
     def Execute_All_Tests(self, suite_name, device_id, Test_Set, test_result_output_path):
@@ -163,6 +195,60 @@ class DabTester:
             # Catch only expected serialization or file write errors
             print(f"[✖] Failed to write JSON to {output_path}: {e}")
             return ""
+        
+    def unpack_test_case(self, test_case):
+        def fail(reason):
+            print(f"[SKIPPED] Invalid test case: {reason} → {test_case}")
+            return (None,) * 6  # match the return structure
+
+        # Validate tuple structure
+        if not isinstance(test_case, tuple):
+            return fail("Not a tuple")
+
+        if len(test_case) not in (5, 6):
+            return fail(f"Expected 5 or 6 elements, got {len(test_case)}")
+
+        try:
+            # Support both 5-element and 6-element test case tuples:
+            #  - 5 elements: (topic, body_str, func, expected, title) — standard positive test
+            #  - 6 elements: (topic, body_str, func, expected, title, is_negative) — includes negative test flag
+            topic, body_str, func, expected, title = test_case[:5]
+            is_negative = test_case[5] if len(test_case) == 6 else False
+
+            # Handle body string evaluation if it's a lambda
+            if callable(body_str):
+                try:
+                    body_str = body_str()
+                except KeyError as e:
+                    return fail(f"Missing config key: {e}")
+
+            # Validate topic
+            if not isinstance(topic, str) or not topic.strip():
+                return fail("Invalid or empty topic")
+
+            if topic.strip() not in self.valid_dab_topics:
+                return fail(f"Unknown or unsupported DAB topic: {topic}")
+
+            # Validate body string
+            if body_str is not None and not isinstance(body_str, str):
+                return fail("Body must be a string or None")
+
+            # Validate function
+            if not callable(func):
+                return fail("Validator function is not callable")
+
+            # Validate expected response
+            if not ((isinstance(expected, int) and expected >= 0) or (isinstance(expected, str) and expected.strip())):
+                return fail("Expected response must be a non-negative int or non-empty string")
+
+            # Validate test title
+            if not isinstance(title, str) or not title.strip():
+                return fail("Invalid or empty test title")
+
+            return topic, body_str, func, expected, title, is_negative
+
+        except Exception as e:
+            return fail(f"Unexpected error: {str(e)}")
 
     def Close(self):
         self.dab_client.disconnect()
