@@ -142,6 +142,83 @@ exit_application_response_schema = {
     },
     "required": ["status", "state"]
 }
+# InstallApplicationRequest
+install_application_request_schema = {
+    "type": "object",
+    "properties": {
+        "appId": {"type": "string"},
+        "force": {"type": "boolean"}
+    },
+    "required": ["appId"]
+}
+# InstallApplicationResponse
+install_application_response_schema = {
+    "type": "object",
+    "properties": {
+        "status": {"type": "integer"},
+        "error": {"type": "string"},
+        "state": {"type": "string"}
+    },
+    "required": ["status", "state"]
+}
+
+# UninstallApplicationRequest
+uninstall_application_request_schema = {
+    "type": "object",
+    "properties": {
+        "appId": {"type": "string"},
+        "force": {"type": "boolean"}
+    },
+    "required": ["appId"]
+}
+# UnnstallApplicationResponse
+uninstall_application_response_schema = {
+    "type": "object",
+    "properties": {
+        "status": {"type": "integer"},
+        "error": {"type": "string"},
+        "state": {"type": "string"}
+    },
+    "required": ["status", "state"]
+}
+# Clear_dataApplicationRequest
+clear_data_application_request_schema = {
+    "type": "object",
+    "properties": {
+        "appId": {"type": "string"},
+        "force": {"type": "boolean"}
+    },
+    "required": ["appId"]
+}
+# clear_dataApplicationResponse
+clear_data_application_response_schema = {
+    "type": "object",
+    "properties": {
+        "status": {"type": "integer"},
+        "error": {"type": "string"},
+        "state": {"type": "string"}
+    },
+    "required": ["status", "state"]
+}
+# InstallFromAppstoreApplicationRequest
+install_from_appstore_application_request_schema = {
+    "type": "object",
+    "properties": {
+        "appId": {"type": "string"},
+        "force": {"type": "boolean"}
+    },
+    "required": ["appId"]
+}
+# InstallFromAppstoreApplicationResponse
+install_from_appstore_application_response_schema = {
+    "type": "object",
+    "properties": {
+        "status": {"type": "integer"},
+        "error": {"type": "string"},
+        "state": {"type": "string"}
+    },
+    "required": ["status", "state"]
+}
 
 # Operation: device/info
 # DeviceInfoRequest
@@ -701,6 +778,22 @@ class dab_response_validator(object):
     @staticmethod
     def validate_exit_application_response_schema(response):
         validate(instance=jsons.loads(response), schema=exit_application_response_schema)
+
+    @staticmethod
+    def validate_install_application_response_schema(response):
+        validate(instance=jsons.loads(response), schema=install_application_response_schema)
+
+    @staticmethod
+    def validate_uninstall_application_response_schema(response):
+        validate(instance=jsons.loads(response), schema=uninstall_application_response_schema)
+
+    @staticmethod
+    def validate_clear_data_application_response_schema(response):
+        validate(instance=jsons.loads(response), schema=clear_data_application_response_schema)
+    
+    @staticmethod
+    def validate_install_from_appstore_application_response_schema(response):
+        validate(instance=jsons.loads(response), schema=install_from_appstore_application_response_schema)
 
     @staticmethod
     def validate_device_information_schema(response):
