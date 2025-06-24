@@ -746,6 +746,46 @@ version_response_schema = {
     "required": ["status", "versions"]
 }
 
+#StartLogCollectionRequest
+start_log_collection_request_schema = {
+    "type": "object",
+    "properties": {
+        "duration": { "type": "integer" },
+        "logLevel": { "type": "string" },  # INFO, DEBUG, ERROR
+        "logTypes": {
+            "type": "array",
+            "items": { "type": "string" }
+        }
+    },
+    "required": ["duration"]
+}
+
+#StartLogCollectionResponce
+start_log_collection_response_schema = {
+    "type": "object",
+    "properties": {
+        "status": {"type": "integer"},
+        "error": {"type": "string"}
+    },
+    "required": ["status"]
+}
+
+#StopLogCollectionRequest
+stop_log_collection_request_schema = {
+    "type": "object",
+    "properties": {}
+}
+
+#StopLogCollectionResponse
+stop_log_collection_response_schema = {
+    "type": "object",
+    "properties": {
+        "status": {"type": "integer"},
+        "error": {"type": "string"},
+        "logs": {"type": "string"}  # or binary/file path depending on device
+    },
+    "required": ["status", "logs"]
+}
 
 class dab_response_validator(object):
     def __init__(self):
@@ -858,6 +898,14 @@ class dab_response_validator(object):
     @staticmethod
     def validate_version_response_schema(response):
         validate(instance=jsons.loads(response), schema=version_response_schema)
+
+    @staticmethod
+    def validate_stop_log_collection_response_schema(response):
+        validate(instance=jsons.loads(response), schema=stop_log_collection_response_schema)
+
+    @staticmethod
+    def validate_start_log_collection_response_schema(response):
+        validate(instance=jsons.loads(response), schema=start_log_collection_response_schema)
     
     
 

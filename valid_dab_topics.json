@@ -27,5 +27,7 @@
   "applications/install",
   "applications/uninstall",
   "applications/clear-data",
-  "applications/install-from-app-store"
+  "applications/install-from-app-store",
+  "system/logs/start-collection",
+  "system/logs/stop-collection"
 ]
