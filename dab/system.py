@@ -35,12 +35,7 @@ def set(test_result, durationInMs=0,expectedLatencyMs=0):
     except Exception as error:
         print("Schema error:", error)
         return False
-    response  = jsons.loads(test_result.response)
-    request = jsons.loads(test_result.request)
-    for setting in request:
-        if not EnforcementManager().is_setting_supported(setting):
-            if response['status'] != 501:
-                return False
+    response = jsons.loads(test_result.response)
     if response['status'] != 200:
         return False
     sleep(0.1)
@@ -51,6 +46,7 @@ def list(test_result, durationInMs=0,expectedLatencyMs=0):
         dab_response_validator.validate_list_system_settings_schema(test_result.response)
     except Exception as error:
         print("Schema error:", error)
+        EnforcementManager().set_supported_settings(None)
         return False
     response  = jsons.loads(test_result.response)
     EnforcementManager().set_supported_settings(response)

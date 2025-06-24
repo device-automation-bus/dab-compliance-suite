@@ -1,5 +1,6 @@
 from singleton_decorator import singleton
 from typing import List, Dict
+from enum import Enum
 
 class Resolution:
     width: int
@@ -23,6 +24,11 @@ class Settings:
     mute: bool
     textToSpeech: bool
 
+class ValidateCode(Enum):
+    SUPPORT = 0
+    UNSUPPORT = 1
+    UNCERTAIN = 2
+
 @singleton
 class EnforcementManager:
     def __init__(self):
@@ -30,6 +36,7 @@ class EnforcementManager:
         self.supported_keys = set()
         self.supported_voice_assistants = set()
         self.supported_settings = None
+        self.has_checked_settings = False
         self.supported_applications = set()
 
     def add_supported_operation(self, operation):
@@ -52,9 +59,13 @@ class EnforcementManager:
     
     def get_voice_assistant(self):
         return "AmazonAlexa" if len(self.supported_voice_assistants) == 0 else self.supported_voice_assistants[0]
-    
+
+    def check_supported_settings(self):
+        return self.has_checked_settings
+
     def set_supported_settings(self, settings):
         self.supported_settings = settings
+        self.has_checked_settings = True
 
     def is_setting_supported(self, setting):
         """
@@ -64,18 +75,20 @@ class EnforcementManager:
             setting: The name of the setting.
 
         Returns:
-            True if the setting is supported, False otherwise.
+            ValidateCode.SUPPORT, target supports the setting.
+            ValidateCode.UNSUPPORT, target doesn't support the setting.
+            ValidateCode.UNCERTAIN, uncertain whether the target support the setting.
         """
 
         if not self.supported_settings:
-            return True
+            return ValidateCode.UNCERTAIN
 
         if isinstance(self.supported_settings.get(setting), List) and self.supported_settings.get(setting):
-            return True
+            return ValidateCode.SUPPORT
 
         if isinstance(self.supported_settings.get(setting), bool) and self.supported_settings.get(setting):
-            return True
-    
+            return ValidateCode.SUPPORT
+
         if (
                setting == 'audioVolume' and
                isinstance(self.supported_settings.get(setting), Dict) and
@@ -83,7 +96,9 @@ class EnforcementManager:
                any('max' in d for d in self.supported_settings.get(setting)) and
                self.supported_settings.get(setting)['min'] != self.supported_settings.get(setting)['max']
            ):
-            return True
+            return ValidateCode.SUPPORT
+
+        return ValidateCode.UNSUPPORT
 
     def add_supported_application(self, application):
         self.supported_applications.add(application)
