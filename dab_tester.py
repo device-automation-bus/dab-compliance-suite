@@ -136,10 +136,19 @@ class DabTester:
             test_result_output_path = f"./test_result/{suite_name}.json"      
         self.write_test_result_json(suite_name, result_list.test_result_list, test_result_output_path)
 
-    def Execute_Single_Test(self, suite_name, device_id, test_case, test_result_output_path=""):
-        result = self.Execute(device_id, test_case)
+    def Execute_Single_Test(self, suite_name, device_id, test_case_or_cases, test_result_output_path=""):
         result_list = TestSuite([], suite_name)
-        result_list.test_result_list.append(result)
+        
+        # Handle a list of test cases or a single one
+        if isinstance(test_case_or_cases, list):
+            for test_case in test_case_or_cases:
+                result = self.Execute(device_id, test_case)
+                if result:  # Make sure it’s not None
+                    result_list.test_result_list.append(result)
+        else:
+            result = self.Execute(device_id, test_case_or_cases)
+            if result:
+                result_list.test_result_list.append(result)
         if len(test_result_output_path) == 0:
             test_result_output_path = f"./test_result/{suite_name}_single.json"
         self.write_test_result_json(suite_name, result_list.test_result_list, test_result_output_path)

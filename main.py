@@ -53,7 +53,7 @@ if __name__ == "__main__":
                         default="localhost")
 
     parser.add_argument("-c","--case", 
-                        help="test only the specified case. Ex: -c InputLongKeyPressKeyDown",
+                        help="test only the specified case(s). Use comma to separate multiple. Ex: -c InputLongKeyPressKeyDown,AppLaunchNegativeTest",
                         type=str)
 
     parser.add_argument("-o","--output", 
@@ -99,18 +99,21 @@ if __name__ == "__main__":
             for suite in suite_to_run:
                 Tester.Execute_All_Tests(suite, device_id, suite_to_run[suite], args.output)
         else:
-            # Test a single case
+            # Handle single or multiple cases passed via -c
+            requested_cases = [c.strip() for c in args.case.split(",")]
+            matched_tests = []
             for suite in suite_to_run:
                 for test_case in suite_to_run[suite]:
                     (dab_request_topic, dab_request_body, validate_output_function, expected_response, test_title, is_negative) = Tester.unpack_test_case(test_case)
                     if dab_request_topic is None:
                         continue
-                    if (to_test_id(f"{dab_request_topic}/{test_title}") == args.case):
-                        Tester.Execute_Single_Test(suite, device_id, test_case, args.output)
-                        break
-                else:
-                    continue
-                break
+                    test_id = to_test_id(f"{dab_request_topic}/{test_title}")
+                    if test_id in requested_cases:
+                        matched_tests.append(test_case)
+                if matched_tests:
+                    Tester.Execute_Single_Test(suite, device_id, matched_tests, args.output)
+                    break
             else:
-                print(f"Test case '{args.case}' not found.")
+                print(f"None of the test case(s) matched: {requested_cases}")
+
     Tester.Close()

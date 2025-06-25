@@ -23,5 +23,11 @@
   "voice/list",
   "voice/send-audio",
   "voice/send-text",
-  "voice/set"
+  "voice/set",
+  "applications/install",
+  "applications/uninstall",
+  "applications/clear-data",
+  "applications/install-from-app-store",
+  "system/logs/start-collection",
+  "system/logs/stop-collection"
 ]
