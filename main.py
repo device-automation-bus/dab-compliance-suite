@@ -88,7 +88,7 @@ if __name__ == "__main__":
     if(args.list == True):
         for suite in suite_to_run:
             for test_case in suite_to_run[suite]:
-                (dab_request_topic, dab_request_body, validate_output_function, expected_response, test_title, is_negative) = Tester.unpack_test_case(test_case)
+                (dab_request_topic, dab_request_body, validate_output_function, expected_response, test_title, test_version, is_negative) = Tester.unpack_test_case(test_case)
                 if dab_request_topic is None:
                     continue
                 print(to_test_id(f"{dab_request_topic}/{test_title}"))
@@ -104,7 +104,7 @@ if __name__ == "__main__":
             matched_tests = []
             for suite in suite_to_run:
                 for test_case in suite_to_run[suite]:
-                    (dab_request_topic, dab_request_body, validate_output_function, expected_response, test_title, is_negative) = Tester.unpack_test_case(test_case)
+                    (dab_request_topic, dab_request_body, validate_output_function, expected_response, test_title, test_version, is_negative) = Tester.unpack_test_case(test_case)
                     if dab_request_topic is None:
                         continue
                     test_id = to_test_id(f"{dab_request_topic}/{test_title}")
