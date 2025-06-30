@@ -10,7 +10,9 @@ import dab.applications
 import dab.system
 import dab.output
 import dab.version
+import json
 from util.enforcement_manager import EnforcementManager
+from util.config_loader import ensure_app_available
 
 # Implement the test cases for conformance test.
 CONFORMANCE_TEST_CASE = [
@@ -162,7 +164,7 @@ CONFORMANCE_TEST_CASE = [
     ("voice/send-text",f'{{"requestText" : "Play lady Gaga music on YouTube", "voiceSystem": true}}', dab.voice.send_text, 10000, "Conformance With VA Bad Request5", "2.0", True),
     ("version",' {}', dab.version.default, 200, "Conformance", "2.0", False),
     ("system/restart",' {}', dab.system.restart, 30000, "Conformance", "2.0", False),
-    ("applications/install", f'{{"fileLocation": "https://storage.googleapis.com/ytlr-cert.appspot.com/applications/myfile.apk"}}', dab.applications.install, 120000, "Install App Conformance", "2.1", False), 
+    ("applications/install", lambda: json.dumps({"fileLocation": f"file://{ensure_app_available()}"}), dab.applications.install, 120000, "Install App Conformance", "2.1", False), 
     ("applications/uninstall",lambda: f'{{"appId": "{config.apps["sample_app"]}"}}', dab.applications.uninstall, 50000, "Conformance", "2.1", False), 
     ("applications/clear-data",lambda: f'{{"appId": "{config.apps["sample_app"]}"}}', dab.applications.clear_data, 10000, "Conformance", "2.1", False), 
     ("applications/install-from-app-store", lambda: f'{{"appId": "{config.apps["sample_app_url"]}"}}', dab.applications.install_from_appstore, 120000, "Install App Conformance", "2.1" , False),
