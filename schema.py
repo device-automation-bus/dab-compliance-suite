@@ -142,6 +142,83 @@ exit_application_response_schema = {
     },
     "required": ["status", "state"]
 }
+# InstallApplicationRequest
+install_application_request_schema = {
+    "type": "object",
+    "properties": {
+        "appId": {"type": "string"},
+        "force": {"type": "boolean"}
+    },
+    "required": ["appId"]
+}
+# InstallApplicationResponse
+install_application_response_schema = {
+    "type": "object",
+    "properties": {
+        "status": {"type": "integer"},
+        "error": {"type": "string"},
+        "state": {"type": "string"}
+    },
+    "required": ["status", "state"]
+}
+
+# UninstallApplicationRequest
+uninstall_application_request_schema = {
+    "type": "object",
+    "properties": {
+        "appId": {"type": "string"},
+        "force": {"type": "boolean"}
+    },
+    "required": ["appId"]
+}
+# UnnstallApplicationResponse
+uninstall_application_response_schema = {
+    "type": "object",
+    "properties": {
+        "status": {"type": "integer"},
+        "error": {"type": "string"},
+        "state": {"type": "string"}
+    },
+    "required": ["status", "state"]
+}
+# Clear_dataApplicationRequest
+clear_data_application_request_schema = {
+    "type": "object",
+    "properties": {
+        "appId": {"type": "string"},
+        "force": {"type": "boolean"}
+    },
+    "required": ["appId"]
+}
+# clear_dataApplicationResponse
+clear_data_application_response_schema = {
+    "type": "object",
+    "properties": {
+        "status": {"type": "integer"},
+        "error": {"type": "string"},
+        "state": {"type": "string"}
+    },
+    "required": ["status", "state"]
+}
+# InstallFromAppstoreApplicationRequest
+install_from_appstore_application_request_schema = {
+    "type": "object",
+    "properties": {
+        "appId": {"type": "string"},
+        "force": {"type": "boolean"}
+    },
+    "required": ["appId"]
+}
+# InstallFromAppstoreApplicationResponse
+install_from_appstore_application_response_schema = {
+    "type": "object",
+    "properties": {
+        "status": {"type": "integer"},
+        "error": {"type": "string"},
+        "state": {"type": "string"}
+    },
+    "required": ["status", "state"]
+}
 
 # Operation: device/info
 # DeviceInfoRequest
@@ -669,6 +746,46 @@ version_response_schema = {
     "required": ["status", "versions"]
 }
 
+#StartLogCollectionRequest
+start_log_collection_request_schema = {
+    "type": "object",
+    "properties": {
+        "duration": { "type": "integer" },
+        "logLevel": { "type": "string" },  # INFO, DEBUG, ERROR
+        "logTypes": {
+            "type": "array",
+            "items": { "type": "string" }
+        }
+    },
+    "required": ["duration"]
+}
+
+#StartLogCollectionResponce
+start_log_collection_response_schema = {
+    "type": "object",
+    "properties": {
+        "status": {"type": "integer"},
+        "error": {"type": "string"}
+    },
+    "required": ["status"]
+}
+
+#StopLogCollectionRequest
+stop_log_collection_request_schema = {
+    "type": "object",
+    "properties": {}
+}
+
+#StopLogCollectionResponse
+stop_log_collection_response_schema = {
+    "type": "object",
+    "properties": {
+        "status": {"type": "integer"},
+        "error": {"type": "string"},
+        "logs": {"type": "string"}  # or binary/file path depending on device
+    },
+    "required": ["status", "logs"]
+}
 
 class dab_response_validator(object):
     def __init__(self):
@@ -701,6 +818,22 @@ class dab_response_validator(object):
     @staticmethod
     def validate_exit_application_response_schema(response):
         validate(instance=jsons.loads(response), schema=exit_application_response_schema)
+
+    @staticmethod
+    def validate_install_application_response_schema(response):
+        validate(instance=jsons.loads(response), schema=install_application_response_schema)
+
+    @staticmethod
+    def validate_uninstall_application_response_schema(response):
+        validate(instance=jsons.loads(response), schema=uninstall_application_response_schema)
+
+    @staticmethod
+    def validate_clear_data_application_response_schema(response):
+        validate(instance=jsons.loads(response), schema=clear_data_application_response_schema)
+    
+    @staticmethod
+    def validate_install_from_appstore_application_response_schema(response):
+        validate(instance=jsons.loads(response), schema=install_from_appstore_application_response_schema)
 
     @staticmethod
     def validate_device_information_schema(response):
@@ -765,22 +898,11 @@ class dab_response_validator(object):
     @staticmethod
     def validate_version_response_schema(response):
         validate(instance=jsons.loads(response), schema=version_response_schema)
-    
-    
 
+    @staticmethod
+    def validate_stop_log_collection_response_schema(response):
+        validate(instance=jsons.loads(response), schema=stop_log_collection_response_schema)
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    @staticmethod
+    def validate_start_log_collection_response_schema(response):
+        validate(instance=jsons.loads(response), schema=start_log_collection_response_schema)
