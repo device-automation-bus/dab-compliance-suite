@@ -1,5 +1,38 @@
 import os
 import shutil
+import json
+
+def prompt_and_store_appstore_url(config_path="config/apps/sample_app.json"):
+    """
+    Prompts user for app store URL and saves it to config/apps/sample_app.json
+    """
+    appstore_url = input("Enter App Store URL for installFromAppstore test: ").strip()
+    os.makedirs(os.path.dirname(config_path), exist_ok=True)
+    with open(config_path, "w", encoding="utf-8") as f:
+        json.dump({"app_url": appstore_url}, f, indent=2)
+
+def load_appstore_url(config_path="config/apps/sample_app.json") -> str:
+    """
+    Loads appId (App Store URL) from config/apps/sample_app.json
+    """
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(f"App config not found: {config_path}")
+    with open(config_path, "r", encoding="utf-8") as f:
+        config = json.load(f)
+    return config.get("app_url", "")
+
+def get_or_prompt_appstore_url(config_path="config/apps/sample_app.json") -> str:
+    """
+    Loads App Store URL if available, otherwise prompts user and saves it.
+    """
+    try:
+        url = load_appstore_url(config_path)
+        if not url.strip():
+            raise ValueError("Empty URL")
+        return url
+    except (FileNotFoundError, ValueError):
+        prompt_and_store_appstore_url(config_path)
+        return load_appstore_url(config_path)
 
 def ensure_app_available(app_name_prefix: str = "Sample_App", config_dir="config/apps"):
     """

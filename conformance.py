@@ -13,6 +13,7 @@ import dab.version
 import json
 from util.enforcement_manager import EnforcementManager
 from util.config_loader import ensure_app_available
+from util.config_loader import get_or_prompt_appstore_url
 
 # Implement the test cases for conformance test.
 CONFORMANCE_TEST_CASE = [
@@ -65,8 +66,11 @@ CONFORMANCE_TEST_CASE = [
     ("system/settings/set", '{"screenSaver": true}', dab.system.set, 5000, "Set Screen Saver", "2.1", False), 
     ("system/settings/set", '{"screenSaverTimeout": 300}', dab.system.set, 5000, "Set Screen Saver Timeout", "2.1", False ), 
     ("system/settings/set", '{"screenSaverMinTimeout": 60}', dab.system.set, 5000, "Set Screen Saver Min Timeout", "2.1", False), 
-    ("system/settings/set", '{"personalizedAds": false}', dab.system.set, 5000, "Set Personalized Ads", "2.1" , False), 
-    ("system/settings/set", '{"highContrastText": true}', dab.system.set, 5000, "Set High Contrast Text", "2.1" , False), 
+    ("system/settings/set", '{"personalizedAds": true}', dab.system.set, 5000, "Set Personalized Ads", "2.1" , False), 
+    ("system/settings/set", '{"highContrastText": true}', dab.system.set, 5000, "Set High Contrast Text", "2.1" , False),
+    ("system/settings/set", '{"identifierForAdvertising": true}', dab.system.set, 5000, "Set identifier For Advertising", "2.1" , False),
+    ("system/settings/set", '{"brightness": 10}', dab.system.set, 5000, "Set brightness", "2.1" , False), 
+    ("system/settings/set", '{"contrast": 10}', dab.system.set, 5000, "Set contrast", "2.1" , False), 
     ("input/key/list",'{}', dab.input.list, 200, "Conformance", "2.0", False),
     ("input/key-press",'{"keyCode": "KEY_HOME"}', dab.input.key_press, 1000, "KEY_HOME", "2.0", False),
     ("input/key-press",'{"keyCode": "KEY_VOLUME_UP"}', dab.input.key_press, 1000, "KEY_VOLUME_UP", "2.0", False),
@@ -166,9 +170,9 @@ CONFORMANCE_TEST_CASE = [
     ("system/restart",' {}', dab.system.restart, 30000, "Conformance", "2.0", False),
     ("applications/install", lambda: json.dumps({"fileLocation": f"file://{ensure_app_available()}"}), dab.applications.install, 120000, "Install App Conformance", "2.1", False), 
     ("applications/uninstall",lambda: f'{{"appId": "{config.apps["sample_app"]}"}}', dab.applications.uninstall, 50000, "Conformance", "2.1", False), 
-    ("applications/clear-data",lambda: f'{{"appId": "{config.apps["sample_app"]}"}}', dab.applications.clear_data, 10000, "Conformance", "2.1", False), 
-    ("applications/install-from-app-store", lambda: f'{{"appId": "{config.apps["sample_app_url"]}"}}', dab.applications.install_from_appstore, 120000, "Install App Conformance", "2.1" , False),
+    ("applications/clear-data",lambda: json.dumps({"appId": get_or_prompt_appstore_url()}), dab.applications.clear_data, 10000, "Conformance", "2.1", False), 
+    ("applications/install-from-app-store", lambda: f'{{"app_url": "{config.apps["sample_app_url"]}"}}', dab.applications.install_from_appstore, 120000, "Install App Conformance", "2.1" , False),
     ("system/logs/start-collection", '{}', dab.system.start_log_collection, 200, "Conformance", "2.1" , False), 
     ("system/logs/stop-collection", '{}', dab.system.stop_log_collection, 200, "Conformance", "2.1" , False), 
-    ("system/logs/stop-collection", '{}', dab.system.stop_log_collection, 400, "Stop Without Start Negative", "2.1" , True), 
+    ("system/logs/stop-collection", '{}', dab.system.stop_log_collection, 400, "Stop Without Start Negative", "2.1" , True),
 ]

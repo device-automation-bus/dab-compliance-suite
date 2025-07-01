@@ -906,22 +906,3 @@ class dab_response_validator(object):
     @staticmethod
     def validate_start_log_collection_response_schema(response):
         validate(instance=jsons.loads(response), schema=start_log_collection_response_schema)
-    
-    
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
