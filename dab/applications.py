@@ -66,3 +66,51 @@ def get_state(test_result, durationInMs=0,expectedLatencyMs=0):
         return False
     sleep(0.1)
     return Default_Validations(test_result, durationInMs, expectedLatencyMs)
+
+def install(test_result, durationInMs=0, expectedLatencyMs=0):
+    try:
+        dab_response_validator.validate_install_application_response_schema(test_result.response)
+    except Exception as error:
+        print("Schema error:", error)
+        return False
+    response = jsons.loads(test_result.response)
+    if response['status'] != 200:
+        return False
+    sleep(0.1)
+    return Default_Validations(test_result, durationInMs, expectedLatencyMs)
+
+def uninstall(test_result, durationInMs=0, expectedLatencyMs=0):
+    try:
+        dab_response_validator.validate_uninstall_application_response_schema(test_result.response)
+    except Exception as error:
+        print("Schema error:", error)
+        return False
+    response = jsons.loads(test_result.response)
+    if response['status'] != 200:
+        return False
+    sleep(0.1)
+    return Default_Validations(test_result, durationInMs, expectedLatencyMs)
+
+def clear_data(test_result, durationInMs=0, expectedLatencyMs=0):
+    try:
+        dab_response_validator.validate_clear_data_application_response_schema(test_result.response)
+    except Exception as error:
+        print("Schema error:", error)
+        return False
+    response = jsons.loads(test_result.response)
+    if response['status'] != 200:
+        return False
+    sleep(0.1)
+    return Default_Validations(test_result, durationInMs, expectedLatencyMs)
+
+def install_from_appstore(test_result, durationInMs=0, expectedLatencyMs=0):
+    try:
+        dab_response_validator.validate_install_from_appstore_application_response_schema(test_result.response)
+    except Exception as error:
+        print("Schema error:", error)
+        return False
+    response = jsons.loads(test_result.response)
+    if response['status'] != 200:
+        return False
+    sleep(0.1)
+    return Default_Validations(test_result, durationInMs, expectedLatencyMs)

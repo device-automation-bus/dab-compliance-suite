@@ -6,6 +6,8 @@ from readchar import readchar
 from re import split
 import datetime
 import jsons
+import json
+import config
 import os
 from util.enforcement_manager import ValidateCode
 
@@ -15,6 +17,7 @@ class DabTester:
         self.dab_client.connect(broker,1883)
         self.dab_checker = DabChecker(self)
         self.verbose = False
+        self.bridge_version = None  # Will be set by auto-detect logic
 
         # Load valid DAB topics using jsons
         try:
@@ -33,15 +36,39 @@ class DabTester:
             return 1
     
     def Execute(self, device_id, test_case):
-        (dab_request_topic, dab_request_body, validate_output_function, expected_response, test_title, is_negative) = self.unpack_test_case(test_case)
+        # Unpack the test case (supports both 2.0 and 2.1 tests)
+        (dab_request_topic, dab_request_body, validate_output_function, expected_response, test_title, is_negative, test_version) = self.unpack_test_case(test_case)
 
         if dab_request_topic is None:
             return None
-
+        # Initialize result object for logging and reporting
         test_result = TestResult(to_test_id(f"{dab_request_topic}/{test_title}"), device_id, dab_request_topic, dab_request_body, "UNKNOWN", "", [])
         print("\ntesting", dab_request_topic, " ", dab_request_body, "... ", end='', flush=True)
+        # ------------------------------------------------------------------------
+        # DAB Version Compatibility Check
+        # If the test is meant for DAB 2.1 but the bridge is on DAB 2.0,
+        # treat this as OPTIONAL_FAILED instead of skipping or erroring out.
+        # This ensures transparency in test result reporting.
+        # ------------------------------------------------------------------------
+        # Get bridge version (default "2.0") and convert both to float
+        bridge_version = self.bridge_version or "2.0"
+        required_version = float(test_version)
 
-        if is_negative == False:
+        # If the required test version > current bridge version, mark as OPTIONAL_FAILED
+        try:
+            required_version = float(test_version)
+            bridge_version_float = float(bridge_version)
+            if bridge_version_float < required_version:
+                test_result.test_result = "OPTIONAL_FAILED"
+                log(test_result, f"\033[1;33m[ OPTIONAL_FAILED - Requires DAB {required_version}, but bridge is {bridge_version_float} ]\033[0m")
+                return test_result
+        except Exception as e:
+            log(test_result, f"[WARNING] Version comparison failed: {e}")
+        # ------------------------------------------------------------------------
+        # If precheck is supported and this is not a negative test case
+        # Use precheck to determine if operation is supported
+        # ------------------------------------------------------------------------
+        if not is_negative:
             validate_code, prechecker_log = self.dab_checker.precheck(device_id, dab_request_topic, dab_request_body)
             if validate_code == ValidateCode.UNSUPPORT:
                 test_result.test_result = "SKIPPED"
@@ -54,6 +81,7 @@ class DabTester:
         start = datetime.datetime.now()
 
         try:
+            # Send DAB request via broker
             try:
                 code = self.execute_cmd(device_id, dab_request_topic, dab_request_body)
                 test_result.response = self.dab_client.response()
@@ -62,9 +90,11 @@ class DabTester:
                 log(test_result, f"\033[1;34m[ SKIPPED - Internal Error During Execution ]\033[0m {str(e)}")
                 return test_result
 
+            # If execution succeeded (error code 200)
             if code == 0:
                 end = datetime.datetime.now()
                 durationInMs = int((end - start).total_seconds() * 1000)
+
                 try:
                     validate_result = validate_output_function(test_result, durationInMs, expected_response)
                     if validate_result == True:
@@ -75,6 +105,7 @@ class DabTester:
                     # If this is a negative test case and validation fails (e.g., 200 response with incorrect behavior),
                     # treat it as PASS because failure was the expected outcome in this scenario.
                     if is_negative:
+                        # For negative test: failure is expected — pass the test
                         test_result.test_result = "PASS"
                         log(test_result, f"\033[1;33m[ NEGATIVE TEST PASSED - Exception as Expected ]\033[0m {str(e)}")
                         return test_result
@@ -93,8 +124,8 @@ class DabTester:
                     else:
                         test_result.test_result = "FAILED"
                         log(test_result, "\033[1;31m[ FAILED ]\033[0m")
-
             else:
+                # Handle non-200 error codes
                 error_code = self.dab_client.last_error_code()
                 error_msg = self.dab_client.response()
 
@@ -128,6 +159,8 @@ class DabTester:
         return test_result
 
     def Execute_All_Tests(self, suite_name, device_id, Test_Set, test_result_output_path):
+        if not self.bridge_version:
+            self.detect_bridge_version(device_id)
         result_list = TestSuite([], suite_name)
         for test in Test_Set:
             result_list.test_result_list.append(self.Execute(device_id, test))
@@ -136,10 +169,21 @@ class DabTester:
             test_result_output_path = f"./test_result/{suite_name}.json"      
         self.write_test_result_json(suite_name, result_list.test_result_list, test_result_output_path)
 
-    def Execute_Single_Test(self, suite_name, device_id, test_case, test_result_output_path=""):
-        result = self.Execute(device_id, test_case)
+    def Execute_Single_Test(self, suite_name, device_id, test_case_or_cases, test_result_output_path=""):
+        if not self.bridge_version:
+            self.detect_bridge_version(device_id)
         result_list = TestSuite([], suite_name)
-        result_list.test_result_list.append(result)
+        
+        # Handle a list of test cases or a single one
+        if isinstance(test_case_or_cases, list):
+            for test_case in test_case_or_cases:
+                result = self.Execute(device_id, test_case)
+                if result:  # Make sure it’s not None
+                    result_list.test_result_list.append(result)
+        else:
+            result = self.Execute(device_id, test_case_or_cases)
+            if result:
+                result_list.test_result_list.append(result)
         if len(test_result_output_path) == 0:
             test_result_output_path = f"./test_result/{suite_name}_single.json"
         self.write_test_result_json(suite_name, result_list.test_result_list, test_result_output_path)
@@ -200,21 +244,28 @@ class DabTester:
     def unpack_test_case(self, test_case):
         def fail(reason):
             print(f"[SKIPPED] Invalid test case: {reason} → {test_case}")
-            return (None,) * 6  # match the return structure
+            return (None,) * 7  # Expected structure length
 
-        # Validate tuple structure
+        # Validate input type
         if not isinstance(test_case, tuple):
-            return fail("Not a tuple")
+            return fail("Test case is not a tuple")
 
-        if len(test_case) not in (5, 6):
-            return fail(f"Expected 5 or 6 elements, got {len(test_case)}")
+        if len(test_case) not in (5, 6, 7):
+            return fail(f"Expected 5, 6, or 7 elements, got {len(test_case)}")
 
         try:
-            # Support both 5-element and 6-element test case tuples:
-            #  - 5 elements: (topic, body_str, func, expected, title) — standard positive test
-            #  - 6 elements: (topic, body_str, func, expected, title, is_negative) — includes negative test flag
+            # Unpack mandatory components
             topic, body_str, func, expected, title = test_case[:5]
-            is_negative = test_case[5] if len(test_case) == 6 else False
+
+            # Defaults
+            test_version = "2.0"
+            is_negative = False
+
+            # logic: test_version is always the 6th, is_negative is 7th
+            if len(test_case) >= 6:
+                test_version = str(test_case[5])
+            if len(test_case) == 7:
+                is_negative = bool(test_case[6])
 
             # Handle body string evaluation if it's a lambda
             if callable(body_str):
@@ -223,37 +274,53 @@ class DabTester:
                 except KeyError as e:
                     return fail(f"Missing config key: {e}")
 
-            # Validate topic
-            if not isinstance(topic, str) or not topic.strip():
-                return fail("Invalid or empty topic")
-
-            if topic.strip() not in self.valid_dab_topics:
-                return fail(f"Unknown or unsupported DAB topic: {topic}")
-
-            # Validate body string
+            # Validations
             if body_str is not None and not isinstance(body_str, str):
                 return fail("Body must be a string or None")
-
-            # Validate function
+            if not isinstance(topic, str) or not topic.strip():
+                return fail("Invalid or empty topic")
+            if topic not in self.valid_dab_topics:
+                return fail(f"Unknown or unsupported DAB topic: {topic}")
+             # Validate function
             if not callable(func):
                 return fail("Validator function is not callable")
-
             # Validate expected response
             if not ((isinstance(expected, int) and expected >= 0) or (isinstance(expected, str) and expected.strip())):
-                return fail("Expected response must be a non-negative int or non-empty string")
-
+                return fail("Expected must be a non-negative int or non-empty string")
             # Validate test title
             if not isinstance(title, str) or not title.strip():
-                return fail("Invalid or empty test title")
+                return fail("Invalid or empty title")
 
-            return topic, body_str, func, expected, title, is_negative
+            return topic, body_str, func, expected, title, is_negative, test_version
 
         except Exception as e:
             return fail(f"Unexpected error: {str(e)}")
+        
+    def detect_bridge_version(self, device_id):
+        """
+        Detects DAB bridge version by calling 'dab/version' once.
+        Stores version string in self.bridge_version.
+        """
+        try:
+            # Send request manually (not via test case)
+            self.dab_client.request(device_id, "version", "{}")
+            response = self.dab_client.response()
+
+            if response:
+                resp_json = json.loads(response)
+                self.bridge_version = resp_json.get("bridgeVersion", "2.0")
+                print(f"[INFO] Detected DAB bridge version: {self.bridge_version}")
+            else:
+                print("[WARNING] Empty response from bridge version check. Using fallback.")
+                self.bridge_version = "2.0"
+
+        except Exception as e:
+            print(f"[ERROR] Failed to detect bridge version: {e}")
+            self.bridge_version = "2.0"
 
     def Close(self):
         self.dab_client.disconnect()
-        
+
 def Default_Validations(test_result, durationInMs=0, expectedLatencyMs=0):
     sleep(0.2)
     log(test_result, f"\n{test_result.operation} Latency, Expected: {expectedLatencyMs} ms, Actual: {durationInMs} ms\n")
