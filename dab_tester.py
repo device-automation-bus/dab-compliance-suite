@@ -75,8 +75,12 @@ class DabTester:
                 log(test_result, prechecker_log)
                 log(test_result, f"\033[1;34m[ SKIPPED ]\033[0m")
                 return test_result
-            else:
+            elif validate_code == ValidateCode.FAIL:
+                test_result.test_result = "OPTIONAL_FAILED"
                 log(test_result, prechecker_log)
+                log(test_result, f"\033[1;33m[ OPTIONAL_FAILED ]\033[0m")
+                return test_result
+            log(test_result, prechecker_log)
 
         start = datetime.datetime.now()
 
