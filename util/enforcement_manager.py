@@ -28,6 +28,7 @@ class ValidateCode(Enum):
     SUPPORT = 0
     UNSUPPORT = 1
     UNCERTAIN = 2
+    FAIL = 3
 
 @singleton
 class EnforcementManager:
@@ -51,13 +52,19 @@ class EnforcementManager:
     def is_key_supported(self, key):
         return not self.supported_keys or key in self.supported_keys
     
-    def add_supported_voice_assistant(self, voice_assistant):
-        self.supported_voice_assistants.add(voice_assistant)
+    def get_supported_voice_assistants(self, voice_assistant = None):
+        if not voice_assistant:
+            return self.supported_voice_assistants
 
-    def is_voice_assistant_supported(self, voice_assistant):
-        return not self.supported_voice_assistants or voice_assistant in self.supported_voice_assistants
-    
-    def get_voice_assistant(self):
+        for voice_system in self.supported_voice_assistants:
+            if voice_assistant == voice_system["name"]:
+                return voice_system
+        return None
+
+    def set_supported_voice_assistants(self, voice_assistants):
+        self.supported_voice_assistants = voice_assistants
+
+    def get_voice_assistant(self, voice_assistant):
         return "AmazonAlexa" if len(self.supported_voice_assistants) == 0 else self.supported_voice_assistants[0]
 
     def check_supported_settings(self):
