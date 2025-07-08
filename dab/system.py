@@ -17,7 +17,7 @@ def restart(test_result, durationInMs=0,expectedLatencyMs=0):
     sleep(60)
     return YesNoQuestion(test_result, "Device re-started?")
 
-def get(test_result, durationInMs=0,expectedLatencyMs=0):
+def settings_get(test_result, durationInMs=0,expectedLatencyMs=0):
     try:
         dab_response_validator.validate_get_system_settings_response_schema(test_result.response)
     except Exception as error:
@@ -29,7 +29,7 @@ def get(test_result, durationInMs=0,expectedLatencyMs=0):
     sleep(0.1)
     return Default_Validations(test_result, durationInMs, expectedLatencyMs)
 
-def set(test_result, durationInMs=0,expectedLatencyMs=0):
+def settings_set(test_result, durationInMs=0,expectedLatencyMs=0):
     try:
         dab_response_validator.validate_set_system_settings_response_schema(test_result.response)
     except Exception as error:
@@ -41,7 +41,7 @@ def set(test_result, durationInMs=0,expectedLatencyMs=0):
     sleep(0.1)
     return Default_Validations(test_result, durationInMs, expectedLatencyMs)
 
-def list(test_result, durationInMs=0,expectedLatencyMs=0):
+def settings_list(test_result, durationInMs=0,expectedLatencyMs=0):
     try:
         dab_response_validator.validate_list_system_settings_schema(test_result.response)
     except Exception as error:
@@ -70,6 +70,42 @@ def start_log_collection(test_result, durationInMs=0, expectedLatencyMs=0):
 def stop_log_collection(test_result, durationInMs=0, expectedLatencyMs=0):
     try:
         dab_response_validator.validate_stop_log_collection_response_schema(test_result.response)
+    except Exception as error:
+        print("Schema error:", error)
+        return False
+    response = jsons.loads(test_result.response)
+    if response['status'] != 200:
+        return False
+    sleep(0.1)
+    return Default_Validations(test_result, durationInMs, expectedLatencyMs)
+
+def setup_skip(test_result, durationInMs=0, expectedLatencyMs=0):
+    try:
+        dab_response_validator.validate_dab_response_schema(test_result.response)
+    except Exception as error:
+        print("Schema error:", error)
+        return False
+    response = jsons.loads(test_result.response)
+    if response['status'] != 200:
+        return False
+    sleep(0.1)
+    return Default_Validations(test_result, durationInMs, expectedLatencyMs)
+
+def power_mode_get(test_result, durationInMs=0, expectedLatencyMs=0):
+    try:
+        dab_response_validator.validate_power_mode_get_response_schema(test_result.response)
+    except Exception as error:
+        print("Schema error:", error)
+        return False
+    response = jsons.loads(test_result.response)
+    if response['status'] != 200:
+        return False
+    sleep(0.1)
+    return Default_Validations(test_result, durationInMs, expectedLatencyMs)
+
+def power_mode_set(test_result, durationInMs=0, expectedLatencyMs=0):
+    try:
+        dab_response_validator.validate_power_mode_set_response_schema(test_result.response)
     except Exception as error:
         print("Schema error:", error)
         return False
