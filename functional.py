@@ -4,6 +4,13 @@ import config
 import json
 import time
 
+# --- Sleep Time Constants ---
+APP_LAUNCH_WAIT = 5
+APP_EXIT_WAIT = 3
+APP_STATE_CHECK_WAIT = 2
+APP_RELAUNCH_WAIT = 4
+CONTENT_LOAD_WAIT = 6
+
 # === Reusable Helper ===
 def execute_cmd_and_log(tester, device_id, topic, payload, logs):
     print(f"\nExecuting: {topic} with payload: {payload}")
@@ -41,8 +48,8 @@ def run_app_foreground_check(dab_topic, test_category, test_name, tester, device
     try:
         print(f"Step 1: Launching application '{app_id}'.")
         execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": app_id}), logs)
-        print(f"Waiting 5 seconds for application to launch and stabilize.")
-        time.sleep(5)
+        print(f"Waiting {APP_LAUNCH_WAIT} seconds for application to launch and stabilize.")
+        time.sleep(APP_LAUNCH_WAIT)
 
         print(f"Step 2: Getting state of application '{app_id}'.")
         _, response = execute_cmd_and_log(tester, device_id, "applications/get-state", json.dumps({"appId": app_id}), logs)
@@ -79,13 +86,13 @@ def run_app_background_check(dab_topic, test_category, test_name, tester, device
     try:
         print(f"Step 1: Launching application '{app_id}'.")
         execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": app_id}), logs)
-        print(f"Waiting 5 seconds for application to launch.")
-        time.sleep(5)
+        print(f"Waiting {APP_LAUNCH_WAIT} seconds for application to launch.")
+        time.sleep(APP_LAUNCH_WAIT)
 
         print(f"Step 2: Pressing 'KEY_HOME' to send app to background.")
         execute_cmd_and_log(tester, device_id, "input/key-press", json.dumps({"keyCode": "KEY_HOME"}), logs)
-        print(f"Waiting 3 seconds for app to go to background.")
-        time.sleep(3)
+        print(f"Waiting {APP_EXIT_WAIT} seconds for app to go to background.")
+        time.sleep(APP_EXIT_WAIT)
 
         print(f"Step 3: Getting state of application '{app_id}'.")
         _, response = execute_cmd_and_log(tester, device_id, "applications/get-state", json.dumps({"appId": app_id}), logs)
@@ -121,13 +128,13 @@ def run_app_stopped_check(dab_topic, test_category, test_name, tester, device_id
     try:
         print(f"Step 1: Launching application '{app_id}'.")
         execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": app_id}), logs)
-        print(f"Waiting 5 seconds for application to launch.")
-        time.sleep(5)
+        print(f"Waiting {APP_LAUNCH_WAIT} seconds for application to launch.")
+        time.sleep(APP_LAUNCH_WAIT)
 
         print(f"Step 2: Exiting application '{app_id}'.")
         execute_cmd_and_log(tester, device_id, "applications/exit", json.dumps({"appId": app_id}), logs)
-        print(f"Waiting 3 seconds for app to fully exit.")
-        time.sleep(3)
+        print(f"Waiting {APP_EXIT_WAIT} seconds for app to fully exit.")
+        time.sleep(APP_EXIT_WAIT)
 
         print(f"Step 3: Getting state of application '{app_id}'.")
         _, response = execute_cmd_and_log(tester, device_id, "applications/get-state", json.dumps({"appId": app_id}), logs)
@@ -197,8 +204,8 @@ def run_launch_live_content_check(dab_topic, test_category, test_name, tester, d
     try:
         print(f"Step 1: Launching application '{app_id}' with content ID '{content_id}'.")
         _, response = execute_cmd_and_log(tester, device_id, "applications/launch-with-content", json.dumps({"appId": app_id, "contentId": content_id}), logs)
-        print(f"Waiting 5 seconds for content to load and playback to start.")
-        time.sleep(5)
+        print(f"Waiting {CONTENT_LOAD_WAIT} seconds for content to load and playback to start.")
+        time.sleep(CONTENT_LOAD_WAIT)
 
         print(f"Step 2: Checking the reported resolution.")
         resp_json = json.loads(response) if response else {}
@@ -234,13 +241,13 @@ def run_exit_after_video_check(dab_topic, test_category, test_name, tester, devi
     try:
         print(f"Step 1: Launching application '{app_id}'.")
         execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": app_id}), logs)
-        print(f"Waiting 5 seconds for application to launch.")
-        time.sleep(5)
+        print(f"Waiting {APP_LAUNCH_WAIT} seconds for application to launch.")
+        time.sleep(APP_LAUNCH_WAIT)
 
         print(f"Step 2: Exiting application '{app_id}'.")
         execute_cmd_and_log(tester, device_id, "applications/exit", json.dumps({"appId": app_id}), logs)
-        print(f"Waiting 3 seconds for app to fully exit.")
-        time.sleep(3)
+        print(f"Waiting {APP_EXIT_WAIT} seconds for app to fully exit.")
+        time.sleep(APP_EXIT_WAIT)
 
         print(f"Step 3: Getting state of application '{app_id}' to confirm exit.")
         _, response = execute_cmd_and_log(tester, device_id, "applications/get-state", json.dumps({"appId": app_id}), logs)
@@ -276,18 +283,18 @@ def run_relaunch_stability_check(dab_topic, test_category, test_name, tester, de
     try:
         print(f"Step 1: First launch of application '{app_id}'.")
         execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": app_id}), logs)
-        print(f"Waiting 3 seconds after first launch.")
-        time.sleep(3)
+        print(f"Waiting {APP_EXIT_WAIT} seconds after first launch.") # Assuming this is a short wait for initial launch
+        time.sleep(APP_EXIT_WAIT)
 
         print(f"Step 2: Exiting application '{app_id}'.")
         execute_cmd_and_log(tester, device_id, "applications/exit", json.dumps({"appId": app_id}), logs)
-        print(f"Waiting 2 seconds after exit.")
-        time.sleep(2)
+        print(f"Waiting {APP_STATE_CHECK_WAIT} seconds after exit.") # Assuming this is a short wait for app to settle
+        time.sleep(APP_STATE_CHECK_WAIT)
 
         print(f"Step 3: Relaunching application '{app_id}'.")
         _, response = execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": app_id}), logs)
-        print(f"Waiting 3 seconds after relaunch.")
-        time.sleep(3)
+        print(f"Waiting {APP_RELAUNCH_WAIT} seconds after relaunch.")
+        time.sleep(APP_RELAUNCH_WAIT)
 
         if response:
             logs.append(f"[PASS] App relaunched cleanly.")
