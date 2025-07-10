@@ -787,6 +787,42 @@ stop_log_collection_response_schema = {
     "required": ["status", "logs"]
 }
 
+# Operation: system/power-mode/get
+# GetPowerModeRequest
+power_mode_get_request_schema = dab_request_schema
+
+# GetPowerModeResponse
+power_mode_get_response_schema = {
+    "type": "object",
+    "properties": {
+        "status": {"type": "integer"},
+        "error": {"type": "string"},
+        "powerMode": {"type": "string"}
+    },
+    "required": ["status", "powerMode"]
+}
+
+# Operation: system/power-mode/set
+# SetPowerModeRequest
+power_mode_set_request_schema = {
+    "type": "object",
+    "properties": {
+        "powerMode": {"type": "string"}
+    },
+    "required": ["powerMode"]
+}
+
+# SetPowerModeResponse
+power_mode_set_response_schema = {
+    "type": "object",
+    "properties": {
+        "status": {"type": "integer"},
+        "error": {"type": "string"},
+        "powerMode": {"type": "string"}
+    },
+    "required": ["status", "powerMode"]
+}
+
 class dab_response_validator(object):
     def __init__(self):
         pass
@@ -906,3 +942,11 @@ class dab_response_validator(object):
     @staticmethod
     def validate_start_log_collection_response_schema(response):
         validate(instance=jsons.loads(response), schema=start_log_collection_response_schema)
+
+    @staticmethod
+    def validate_power_mode_set_response_schema(response):
+        validate(instance=jsons.loads(response), schema=power_mode_set_response_schema)
+
+    @staticmethod
+    def validate_power_mode_get_response_schema(response):
+        validate(instance=jsons.loads(response), schema=power_mode_get_response_schema)
