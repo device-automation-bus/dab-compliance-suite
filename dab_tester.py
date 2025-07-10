@@ -162,9 +162,28 @@ class DabTester:
 
         return test_result
 
+    def Execute_Functional_Tests(self, device_id, functional_tests, test_result_output_path=""):
+        result_list = []
+        for test_case in functional_tests:
+            dab_topic, test_category, test_func, test_name, *_ = test_case
+            # Call the actual functional test function, passing required params
+            try:
+                result = test_func(dab_topic, test_category, test_name, self, device_id)
+                result_list.append(result)
+            except Exception as e:
+                print(f"[ERROR] Functional test execution failed: {e}")
+
+        if not test_result_output_path:
+            test_result_output_path = "./test_result/functional_result.json"
+
+        self.write_test_result_json("functional", result_list, test_result_output_path)
+
     def Execute_All_Tests(self, suite_name, device_id, Test_Set, test_result_output_path):
         if not self.bridge_version:
             self.detect_bridge_version(device_id)
+        if suite_name == "functional":
+            self.Execute_Functional_Tests(device_id, Test_Set, test_result_output_path)
+            return
         result_list = TestSuite([], suite_name)
         for test in Test_Set:
             result_list.test_result_list.append(self.Execute(device_id, test))
@@ -176,8 +195,11 @@ class DabTester:
     def Execute_Single_Test(self, suite_name, device_id, test_case_or_cases, test_result_output_path=""):
         if not self.bridge_version:
             self.detect_bridge_version(device_id)
-        result_list = TestSuite([], suite_name)
-        
+        if suite_name == "functional":
+            self.Execute_Functional_Tests(device_id, test_case_or_cases, test_result_output_path)
+            return
+
+        result_list = TestSuite([], suite_name)        
         # Handle a list of test cases or a single one
         if isinstance(test_case_or_cases, list):
             for test_case in test_case_or_cases:
@@ -249,6 +271,19 @@ class DabTester:
         def fail(reason):
             print(f"[SKIPPED] Invalid test case: {reason} → {test_case}")
             return (None,) * 7  # Expected structure length
+        
+        if isinstance(test_case, tuple) and len(test_case) >= 3:
+            if test_case[1] == "functional" and callable(test_case[2]):
+                # Functional test detected
+                topic = test_case[0]
+                body_str = "{}"  # No fixed payload required
+                func = test_case[2]
+                title = test_case[3] if len(test_case) > 3 else "FunctionalTest"
+                test_version = str(test_case[4]) if len(test_case) > 4 else "2.0"
+                is_negative = bool(test_case[5]) if len(test_case) > 5 else False
+                expected = 0  # Expected not used but kept for tuple shape
+
+                return topic, body_str, func, expected, title, is_negative, test_version
 
         # Validate input type
         if not isinstance(test_case, tuple):
