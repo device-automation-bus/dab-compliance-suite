@@ -12,13 +12,13 @@ import os
 from util.enforcement_manager import ValidateCode
 
 class DabTester:
-    def __init__(self,broker):
+    def __init__(self,broker, override_bridge_version=None):
         self.dab_client = DabClient()
         self.dab_client.connect(broker,1883)
         self.dab_checker = DabChecker(self)
         self.verbose = False
         self.bridge_version = None  # Will be set by auto-detect logic
-
+        self.override_bridge_version = override_bridge_version
         # Load valid DAB topics using jsons
         try:
             with open("valid_dab_topics.json", "r", encoding="utf-8") as f:
@@ -339,7 +339,12 @@ class DabTester:
         """
         Detects DAB bridge version by calling 'dab/version' once.
         Stores version string in self.bridge_version.
+        Honors override_bridge_version if explicitly provided.
         """
+        if hasattr(self, 'override_bridge_version') and self.override_bridge_version:
+            self.bridge_version = self.override_bridge_version
+            print(f"[INFO] Forced DAB bridge version (override): {self.bridge_version}")
+            return
         try:
             # Send request manually (not via test case)
             self.dab_client.request(device_id, "version", "{}")
