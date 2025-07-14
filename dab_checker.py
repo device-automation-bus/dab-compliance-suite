@@ -43,6 +43,10 @@ class DabChecker:
                 return self.__precheck_voice_set(device_id, dab_request_body)
             case 'voice/send-text' | 'voice/send-audio':
                 return self.__precheck_voice_send_text_audio(device_id, dab_request_body)
+            case 'device-telemetry/start':
+                return self.__precheck_device_telemetry_start(device_id, dab_request_body)
+            case 'app-telemetry/start':
+                return self.__precheck_app_telemetry_start(device_id, dab_request_body)
             case _:
                 return ValidateCode.SUPPORT, ""
 
@@ -136,6 +140,26 @@ class DabChecker:
         prechecker_log = f"\nvoice system {request_voice_system} is not enabled on this device. Fail the test...\n"
         return ValidateCode.FAIL, prechecker_log
 
+    def __precheck_device_telemetry_start(self, device_id, dab_request_body):
+        dab_precheck_topic = "device-telemetry/stop"
+        dab_precheck_body = "{}"
+
+        print(f"\nstop system device telemetry on this device...\n")
+        dab_response = self.__execute_cmd(device_id, dab_precheck_topic, dab_precheck_body)
+        prechecker_log = f"\nsystem device telemetry is stopped on this device. Try to start...\n"
+        return ValidateCode.SUPPORT, prechecker_log
+
+    def __precheck_app_telemetry_start(self, device_id, dab_request_body):
+        dab_precheck_topic = "app-telemetry/stop"
+        request_body = jsons.loads(dab_request_body)
+        appId = request_body['appId']
+        dab_precheck_body = jsons.dumps({"appId": appId}, indent = 4)
+
+        print(f"\nstop app {appId} telemetry on this device...\n")
+        dab_response = self.__execute_cmd(device_id, dab_precheck_topic, dab_precheck_body)
+        prechecker_log = f"\napp {appId} telemetry is stopped on this device. Try to start...\n"
+        return ValidateCode.SUPPORT, prechecker_log
+
     def check(self, device_id, dab_request_topic, dab_request_body):
         """
         Checks if the request DAB operation is executed correctly on the target.
@@ -160,6 +184,10 @@ class DabChecker:
                 return self.__check_system_settings_set(device_id, dab_request_body)
             case 'voice/set':
                 return self.__check_voice_set(device_id, dab_request_body)
+            case 'device-telemetry/start':
+                return self.__check_device_telemetry_metrics(device_id, dab_request_body)
+            case 'app-telemetry/start':
+                return self.__check_app_telemetry_metrics(device_id, dab_request_body)
             case _:
                 return True, ""
 
@@ -225,4 +253,47 @@ class DabChecker:
                 validate_result = True if voice_assistant['enabled'] == request_value['enabled'] else False
 
         checker_log = f"\nvoice set {request_value['name']} Value, Expected: {request_value['enabled']}, Actual: {actual_value}\n"
+        return validate_result, checker_log
+
+    def __check_device_telemetry_metrics(self, device_id, dab_request_body):
+        dab_check_topic = "device-telemetry/metrics"
+        request_body = jsons.loads(dab_request_body)
+        validate_result = False
+        actual_value = 'UNKNOWN'
+        checker_log = f"\ndevice telemetry start, Expected: True, Actual: {actual_value}\n"
+
+        print(f"\nstart device telemetry metrics checking...\n")
+        checker_log = f"\nstart device telemetry metrics checking...\n"
+        self.dab_tester.dab_client.subscribe_metrics(device_id, dab_check_topic)
+
+        print(self.dab_tester.dab_client.response_metrics())
+        checker_log += self.dab_tester.dab_client.response_metrics()
+        validate_result = actual_value = True if self.dab_tester.dab_client.last_error_code() == 200 else False
+
+        print(f"\nstop device telemetry metrics checking...\n")
+        checker_log += f"\nstop device telemetry metrics checking...\n"
+        self.dab_tester.dab_client.unsubscribe_metrics(device_id, dab_check_topic)
+
+        checker_log += f"\ndevice telemetry start, Expected: True, Actual: {actual_value}\n"
+        self.__precheck_device_telemetry_start(device_id, dab_request_body)
+        return validate_result, checker_log
+
+    def __check_app_telemetry_metrics(self, device_id, dab_request_body):
+        request_body = jsons.loads(dab_request_body)
+        appId = request_body['appId']
+        dab_check_topic = "app-telemetry/metrics/" + appId.lower()
+
+        validate_result = False
+        actual_value = 'UNKNOWN'
+
+        print(f"\nstart app {appId} telemetry metrics checking...\n")
+        self.dab_tester.dab_client.subscribe_metrics(device_id, dab_check_topic)
+
+        validate_result = actual_value = True if self.dab_tester.dab_client.last_error_code() == 200 else False
+
+        print(f"\nstop app {appId} telemetry metrics checking...\n")
+        self.dab_tester.dab_client.unsubscribe_metrics(device_id, dab_check_topic)
+
+        checker_log = f"\napp {appId} telemetry start, Expected: True, Actual: {actual_value}\n"
+        self.__precheck_app_telemetry_start(device_id, dab_request_body)
         return validate_result, checker_log
