@@ -29,5 +29,8 @@
   "applications/clear-data",
   "applications/install-from-app-store",
   "system/logs/start-collection",
-  "system/logs/stop-collection"
+  "system/logs/stop-collection",
+  "system/power-mode/get",
+  "system/power-mode/set",
+  "system/setup/skip"
 ]
