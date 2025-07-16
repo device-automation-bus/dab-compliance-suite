@@ -5,6 +5,8 @@ from paho.mqtt.packettypes import PacketTypes
 import paho.mqtt.client as mqtt
 import json
 
+METRICS_TIMES = 10
+
 class DabClient:
     def __init__(self):
         self.__lock = Lock()
@@ -24,7 +26,7 @@ class DabClient:
     def __on_message_metrics(self, client, userdata, message):
         self.__response_dic = json.loads(message.payload)
         self.__log += f"\n{json.dumps(self.__response_dic)}"
-        if self.metrics_count < 10:
+        if self.metrics_count < METRICS_TIMES:
             self.metrics_count += 1
             print(self.__response_dic)
         else:
