@@ -65,6 +65,12 @@ if __name__ == "__main__":
     parser.add_argument("-s","--suite",
                         help="set what test suite to run. Available test suite includes:" + test_suites_str,
                         type=str)
+    
+    parser.add_argument("--bridge-version",
+                        help="Override detected DAB bridge version. Use 2.0 or 2.1 to force specific test compatibility.",
+                        type=str,
+                        choices=["2.0", "2.1"],
+                        default=None)
 
     parser.set_defaults(output="")
     
@@ -74,7 +80,7 @@ if __name__ == "__main__":
     # Use the DabTester
     device_id = args.ID
 
-    Tester = DabTester(args.broker)
+    Tester = DabTester(args.broker, override_bridge_version=args.bridge_version)
     
     Tester.verbose = args.verbose
 
