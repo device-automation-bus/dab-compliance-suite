@@ -34,7 +34,7 @@ def print_response(response, topic_for_color=None, indent=10):
     for key, value in response.items():
         print(f"{' ' * indent}{key}: {value}")
 
-
+#("system/settings/set", '{"highContrastText": true}', dab.system.settings_set, 5000, "Set High Contrast Text", "2.1" , False),
 # === Test 1: App in FOREGROUND ===
 def run_app_foreground_check(dab_topic, test_category, test_name, tester, device_id):
     print(f"\n[Test] App Foreground Check, Test name: {test_name}" )
@@ -311,6 +311,49 @@ def run_relaunch_stability_check(dab_topic, test_category, test_name, tester, de
     print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
     return result
 
+def run_high_contrast_text_check(dab_topic, test_category, test_name, tester, device_id):
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    logs = []
+    setting_key = "highContrastText"
+    result = TestResult(test_id, device_id, "system/settings/get", "{}", "UNKNOWN", "", logs)
+
+    try:
+        # Step 1: Set highContrastText to True
+        payload_true = json.dumps({setting_key: True})
+        logs.append("Step 1: Setting highContrastText to True.")
+        execute_cmd_and_log(tester, device_id, "system/settings/set", payload_true, logs)
+        time.sleep(2)
+
+        # Step 2: Get settings and validate
+        _, response_true = execute_cmd_and_log(tester, device_id, "system/settings/get", "{}", logs)
+        state_true = json.loads(response_true).get(setting_key, None) if response_true else None
+        logs.append(f"State after setting True: {state_true}")
+
+        # Step 3: Set highContrastText to False
+        payload_false = json.dumps({setting_key: False})
+        logs.append("Step 3: Setting highContrastText to False.")
+        execute_cmd_and_log(tester, device_id, "system/settings/set", payload_false, logs)
+        time.sleep(2)
+
+        # Step 4: Get settings and validate
+        _, response_false = execute_cmd_and_log(tester, device_id, "system/settings/get", "{}", logs)
+        state_false = json.loads(response_false).get(setting_key, None) if response_false else None
+        logs.append(f"State after setting False: {state_false}")
+
+        # Final Validation
+        if state_true is True and state_false is False:
+            logs.append("[PASS] HighContrastText state correctly set and validated.")
+            result.test_result = "PASS"
+        else:
+            logs.append(f"[FAIL] Validation failed: True={state_true}, False={state_false}")
+            result.test_result = "FAILED"
+
+    except Exception as e:
+        logs.append(f"[ERROR] {str(e)}")
+        result.test_result = "SKIPPED"
+
+    return result
+
 
 # === Functional Test Case List ===
 FUNCTIONAL_TEST_CASE = [
@@ -321,4 +364,6 @@ FUNCTIONAL_TEST_CASE = [
     ("applications/launch-with-content", "functional", run_launch_live_content_check, "LaunchLiveContentCheck", "2.0", False),
     ("applications/exit", "functional", run_exit_after_video_check, "ExitAfterVideoCheck", "2.0", False),
     ("applications/launch", "functional", run_relaunch_stability_check, "RelaunchStabilityCheck", "2.0", False),
+    ("system/settings/get", "functional", run_high_contrast_text_check, "HighContrastTextCheck", "2.1", False),
+
 ]
