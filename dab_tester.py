@@ -12,13 +12,13 @@ import os
 from util.enforcement_manager import ValidateCode
 
 class DabTester:
-    def __init__(self,broker, override_bridge_version=None):
+    def __init__(self,broker, override_dab_version=None):
         self.dab_client = DabClient()
         self.dab_client.connect(broker,1883)
         self.dab_checker = DabChecker(self)
         self.verbose = False
-        self.bridge_version = None  # Will be set by auto-detect logic
-        self.override_bridge_version = override_bridge_version
+        self.dab_version = None  # Will be set by auto-detect logic
+        self.override_dab_version = override_dab_version
         # Load valid DAB topics using jsons
         try:
             with open("valid_dab_topics.json", "r", encoding="utf-8") as f:
@@ -46,21 +46,21 @@ class DabTester:
         print("\ntesting", dab_request_topic, " ", dab_request_body, "... ", end='', flush=True)
         # ------------------------------------------------------------------------
         # DAB Version Compatibility Check
-        # If the test is meant for DAB 2.1 but the bridge is on DAB 2.0,
+        # If the test is meant for DAB 2.1 but the dav version is on DAB 2.0,
         # treat this as OPTIONAL_FAILED instead of skipping or erroring out.
         # This ensures transparency in test result reporting.
         # ------------------------------------------------------------------------
-        # Get bridge version (default "2.0") and convert both to float
-        bridge_version = self.bridge_version or "2.0"
+        # Get dab version version (default "2.0") and convert both to float
+        dab_version = self.dab_version or "2.0"
         required_version = float(test_version)
 
-        # If the required test version > current bridge version, mark as OPTIONAL_FAILED
+        # If the required test version > current dab version, mark as OPTIONAL_FAILED
         try:
             required_version = float(test_version)
-            bridge_version_float = float(bridge_version)
-            if bridge_version_float < required_version:
+            dab_version_float = float(dab_version)
+            if dab_version_float < required_version:
                 test_result.test_result = "OPTIONAL_FAILED"
-                log(test_result, f"\033[1;33m[ OPTIONAL_FAILED - Requires DAB {required_version}, but bridge is {bridge_version_float} ]\033[0m")
+                log(test_result, f"\033[1;33m[ OPTIONAL_FAILED - Requires DAB Version {required_version}, but DAB version is {dab_version_float} ]\033[0m")
                 return test_result
         except Exception as e:
             log(test_result, f"[WARNING] Version comparison failed: {e}")
@@ -179,8 +179,8 @@ class DabTester:
         self.write_test_result_json("functional", result_list, test_result_output_path)
 
     def Execute_All_Tests(self, suite_name, device_id, Test_Set, test_result_output_path):
-        if not self.bridge_version:
-            self.detect_bridge_version(device_id)
+        if not self.dab_version:
+            self.detect_dab_version(device_id)
         if suite_name == "functional":
             self.Execute_Functional_Tests(device_id, Test_Set, test_result_output_path)
             return
@@ -193,8 +193,8 @@ class DabTester:
         self.write_test_result_json(suite_name, result_list.test_result_list, test_result_output_path)
 
     def Execute_Single_Test(self, suite_name, device_id, test_case_or_cases, test_result_output_path=""):
-        if not self.bridge_version:
-            self.detect_bridge_version(device_id)
+        if not self.dab_version:
+            self.detect_dab_version(device_id)
         if suite_name == "functional":
             self.Execute_Functional_Tests(device_id, test_case_or_cases, test_result_output_path)
             return
@@ -335,15 +335,15 @@ class DabTester:
         except Exception as e:
             return fail(f"Unexpected error: {str(e)}")
         
-    def detect_bridge_version(self, device_id):
+    def detect_dab_version(self, device_id):
         """
-        Detects DAB bridge version by calling 'dab/version' once.
-        Stores version string in self.bridge_version.
-        Honors override_bridge_version if explicitly provided.
+        Detects DAB version by calling 'dab/version' once.
+        Stores version string in self.dab_version.
+        Honors override_dab_version if explicitly provided.
         """
-        if hasattr(self, 'override_bridge_version') and self.override_bridge_version:
-            self.bridge_version = self.override_bridge_version
-            print(f"[INFO] Forced DAB bridge version (override): {self.bridge_version}")
+        if hasattr(self, 'override_dab_version') and self.override_dab_version:
+            self.dab_version = self.override_dab_version
+            print(f"[INFO] Forced DAB version (override): {self.dab_version}")
             return
         try:
             # Send request manually (not via test case)
@@ -352,15 +352,15 @@ class DabTester:
 
             if response:
                 resp_json = json.loads(response)
-                self.bridge_version = resp_json.get("bridgeVersion", "2.0")
-                print(f"[INFO] Detected DAB bridge version: {self.bridge_version}")
+                self.dab_version = resp_json.get("DAB Version", "2.0")
+                print(f"[INFO] Detected DAB version: {self.dab_version}")
             else:
-                print("[WARNING] Empty response from bridge version check. Using fallback.")
-                self.bridge_version = "2.0"
+                print("[WARNING] Empty response from DAB version check. Using fallback.")
+                self.dab_version = "2.0"
 
         except Exception as e:
-            print(f"[ERROR] Failed to detect bridge version: {e}")
-            self.bridge_version = "2.0"
+            print(f"[ERROR] Failed to detect DAB version: {e}")
+            self.dab_version = "2.0"
 
     def Close(self):
         self.dab_client.disconnect()
