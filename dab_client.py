@@ -5,7 +5,7 @@ from paho.mqtt.packettypes import PacketTypes
 import paho.mqtt.client as mqtt
 import json
 
-METRICS_TIMES = 10
+METRICS_TIMES = 5
 
 class DabClient:
     def __init__(self):
@@ -13,9 +13,8 @@ class DabClient:
         self.__lock.acquire()
         self.__client = mqtt.Client("mqtt5_client",protocol=mqtt.MQTTv5)
         self.metrics_count = 0
-        self.__log = ""
 
-    def __on_message(self, client, userdata, message):   
+    def __on_message(self, client, userdata, message):
         self.__response_dic = json.loads(message.payload)
         self.__lock.release()
         try:
@@ -24,14 +23,15 @@ class DabClient:
             self.__code = -1
 
     def __on_message_metrics(self, client, userdata, message):
-        self.__response_dic = json.loads(message.payload)
-        self.__log += f"\n{json.dumps(self.__response_dic)}"
+        if not message.payload:
+            return
+
+        metrics_response = json.loads(message.payload)
         if self.metrics_count < METRICS_TIMES:
             self.metrics_count += 1
-            print(self.__response_dic)
+            print(metrics_response)
         else:
-            self.__code = 200
-            self.metrics_count = 0
+            self.__metrics_state = True
             self.__lock.release()
 
     def disconnect(self):
@@ -60,23 +60,22 @@ class DabClient:
         else:
             return ""
 
-    def response_metrics(self):
-        return self.__log
-
     def subscribe_metrics(self, device_id, operation):
-        self.__code = 100
+        self.__metrics_state = False
+        self.metrics_count = 0
         response_topic = "dab/" + device_id+"/" + operation
         self.__client.subscribe(response_topic)
         self.__client.on_message = self.__on_message_metrics
-        if not (self.__lock.acquire(timeout = 90)):
-            self.__code = 100
+        if not (self.__lock.acquire(timeout = 30)):
+            self.__metrics_state = False
 
     def unsubscribe_metrics(self, device_id, operation):
         response_topic = "dab/" + device_id+"/" + operation
         self.__client.unsubscribe(response_topic)
-        if self.__lock.locked():
-            self.__lock.release()
     
+    def last_metrics_state(self):
+        return self.__metrics_state
+
     def last_error_code(self):
         return self.__code
     
