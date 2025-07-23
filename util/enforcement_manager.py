@@ -28,7 +28,6 @@ class ValidateCode(Enum):
     SUPPORT = 0
     UNSUPPORT = 1
     UNCERTAIN = 2
-    FAIL = 3
 
 @singleton
 class EnforcementManager:
@@ -45,12 +44,24 @@ class EnforcementManager:
 
     def is_operation_supported(self, operation):
         return not self.supported_operations or operation in self.supported_operations
+
+    def add_supported_operations(self, operations):
+        self.supported_operations = operations
+
+    def get_supported_operations(self):
+        return self.supported_operations
     
     def add_supported_key(self, key):
         self.supported_keys.add(key)
 
     def is_key_supported(self, key):
         return not self.supported_keys or key in self.supported_keys
+
+    def add_supported_keys(self, keys):
+        self.supported_keys = keys
+
+    def get_supported_keys(self):
+        return self.supported_keys
     
     def get_supported_voice_assistants(self, voice_assistant = None):
         if not voice_assistant:

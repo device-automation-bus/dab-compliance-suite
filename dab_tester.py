@@ -9,6 +9,7 @@ import jsons
 import json
 import config
 import os
+from util.enforcement_manager import EnforcementManager
 from util.enforcement_manager import ValidateCode
 
 class DabTester:
@@ -64,6 +65,16 @@ class DabTester:
                 return test_result
         except Exception as e:
             log(test_result, f"[WARNING] Version comparison failed: {e}")
+
+        if dab_request_topic != 'operations/list':
+            validate_code, prechecker_log = self.dab_checker.is_operation_supported(device_id, dab_request_topic)
+
+            if validate_code == ValidateCode.UNSUPPORT:
+                test_result.test_result = "OPTIONAL_FAILED"
+                log(test_result, prechecker_log)
+                log(test_result, f"\033[1;33m[ OPTIONAL_FAILED - Requires DAB Operation is NOT SUPPORTED ]\033[0m")
+                return test_result
+
         # ------------------------------------------------------------------------
         # If precheck is supported and this is not a negative test case
         # Use precheck to determine if operation is supported
@@ -71,11 +82,6 @@ class DabTester:
         if not is_negative:
             validate_code, prechecker_log = self.dab_checker.precheck(device_id, dab_request_topic, dab_request_body)
             if validate_code == ValidateCode.UNSUPPORT:
-                test_result.test_result = "SKIPPED"
-                log(test_result, prechecker_log)
-                log(test_result, f"\033[1;34m[ SKIPPED ]\033[0m")
-                return test_result
-            elif validate_code == ValidateCode.FAIL:
                 test_result.test_result = "OPTIONAL_FAILED"
                 log(test_result, prechecker_log)
                 log(test_result, f"\033[1;33m[ OPTIONAL_FAILED ]\033[0m")
@@ -105,6 +111,8 @@ class DabTester:
                         validate_result, checker_log = self.dab_checker.check(device_id, dab_request_topic, dab_request_body)
                         if checker_log:
                             log(test_result, checker_log)
+                    else:
+                         self.dab_checker.end_precheck(device_id, dab_request_topic, dab_request_body)
                 except Exception as e:
                     # If this is a negative test case and validation fails (e.g., 200 response with incorrect behavior),
                     # treat it as PASS because failure was the expected outcome in this scenario.
