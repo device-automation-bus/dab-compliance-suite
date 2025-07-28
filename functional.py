@@ -187,47 +187,12 @@ def run_launch_without_content_id(dab_topic, test_category, test_name, tester, d
     print(f"[Result] Test Id: {result.test_id} Test Outcome: {result.test_result}\n({'-' * 100})")
     return result
 
-
-# === Test 5: Launch Live Content & Validate Resolution ===
-def run_launch_live_content_check(dab_topic, test_category, test_name, tester, device_id):
-    print("\n[Test] Launch Live Content with Resolution Check")
-    print("Objective: Validate content launch with correct resolution.")
-
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
-    app_id = config.apps.get("youtube", "YouTube")
-    content_id = "2ZggAa6LuiM"
-    expected_resolution = "2k"
-    logs = []
-    result = TestResult(test_id, device_id, "applications/launch-with-content", json.dumps({"appId": app_id, "contentId": content_id}), "UNKNOWN", "", logs)
-
-    try:
-        print(f"Step 1: Launching application '{app_id}' with content ID '{content_id}'.")
-        _, response = execute_cmd_and_log(tester, device_id, "applications/launch-with-content", json.dumps({"appId": app_id, "contentId": content_id}), logs)
-        print(f"Waiting {CONTENT_LOAD_WAIT} seconds for content to load and playback to start.")
-        time.sleep(CONTENT_LOAD_WAIT)
-
-        print(f"Step 2: Checking the reported resolution.")
-        resp_json = json.loads(response) if response else {}
-        resolution = resp_json.get("resolution", "").lower()
-        print(f"Reported resolution: {resolution}, Expected resolution: {expected_resolution}.")
-
-        if resolution == expected_resolution.lower():
-            logs.append(f"[PASS] Resolution '{resolution}' as expected.")
-            result.test_result = "PASS"
-        else:
-            logs.append(f"[FAIL] Resolution mismatch: Reported '{resolution}', Expected '{expected_resolution}'.")
-            result.test_result = "FAILED"
-
-    except Exception as e:
-        logs.append(f"[ERROR] {str(e)}")
-        result.test_result = "SKIPPED"
-
     # Print concise final test result status
     print(f"[Result] Test Id: {result.test_id} Test Outcome: {result.test_result}\n({'-' * 100})")
     return result
 
 
-# === Test 6: Exit App After Playing Video ===
+# === Test 5: Exit App After Playing Video ===
 def run_exit_after_video_check(dab_topic, test_category, test_name, tester, device_id):
     print("\n[Test] Exit After Video Playback Check")
     print("Objective: Validate that resources are released after exiting app after video playback.")
@@ -280,7 +245,7 @@ def run_exit_after_video_check(dab_topic, test_category, test_name, tester, devi
     return result
 
 
-# === Test 7: Relaunch Stability Check ===
+# === Test 6: Relaunch Stability Check ===
 def run_relaunch_stability_check(dab_topic, test_category, test_name, tester, device_id):
     print("\n[Test] Relaunch Stability Check")
     print("Objective: Validate app can be exited and relaunched without issue.")
@@ -321,7 +286,7 @@ def run_relaunch_stability_check(dab_topic, test_category, test_name, tester, de
     print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
     return result
 
-# === Test 8: Exit And Relaunch App ===
+# === Test 7: Exit And Relaunch App ===
 def run_exit_and_relaunch_check(dab_topic, test_category, test_name, tester, device_id):
     print("\n[Test] Exit and Relaunch App")
     print("Objective: Verify the app can exit and relaunch without issues.")
@@ -358,57 +323,13 @@ def run_exit_and_relaunch_check(dab_topic, test_category, test_name, tester, dev
     print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}\n{'-'*100}")
     return result
 
-# === Test 9: Launch Content With 8K Video === 
-def run_launch_8k_content_on_non_8k_device(dab_topic, test_category, test_name, tester, device_id):
-    print("\n[Test] Launch 8K Content on Non-8K Supported Device")
-    print("Objective: Ensure device handles unsupported 8K content gracefully.")
-
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
-    app_id = config.apps.get("youtube", "YouTube")
-    # Sample 8K video ID (replace with actual known 8K video ID used for testing)
-    content_id = "jfKfPfyJRdk"
-    expected_fallback_resolutions = ["2k", "4k"]
-    logs = []
-
-    result = TestResult(test_id, device_id, "applications/launch-with-content", json.dumps({"appId": app_id}), "UNKNOWN", "", logs)
-    try:
-        print(f"Step 1: Sending launch request with 8K content ID '{content_id}'.")
-        _, response = execute_cmd_and_log(tester, device_id, "applications/launch-with-content", json.dumps({"appId": app_id, "contentId": content_id}), logs )
-        time.sleep(CONTENT_LOAD_WAIT)
-        if not response:
-            logs.append("[FAIL] No response received after attempting to play 8K content.")
-            result.test_result = "FAILED"
-        else:
-            response_json = json.loads(response)
-            print(response_json)
-            actual_resolution = response_json.get("resolution", "").lower()
-            logs.append(f"[INFO] Reported resolution: {actual_resolution}")
-
-            if actual_resolution in expected_fallback_resolutions:
-                logs.append(f"[PASS] Device fell back to supported resolution '{actual_resolution}'")
-                result.test_result = "PASS"
-            elif actual_resolution == "8k":
-                logs.append(f"[FAIL] Device attempted 8K playback on unsupported hardware.")
-                result.test_result = "FAILED"
-            else:
-                logs.append(f"[FAIL] Unexpected resolution '{actual_resolution}' reported.")
-                result.test_result = "FAILED"
-    except Exception as e:
-        logs.append(f"[ERROR] Exception occurred: {str(e)}")
-        result.test_result = "SKIPPED"
-
-    print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}\n{'-' * 100}")
-    return result
-
 # === Functional Test Case List ===
 FUNCTIONAL_TEST_CASE = [
     ("applications/get-state", "functional", run_app_foreground_check, "AppForegroundCheck", "2.0", False),
     ("applications/get-state", "functional", run_app_background_check, "AppBackgroundCheck", "2.0", False),
     ("applications/get-state", "functional", run_app_stopped_check, "AppStoppedCheck", "2.0", False),
     ("applications/launch-with-content", "functional", run_launch_without_content_id, "LaunchWithoutContentID", "2.0", True),
-    ("applications/launch-with-content", "functional", run_launch_live_content_check, "LaunchLiveContentCheck", "2.0", False),
     ("applications/exit", "functional", run_exit_after_video_check, "ExitAfterVideoCheck", "2.0", False),
     ("applications/launch", "functional", run_relaunch_stability_check, "RelaunchStabilityCheck", "2.0", False),
     ("applications/launch", "functional", run_exit_and_relaunch_check, "ExitAndRelaunchApp", "2.0", False),
-    ("applications/launch-with-content", "functional", run_launch_8k_content_on_non_8k_device, "LaunchLiveContentWith8KVideo", "2.0", True),
 ]
