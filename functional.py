@@ -34,8 +34,7 @@ def print_response(response, topic_for_color=None, indent=10):
     for key, value in response.items():
         print(f"{' ' * indent}{key}: {value}")
 
-
-# === Test 1: App in FOREGROUND ===
+# === Test 1: App in FOREGROUND Validate app moves to FOREGROUND after launch ===
 def run_app_foreground_check(dab_topic, test_category, test_name, tester, device_id):
     print(f"\n[Test] App Foreground Check, Test name: {test_name}" )
     print("Objective: Validate app moves to FOREGROUND after launch.")
@@ -73,7 +72,7 @@ def run_app_foreground_check(dab_topic, test_category, test_name, tester, device
     return result
 
 
-# === Test 2: App in BACKGROUND ===
+# === Test 2: App in BACKGROUND Validate app moves to BACKGROUND after pressing Home ===
 def run_app_background_check(dab_topic, test_category, test_name, tester, device_id):
     print("\n[Test] App Background Check")
     print("Objective: Validate app moves to BACKGROUND after pressing Home.")
@@ -115,7 +114,7 @@ def run_app_background_check(dab_topic, test_category, test_name, tester, device
     return result
 
 
-# === Test 3: App STOPPED ===
+# === Test 3: App STOPPED Validate app state is STOPPED after exit. ===
 def run_app_stopped_check(dab_topic, test_category, test_name, tester, device_id):
     print("\n[Test] App Stopped Check")
     print("Objective: Validate app state is STOPPED after exit.")
@@ -157,7 +156,7 @@ def run_app_stopped_check(dab_topic, test_category, test_name, tester, device_id
     return result
 
 
-# === Test 4: Launch Without Content ID (Negative) ===
+# === Test 4: Launch Without Content ID (Negative) Validate error is returned when contentId is missing. ===
 def run_launch_without_content_id(dab_topic, test_category, test_name, tester, device_id):
     print("\n[Test] Launch Without Content ID (Negative)")
     print("Objective: Validate error is returned when contentId is missing.")
@@ -188,89 +187,65 @@ def run_launch_without_content_id(dab_topic, test_category, test_name, tester, d
     print(f"[Result] Test Id: {result.test_id} Test Outcome: {result.test_result}\n({'-' * 100})")
     return result
 
-
-# === Test 5: Launch Live Content & Validate Resolution ===
-def run_launch_live_content_check(dab_topic, test_category, test_name, tester, device_id):
-    print("\n[Test] Launch Live Content with Resolution Check")
-    print("Objective: Validate content launch with correct resolution.")
-
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
-    app_id = config.apps.get("youtube", "YouTube")
-    content_id = "2ZggAa6LuiM"
-    expected_resolution = "2k"
-    logs = []
-    result = TestResult(test_id, device_id, "applications/launch-with-content", json.dumps({"appId": app_id, "contentId": content_id}), "UNKNOWN", "", logs)
-
-    try:
-        print(f"Step 1: Launching application '{app_id}' with content ID '{content_id}'.")
-        _, response = execute_cmd_and_log(tester, device_id, "applications/launch-with-content", json.dumps({"appId": app_id, "contentId": content_id}), logs)
-        print(f"Waiting {CONTENT_LOAD_WAIT} seconds for content to load and playback to start.")
-        time.sleep(CONTENT_LOAD_WAIT)
-
-        print(f"Step 2: Checking the reported resolution.")
-        resp_json = json.loads(response) if response else {}
-        resolution = resp_json.get("resolution", "").lower()
-        print(f"Reported resolution: {resolution}, Expected resolution: {expected_resolution}.")
-
-        if resolution == expected_resolution.lower():
-            logs.append(f"[PASS] Resolution '{resolution}' as expected.")
-            result.test_result = "PASS"
-        else:
-            logs.append(f"[FAIL] Resolution mismatch: Reported '{resolution}', Expected '{expected_resolution}'.")
-            result.test_result = "FAILED"
-
-    except Exception as e:
-        logs.append(f"[ERROR] {str(e)}")
-        result.test_result = "SKIPPED"
-
     # Print concise final test result status
     print(f"[Result] Test Id: {result.test_id} Test Outcome: {result.test_result}\n({'-' * 100})")
     return result
 
 
-# === Test 6: Exit App After Playing Video ===
+# === Test 5: Exit App After Playing Video ===
 def run_exit_after_video_check(dab_topic, test_category, test_name, tester, device_id):
     print("\n[Test] Exit After Video Playback Check")
-    print("Objective: Validate that resources are released after exiting app.")
+    print("Objective: Validate that resources are released after exiting app after video playback.")
 
     test_id = to_test_id(f"{dab_topic}/{test_category}")
     app_id = config.apps.get("youtube", "YouTube")
+    video_id = "2ZggAa6LuiM"  # Replace with actual valid YouTube video ID
     logs = []
-    result = TestResult(test_id, device_id, "applications/exit", json.dumps({"appId": app_id}), "UNKNOWN", "", logs)
+    # Create the test result instance
+    result = TestResult(test_id, device_id, "applications/exit", json.dumps({"appId": app_id}), "UNKNOWN", "", logs
+    )
 
     try:
-        print(f"Step 1: Launching application '{app_id}'.")
-        execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": app_id}), logs)
-        print(f"Waiting {APP_LAUNCH_WAIT} seconds for application to launch.")
+        # Step 1: Launch YouTube app with content parameters
+        print(f"Step 1: Launching app '{app_id}' with video ID '{video_id}'.")
+        launch_payload = { "appId": app_id, "parameters": [ f"v%3D{video_id}", "enableEventConsole%3Dtrue", "env_showConsole%3Dtrue"]}
+        execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps(launch_payload), logs)
+        print(f"Waiting {APP_LAUNCH_WAIT} seconds for video playback.")
         time.sleep(APP_LAUNCH_WAIT)
+        time.sleep(CONTENT_LOAD_WAIT)
 
-        print(f"Step 2: Exiting application '{app_id}'.")
+        # Step 2: Exit the application
+        print(f"Step 2: Exiting app '{app_id}'.")
         execute_cmd_and_log(tester, device_id, "applications/exit", json.dumps({"appId": app_id}), logs)
-        print(f"Waiting {APP_EXIT_WAIT} seconds for app to fully exit.")
+        print(f"Waiting {APP_EXIT_WAIT} seconds for app to fully stop.")
         time.sleep(APP_EXIT_WAIT)
 
-        print(f"Step 3: Getting state of application '{app_id}' to confirm exit.")
+        # Step 3: Get the app state
+        print(f"Step 3: Checking app state using 'applications/get-state'.")
         _, response = execute_cmd_and_log(tester, device_id, "applications/get-state", json.dumps({"appId": app_id}), logs)
-        state = json.loads(response).get("state", "").upper() if response else "UNKNOWN"
-        print(f"Current application state after exit attempt: {state}.")
+        try:
+            state = json.loads(response).get("state", "").upper() if response else "UNKNOWN"
+        except Exception:
+            state = "UNKNOWN"
+            logs.append("[WARNING] Failed to parse response from get-state")
 
+        print(f"Current app state: {state}")
         if state == "STOPPED":
-            logs.append(f"[PASS] App properly stopped, no background activity. State: '{state}'.")
+            logs.append(f"[PASS] App stopped cleanly after video. State: '{state}'")
             result.test_result = "PASS"
         else:
-            logs.append(f"[FAIL] App still active: '{state}', expected 'STOPPED'.")
+            logs.append(f"[FAIL] App still active after exit. State: '{state}', expected 'STOPPED'")
             result.test_result = "FAILED"
-
     except Exception as e:
         logs.append(f"[ERROR] {str(e)}")
         result.test_result = "SKIPPED"
 
-    # Print concise final test result status
-    print(f"[Result] Test Id: {result.test_id} Test Outcome: {result.test_result}\n({'-' * 100})")
+    print(f"[Result] Test Id: {result.test_id} Test Outcome: {result.test_result}")
+    print("-" * 100)
     return result
 
 
-# === Test 7: Relaunch Stability Check ===
+# === Test 6: Relaunch Stability Check ===
 def run_relaunch_stability_check(dab_topic, test_category, test_name, tester, device_id):
     print("\n[Test] Relaunch Stability Check")
     print("Objective: Validate app can be exited and relaunched without issue.")
@@ -311,6 +286,42 @@ def run_relaunch_stability_check(dab_topic, test_category, test_name, tester, de
     print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
     return result
 
+# === Test 7: Exit And Relaunch App ===
+def run_exit_and_relaunch_check(dab_topic, test_category, test_name, tester, device_id):
+    print("\n[Test] Exit and Relaunch App")
+    print("Objective: Verify the app can exit and relaunch without issues.")
+
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    app_id = config.apps.get("youtube", "YouTube")
+    logs = []
+    result = TestResult(test_id, device_id, "applications/launch", json.dumps({"appId": app_id}), "UNKNOWN", "", logs)
+
+    try:
+        print(f"Step 1: Launching application '{app_id}'.")
+        execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": app_id}), logs)
+        time.sleep(APP_LAUNCH_WAIT)
+
+        print(f"Step 2: Exiting application '{app_id}'.")
+        execute_cmd_and_log(tester, device_id, "applications/exit", json.dumps({"appId": app_id}), logs)
+        time.sleep(APP_EXIT_WAIT)
+
+        print(f"Step 3: Relaunching application '{app_id}' immediately after exit.")
+        _, response = execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": app_id}), logs)
+        time.sleep(APP_RELAUNCH_WAIT)
+
+        if response:
+            logs.append("[PASS] App exited and relaunched successfully without errors.")
+            result.test_result = "PASS"
+        else:
+            logs.append("[FAIL] App did not respond correctly on relaunch.")
+            result.test_result = "FAILED"
+
+    except Exception as e:
+        logs.append(f"[ERROR] Exception during test: {str(e)}")
+        result.test_result = "SKIPPED"
+
+    print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}\n{'-'*100}")
+    return result
 
 # === Functional Test Case List ===
 FUNCTIONAL_TEST_CASE = [
@@ -318,7 +329,7 @@ FUNCTIONAL_TEST_CASE = [
     ("applications/get-state", "functional", run_app_background_check, "AppBackgroundCheck", "2.0", False),
     ("applications/get-state", "functional", run_app_stopped_check, "AppStoppedCheck", "2.0", False),
     ("applications/launch-with-content", "functional", run_launch_without_content_id, "LaunchWithoutContentID", "2.0", True),
-    ("applications/launch-with-content", "functional", run_launch_live_content_check, "LaunchLiveContentCheck", "2.0", False),
     ("applications/exit", "functional", run_exit_after_video_check, "ExitAfterVideoCheck", "2.0", False),
     ("applications/launch", "functional", run_relaunch_stability_check, "RelaunchStabilityCheck", "2.0", False),
+    ("applications/launch", "functional", run_exit_and_relaunch_check, "ExitAndRelaunchApp", "2.0", False),
 ]

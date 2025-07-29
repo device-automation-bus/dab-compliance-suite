@@ -11,6 +11,7 @@ import config
 import os
 from util.enforcement_manager import EnforcementManager
 from util.enforcement_manager import ValidateCode
+import re
 
 class DabTester:
     def __init__(self,broker, override_dab_version=None):
@@ -145,10 +146,23 @@ class DabTester:
                     test_result.test_result = "PASS"
                     log(test_result, f"\033[1;33m[ NEGATIVE TEST PASSED - Expected Error Code {error_code} ]\033[0m")
                 elif error_code == 501:
-                    # 501 Not Implemented: The feature is not supported on this platform/device.
-                    # Considered OPTIONAL_FAILED because it's valid but not mandatory.
-                    test_result.test_result = "OPTIONAL_FAILED"
-                    log(test_result, f"\033[1;33m[ OPTIONAL_FAILED - Error Code {error_code} ]\033[0m")
+                    # ------------------------------------------------------------------------------
+                    # Handle 501 Not Implemented:
+                    # If the operation is listed in dab/operations/list but not implemented,
+                    # it is treated as a hard failure — this indicates a declared operation
+                    # is missing implementation.
+                    # If the operation is not listed in the supported list, mark as OPTIONAL_FAILED.
+                    # ------------------------------------------------------------------------------
+                    # Check if operation is listed in dab/operations/list
+                    supported_code, op_check_log = self.dab_checker.is_operation_supported(device_id, dab_request_topic)
+                    if supported_code == ValidateCode.SUPPORTED:
+                        test_result.test_result = "FAILED"
+                        log(test_result, op_check_log)
+                        log(test_result, f"\033[1;31m[ FAILED - Required DAB operation is NOT IMPLEMENTED (501) ]\033[0m")
+                    else:
+                        test_result.test_result = "OPTIONAL_FAILED"
+                        log(test_result, f"\033[1;33m[ OPTIONAL_FAILED - Operation may not be mandatory, received 501 ]\033[0m")
+
                 elif error_code == 500:
                     # 500 Internal Server Error: Indicates a crash or failure not caused by the test itself.
                     # Marked as SKIPPED to avoid counting it as a hard failure.
@@ -184,7 +198,8 @@ class DabTester:
         if not test_result_output_path:
             test_result_output_path = "./test_result/functional_result.json"
 
-        self.write_test_result_json("functional", result_list, test_result_output_path)
+        device_info = self.get_device_info(device_id) 
+        self.write_test_result_json("functional", result_list, test_result_output_path, device_info = device_info)
 
     def Execute_All_Tests(self, suite_name, device_id, Test_Set, test_result_output_path):
         if not self.dab_version:
@@ -197,8 +212,9 @@ class DabTester:
             result_list.test_result_list.append(self.Execute(device_id, test))
             #sleep(5)
         if (len(test_result_output_path) == 0):
-            test_result_output_path = f"./test_result/{suite_name}.json"      
-        self.write_test_result_json(suite_name, result_list.test_result_list, test_result_output_path)
+            test_result_output_path = f"./test_result/{suite_name}.json"  
+        device_info = self.get_device_info(device_id)   
+        self.write_test_result_json(suite_name, result_list.test_result_list, test_result_output_path, device_info = device_info)
 
     def Execute_Single_Test(self, suite_name, device_id, test_case_or_cases, test_result_output_path=""):
         if not self.dab_version:
@@ -220,9 +236,10 @@ class DabTester:
                 result_list.test_result_list.append(result)
         if len(test_result_output_path) == 0:
             test_result_output_path = f"./test_result/{suite_name}_single.json"
-        self.write_test_result_json(suite_name, result_list.test_result_list, test_result_output_path)
+        device_info = self.get_device_info(device_id)
+        self.write_test_result_json(suite_name, result_list.test_result_list, test_result_output_path, device_info = device_info)
         
-    def write_test_result_json(self, suite_name, result_list, output_path=""):
+    def write_test_result_json(self, suite_name, result_list, output_path="", device_info=None):
         """
         Serialize and write the test results to a JSON file in a structured format.
 
@@ -250,9 +267,11 @@ class DabTester:
         failed = sum(1 for t in result_list if getattr(t, "test_result", "") == "FAILED")
         optional_failed = sum(1 for t in result_list if getattr(t, "test_result", "") == "OPTIONAL_FAILED")
         skipped = sum(1 for t in result_list if getattr(t, "test_result", "") == "SKIPPED")
+        self.clean_result_fields(valid_results, fields_to_clean=["logs", "request", "response"])
         result_data = {
             "test_version": get_test_tool_version(),
             "suite_name": suite_name,
+            "device_info": device_info if device_info else {},
             "result_summary": {
                 "tests_executed": total_tests,
                 "tests_passed": passed,
@@ -370,6 +389,62 @@ class DabTester:
             print(f"[ERROR] Failed to detect DAB version: {e}")
             self.dab_version = "2.0"
 
+    def get_device_info(self, device_id):
+        try:
+            self.dab_client.request(device_id, "device/info", "{}")
+            response = self.dab_client.response()
+            if response:
+                device_info = json.loads(response)
+
+                # Extract only the required fields
+                filtered_info = {
+                    'manufacturer': device_info.get('manufacturer'),
+                    'model': device_info.get('model'),
+                    'serialNumber': device_info.get('serialNumber'),
+                    'chipset': device_info.get('chipset'),
+                    'firmwareVersion': device_info.get('firmwareVersion'),
+                    'firmwareBuild': device_info.get('firmwareBuild'),
+                    'deviceId': device_info.get('deviceId')
+                }
+                return filtered_info
+        except Exception as e:
+            print(f"[ERROR] Failed to fetch device info: {e}")
+        return {}
+
+    def clean_result_fields(self, result_list, fields_to_clean=["logs", "request", "response"]):
+        """
+        Clean specified fields before JSON dump:
+        - Remove ANSI color codes
+        - Decode escaped sequences
+        - Remove surrounding quotes
+        - Normalize multiline strings into clean lines
+        """
+        ansi_pattern = re.compile(r'\x1B\[[0-?]*[ -/]*[@-~]')
+        for result in result_list:
+            for field in fields_to_clean:
+                if not hasattr(result, field):
+                    continue
+                raw_value = getattr(result, field)
+                # Normalize to list of lines
+                if isinstance(raw_value, list):
+                    lines = raw_value
+                else:
+                    try:
+                        decoded = bytes(str(raw_value), "utf-8").decode("unicode_escape")
+                    except Exception:
+                        decoded = str(raw_value)
+                    lines = decoded.splitlines()
+                # Clean each line
+                cleaned_lines = []
+                for line in lines:
+                    line = ansi_pattern.sub('', line)         # Remove ANSI codes
+                    line = line.replace('"', '').replace("'", '')  # Remove all quotes
+                    line = line.strip()
+                    if line:
+                        cleaned_lines.append(line)
+                setattr(result, field, cleaned_lines)
+        return result_list
+    
     def Close(self):
         self.dab_client.disconnect()
 
