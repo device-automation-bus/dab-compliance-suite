@@ -1,0 +1,1 @@
+This .txt file is used to test unsupported application package format for applications/install operation.

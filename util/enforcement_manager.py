@@ -85,7 +85,7 @@ class EnforcementManager:
         self.supported_settings = settings
         self.has_checked_settings = True
 
-    def is_setting_supported(self, setting):
+    def is_setting_supported(self, setting, value = None):
         """
         Checks if a setting is supported by the target.
 
@@ -101,7 +101,7 @@ class EnforcementManager:
         if not self.supported_settings:
             return ValidateCode.UNCERTAIN
 
-        if isinstance(self.supported_settings.get(setting), List) and self.supported_settings.get(setting):
+        if isinstance(self.supported_settings.get(setting), List) and value in self.supported_settings.get(setting):
             return ValidateCode.SUPPORT
 
         if isinstance(self.supported_settings.get(setting), bool) and self.supported_settings.get(setting):
