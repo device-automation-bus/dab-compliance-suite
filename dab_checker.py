@@ -39,6 +39,7 @@ class DabChecker:
             validate_code = ValidateCode.UNSUPPORT
             prechecker_log = f"\n{operation} is NOT supported on this device. Ongoing...\n"
 
+        print(prechecker_log)
         return validate_code, prechecker_log
 
     def precheck(self, device_id, dab_request_topic, dab_request_body):
@@ -95,12 +96,11 @@ class DabChecker:
             if not dab_response:
                 return validate_code, prechecker_log
 
-        for setting in request_body:
-            validate_code = EnforcementManager().is_setting_supported(setting)
-            if validate_code == ValidateCode.SUPPORT:
-                prechecker_log = f"\nsystem settings set {request_key} is supported on this device. Ongoing...\n"
-            elif validate_code == ValidateCode.UNSUPPORT:
-                prechecker_log = f"\nsystem settings set {request_key} is NOT supported on this device. Ongoing...\n"
+        validate_code = EnforcementManager().is_setting_supported(request_key, request_value)
+        if validate_code == ValidateCode.SUPPORT:
+            prechecker_log = f"\nsystem settings set {request_body} is supported on this device. Ongoing...\n"
+        elif validate_code == ValidateCode.UNSUPPORT:
+            prechecker_log = f"\nsystem settings set {request_body} is NOT supported on this device. Ongoing...\n"
 
         return validate_code, prechecker_log
 
