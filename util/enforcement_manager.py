@@ -85,6 +85,9 @@ class EnforcementManager:
         self.supported_settings = settings
         self.has_checked_settings = True
 
+    def get_supported_settings(self):
+        return self.supported_settings
+
     def is_setting_supported(self, setting, value = None):
         """
         Checks if a setting is supported by the target.
