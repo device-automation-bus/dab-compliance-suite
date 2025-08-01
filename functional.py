@@ -5,6 +5,7 @@ import json
 import time
 import sys
 from readchar import readchar
+from util.enforcement_manager import EnforcementManager
 
 # --- Sleep Time Constants ---
 APP_LAUNCH_WAIT = 5
@@ -64,6 +65,14 @@ def countdown(title, count):
         count -= 1
     sys.stdout.write("\r" + title + " --- Done!\n")
 
+def waiting_for_screensaver(result, logs, screenSaverTimeout, tips):
+    while True:
+        validate_state = yes_or_no(result, logs, tips)
+        if validate_state:
+            break
+        else:
+            continue
+    countdown(f"Waiting for {screenSaverTimeout} seconds in idle state.", screenSaverTimeout)
 def validate_response(tester, dab_topic, dab_payload, dab_response, result, logs):
     if not dab_response:
         logs.append(f"[FAIL] Request {dab_topic} '{dab_payload}' failed. No response received.")
@@ -108,6 +117,33 @@ def verify_system_setting(tester, payload, response, result, logs):
 
     print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
     return False, result
+
+def get_supported_setting(tester, device_id, key, result, logs, do_list = True):
+    topic = "system/settings/list"
+    payload = json.dumps({})
+    if EnforcementManager().check_supported_settings() == False or do_list:
+        _, response = execute_cmd_and_log(tester, device_id, topic, payload)
+        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
+        if validate_state == False:
+            EnforcementManager().set_supported_settings(None)
+            return None, result
+        EnforcementManager().set_supported_settings(json.loads(response))
+
+    settings = EnforcementManager().get_supported_settings()
+    if not settings:
+        print(f"System setting list '{key}' FAILED  on this device.")
+        logs.append(f"[FAILED] System settings list '{key}' FAILED on this device.")
+        return None, result
+
+    if key in settings:
+        setting = settings.get(key)
+        print(f"Get supported setting '{key}: {setting}'")
+        return setting, result
+
+    print(f"System setting '{key}' is unsupported on this device.")
+    logs.append(f"[FAILED] System settings '{key}' is unsupported on this device.")
+    result.test_result = "FAILED"
+    return None, result
 
 # === Test 1: App in FOREGROUND Validate app moves to FOREGROUND after launch ===
 def run_app_foreground_check(dab_topic, test_category, test_name, tester, device_id):
@@ -418,7 +454,7 @@ def run_screensaver_enable_check(dab_topic, test_category, test_name, tester, de
 
         print(f"Step 2: Verify screensaver is disabled.")
         topic = "system/settings/get"
-        payload = json.dumps("{}")
+        payload = json.dumps({})
         _, response = execute_cmd_and_log(tester, device_id, topic, payload)
         validate_state, result = validate_response(tester, topic, payload, response, result, logs)
         if validate_state == False:
@@ -437,7 +473,7 @@ def run_screensaver_enable_check(dab_topic, test_category, test_name, tester, de
 
         print(f"Step 4: Verify screensaver is enabled.")
         topic = "system/settings/get"
-        payload = json.dumps("{}")
+        payload = json.dumps({})
         _, response = execute_cmd_and_log(tester, device_id, topic, payload)
         validate_state, result = validate_response(tester, topic, payload, response, result, logs)
         if validate_state == False:
@@ -478,7 +514,7 @@ def run_screensaver_disable_check(dab_topic, test_category, test_name, tester, d
 
         print(f"Step 2: Verify screensaver is enabled.")
         topic = "system/settings/get"
-        payload = json.dumps("{}")
+        payload = json.dumps({})
         _, response = execute_cmd_and_log(tester, device_id, topic, payload)
         validate_state, result = validate_response(tester, topic, payload, response, result, logs)
         if validate_state == False:
@@ -497,7 +533,7 @@ def run_screensaver_disable_check(dab_topic, test_category, test_name, tester, d
 
         print(f"Step 4: Verify screensaver is disabled.")
         topic = "system/settings/get"
-        payload = json.dumps("{}")
+        payload = json.dumps({})
         _, response = execute_cmd_and_log(tester, device_id, topic, payload)
         validate_state, result = validate_response(tester, topic, payload, response, result, logs)
         if validate_state == False:
@@ -545,7 +581,8 @@ def run_screensaver_active_check(dab_topic, test_category, test_name, tester, de
         if validate_state == False:
             return result
 
-        countdown(f"Step 3: Waiting for {screenSaverTimeout} seconds in idle state.", screenSaverTimeout)
+        print(f"Step 3: Waiting for screensaver active.")
+        waiting_for_screensaver(result, logs, screenSaverTimeout, "Ready to wait for screensaver active?")
 
         validate_state = yes_or_no(result, logs, f"Screensaver is active?")
 
@@ -593,7 +630,8 @@ def run_screensaver_inactive_check(dab_topic, test_category, test_name, tester, 
         if validate_state == False:
             return result
 
-        countdown(f"Step 3: Waiting for {screenSaverTimeout} seconds in idle state.", screenSaverTimeout)
+        print(f"Step 3: Waiting for screensaver active.")
+        waiting_for_screensaver(result, logs, screenSaverTimeout, "Ready to wait for screensaver active?")
 
         validate_state = yes_or_no(result, logs, f"Screensaver is active?")
 
@@ -641,7 +679,8 @@ def run_screensaver_active_return_check(dab_topic, test_category, test_name, tes
         if validate_state == False:
             return result
 
-        countdown(f"Step 3: Waiting for {screenSaverTimeout} seconds in idle state.", screenSaverTimeout)
+        print(f"Step 3: Waiting for screensaver active.")
+        waiting_for_screensaver(result, logs, screenSaverTimeout, "Ready to wait for screensaver active?")
 
         validate_state = yes_or_no(result, logs, f"Screensaver is active?")
 
@@ -696,16 +735,8 @@ def run_screensaver_active_after_continuous_idle_check(dab_topic, test_category,
         if validate_state == False:
             return result
 
-        print(f"Step 3: Please press remote keys to simulate user activity")
-
-        while True:
-            validate_state = yes_or_no(result, logs, "Finish usre activity?")
-            if validate_state:
-                break
-            else:
-                continue
-
-        countdown(f"Step 4: Waiting for {screenSaverTimeout} seconds in idle state.", screenSaverTimeout)
+        print(f"Step 3: Please press remote keys to simulate user activity, and then waiting for screensaver active.")
+        waiting_for_screensaver(result, logs, screenSaverTimeout, "Finish usre activity and ready to wait for screensaver active?")
 
         validate_state = yes_or_no(result, logs, f"Screensaver is active after {screenSaverTimeout} seconds?")
 
@@ -762,7 +793,8 @@ def run_screensaver_inactive_after_reboot_check(dab_topic, test_category, test_n
             else:
                 continue
 
-        countdown(f"Step 4: Waiting for {screenSaverTimeout} seconds in idle state.", screenSaverTimeout)
+        print(f"Step 4: Waiting for screensaver active.")
+        waiting_for_screensaver(result, logs, screenSaverTimeout, "Ready to wait for screensaver active?")
 
         validate_state = yes_or_no(result, logs, f"Screensaver is active after {screenSaverTimeout} seconds?")
 
@@ -789,7 +821,7 @@ def run_screensavertimeout_300_check(dab_topic, test_category, test_name, tester
 
     test_id = to_test_id(f"{dab_topic}/{test_category}")
     logs = []
-    result = TestResult(test_id, device_id, "system/settings/set", json.dumps({"screenSaver": True}), "UNKNOWN", "", logs)
+    result = TestResult(test_id, device_id, "system/settings/set", json.dumps({"screenSaverTimeout": 300}), "UNKNOWN", "", logs)
 
     try:
         screenSaverTimeout = 300
@@ -809,7 +841,8 @@ def run_screensavertimeout_300_check(dab_topic, test_category, test_name, tester
         if validate_state == False:
             return result
 
-        countdown(f"Step 3: Waiting for {screenSaverTimeout} seconds in idle state.", screenSaverTimeout)
+        print(f"Step 3: Waiting for screensaver active.")
+        waiting_for_screensaver(result, logs, screenSaverTimeout, "Ready to wait for screensaver active?")
 
         validate_state = yes_or_no(result, logs, f"Screensaver is active after {screenSaverTimeout} seconds?")
 
@@ -837,10 +870,10 @@ def run_screensavertimeout_reboot_check(dab_topic, test_category, test_name, tes
 
     test_id = to_test_id(f"{dab_topic}/{test_category}")
     logs = []
-    result = TestResult(test_id, device_id, "system/settings/set", json.dumps({"screenSaver": False}), "UNKNOWN", "", logs)
+    result = TestResult(test_id, device_id, "system/settings/set", json.dumps({"screenSaverTimeout": 30}), "UNKNOWN", "", logs)
 
     try:
-        screenSaverTimeout = 60
+        screenSaverTimeout = 30
         print(f"Step 1: Set screensaver timeout to {screenSaverTimeout} seconds")
         topic = "system/settings/set"
         payload = json.dumps({"screenSaverTimeout": screenSaverTimeout})
@@ -862,7 +895,7 @@ def run_screensavertimeout_reboot_check(dab_topic, test_category, test_name, tes
 
         print(f"Step 3: Verify screensaver timeout setting persists after device restart.")
         topic = "system/settings/get"
-        payload = json.dumps("{}")
+        payload = json.dumps({})
         _, response = execute_cmd_and_log(tester, device_id, topic, payload)
         validate_state, result = validate_response(tester, topic, payload, response, result, logs)
         if validate_state == False:
@@ -872,13 +905,15 @@ def run_screensavertimeout_reboot_check(dab_topic, test_category, test_name, tes
             return result
 
         print(f"Step 4: Enable screensaver")
+        topic = "system/settings/set"
         payload = json.dumps({"screenSaver": True})
         _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
         validate_state, result = validate_response(tester, topic, payload, response, result, logs)
         if validate_state == False:
             return result
 
-        countdown(f"Step 5: Waiting for {screenSaverTimeout} seconds in idle state.", screenSaverTimeout)
+        print(f"Step 5: Waiting for screensaver active.")
+        waiting_for_screensaver(result, logs, screenSaverTimeout, "Ready to wait for screensaver active?")
 
         validate_state = yes_or_no(result, logs, f"Screensaver is active after {screenSaverTimeout} seconds?")
 
@@ -895,6 +930,268 @@ def run_screensavertimeout_reboot_check(dab_topic, test_category, test_name, tes
         logs.append(f"[ERROR] {str(e)}")
         result.test_result = "SKIPPED"
 
+    print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+    return result
+
+# === Test 16: ScreenSaver Timeout Guest Mode Check ===
+def run_screensavertimeout_guest_mode_check(dab_topic, test_category, test_name, tester, device_id):
+    print("\n[Test] Screensaver Timeout Check In Guest Mode")
+    print("Objective: Validate that screensaver can be actived in guest mode.")
+
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    logs = []
+    result = TestResult(test_id, device_id, "system/settings/set", json.dumps({"screenSaverTimeout": 30}), "UNKNOWN", "", logs)
+
+    try:
+        screenSaverTimeout = 30
+        print(f"Step 1: Switch to guest mode")
+        validate_state = yes_or_no(result, logs, "If device support guest mode, please switch to guest mode and then input 'Y', or 'N'")
+        if validate_state == False:
+            print(f"Device doesn't support guest mode.")
+            logs.append(f"[OPTIONAL_FAILED] Device doesn't support guest mode.")
+            result.test_result = "OPTIONAL_FAILED"
+            print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+            return result
+
+        print(f"Step 2: Enable screensaver")
+        topic = "system/settings/set"
+        payload = json.dumps({"screenSaver": True})
+        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
+        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
+        if validate_state == False:
+            return result
+
+        print(f"Step 3: Set screensaver timeout to {screenSaverTimeout} seconds")
+        topic = "system/settings/set"
+        payload = json.dumps({"screenSaverTimeout": screenSaverTimeout})
+        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
+        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
+        if validate_state == False:
+            return result
+
+        print(f"Step 4: Waiting for screensaver active.")
+        waiting_for_screensaver(result, logs, screenSaverTimeout, "Ready to wait for screensaver active?")
+
+        validate_state = yes_or_no(result, logs, f"Screensaver is active?")
+        if validate_state == True:
+            print(f"Screensaver is active in guest mode.")
+            logs.append(f"[PASS] Screensaver is active in guest mode.")
+            result.test_result = "PASS"
+        else:
+            print(f"Screensaver it not active in guest mode.")
+            logs.append(f"[FAILED] Screensaver is not active in guest mode.")
+            result.test_result = "FAILED"
+
+    except Exception as e:
+        logs.append(f"[ERROR] {str(e)}")
+        result.test_result = "SKIPPED"
+
+    # Print concise final test result status
+    print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+    return result
+
+# === Test 17: ScreenSaver Min Timeout Check ===
+def run_screensavertimeout_minimum_check(dab_topic, test_category, test_name, tester, device_id):
+    print("\n[Test] Screensaver Minimum Timeout Check")
+    print("Objective: Validate that screensaver can be actived after timeout is set minimum value.")
+
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    logs = []
+    result = TestResult(test_id, device_id, "system/settings/list", json.dumps({}), "UNKNOWN", "", logs)
+
+    try:
+        print(f"Step 1: Get screensaver min timeout")
+        screenSaverMinTimeout, result = get_supported_setting(tester, device_id, "screenSaverMinTimeout", result, logs)
+        if not screenSaverMinTimeout:
+            return result
+
+        print(f"Step 2: Set screensaver timeout to {screenSaverMinTimeout} seconds")
+        topic = "system/settings/set"
+        payload = json.dumps({"screenSaverTimeout": screenSaverMinTimeout})
+        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
+        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
+        if validate_state == False:
+            return result
+
+        print(f"Step 3: Enable screensaver")
+        topic = "system/settings/set"
+        payload = json.dumps({"screenSaver": True})
+        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
+        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
+        if validate_state == False:
+            return result
+
+        print(f"Step 4: Waiting for screensaver active.")
+        waiting_for_screensaver(result, logs, screenSaverMinTimeout, "Ready to wait for screensaver active?")
+
+        validate_state = yes_or_no(result, logs, f"Screensaver is active?")
+        if validate_state == True:
+            print(f"Screensaver is active.")
+            logs.append(f"[PASS] Screensaver is active after screensaver enabled.")
+            result.test_result = "PASS"
+        else:
+            print(f"Screensaver it not active.")
+            logs.append(f"[FAILED] Screensaver is not active after screensaver enabled.")
+            result.test_result = "FAILED"
+
+    except Exception as e:
+        logs.append(f"[ERROR] {str(e)}")
+        result.test_result = "SKIPPED"
+
+    # Print concise final test result status
+    print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+    return result
+
+# === Test 18: ScreenSaver Min Timeout Reboot Check ===
+def run_screensavermintimeout_reboot_check(dab_topic, test_category, test_name, tester, device_id):
+    print("\n[Test] Screensaver Min Timeout After Reboot Check")
+    print("Objective: Verify that the minimum screensaver timeout value is not altered after a device restart.")
+
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    logs = []
+    result = TestResult(test_id, device_id, "system/settings/list", json.dumps({}), "UNKNOWN", "", logs)
+
+    try:
+        print(f"Step 1: Get screensaver minimum timeout")
+        screenSaverMinTimeout, result = get_supported_setting(tester, device_id, "screenSaverMinTimeout", result, logs)
+        if not screenSaverMinTimeout:
+            return result
+
+        print(f"Step 2: Reboot device.")
+        print("restarting...wait...")
+        execute_cmd_and_log(tester, device_id, "system/restart", json.dumps({}), logs)
+
+        while True:
+            validate_state = yes_or_no(result, logs, "Device re-started?")
+            if validate_state:
+                break
+            else:
+                continue
+
+        print(f"Step 3: Get screensaver minimum timeout after reboot")
+        screenSaverMinTimeout_reboot, result = get_supported_setting(tester, device_id, "screenSaverMinTimeout", result, logs)
+        if not screenSaverMinTimeout:
+            return result
+
+        if screenSaverMinTimeout == screenSaverMinTimeout_reboot:
+            print(f"Screensaver minimum timeout is not altered after a device restart.")
+            logs.append(f"[PASS] Screensaver minimum timeout is not altered after a device restart.")
+            result.test_result = "PASS"
+        else:
+            print(f"Screensaver minimum timeout is altered after a device restart.")
+            logs.append(f"[FAILED] Screensaver minimum timeout is altered after a device restart.")
+            result.test_result = "FAILED"
+
+    except Exception as e:
+        logs.append(f"[ERROR] {str(e)}")
+        result.test_result = "SKIPPED"
+
+    # Print concise final test result status
+    print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+    return result
+
+# === Test 19: High Contrast Text Check Text Over Images ===
+def run_highContrastText_text_over_images_check(dab_topic, test_category, test_name, tester, device_id):
+    print("\n[Test] High Contrast Text Check Text Over Images")
+    print("Objective: Verify that enabling high contrast text adjusts text color and background for text over images.")
+
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    logs = []
+    result = TestResult(test_id, device_id, "system/settings/set", json.dumps({"highContrastText": True}), "UNKNOWN", "", logs)
+
+    try:
+        print(f"Step 1: Disable High Contrast Text before the test.")
+        topic = "system/settings/set"
+        payload = json.dumps({"highContrastText": False})
+        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
+        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
+        if validate_state == False:
+            return result
+
+        print(f"Step 2: Navigate to a screen with text displayed over images.")
+        validate_state = yes_or_no(result, logs, "Navigate to a screen with text displayed over images?")
+        if validate_state == False:
+            print(f"Couldn't Navigate to a screen with text displayed over images.")
+            logs.append(f"[FAILED] Couldn't Navigate to a screen with text displayed over images.")
+            result.test_result = "FAILED"
+            return result
+
+        print(f"Step 3: Enable High Contrast Text.")
+        topic = "system/settings/set"
+        payload = json.dumps({"highContrastText": True})
+        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
+        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
+        if validate_state == False:
+            return result
+
+        print(f"Step 4: Verify text over images is clearly legible with high contrast applied")
+        validate_state = yes_or_no(result, logs, f"Text over images is clearly legible with high contrast applied?")
+        if validate_state == True:
+            print(f"Text over images is clearly legible.")
+            logs.append(f"[PASS] Text over images is clearly legible with high contrast applied.")
+            result.test_result = "PASS"
+        else:
+            print(f"Text over images is not clearly legible.")
+            logs.append(f"[FAILED] Text over images is not clearly legible with high contrast applied.")
+            result.test_result = "FAILED"
+
+    except Exception as e:
+        logs.append(f"[ERROR] {str(e)}")
+        result.test_result = "SKIPPED"
+
+    # Print concise final test result status
+    print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+    return result
+
+# === Test 20: High Contrast Text Check During Video Playback ===
+def run_highContrastText_video_playback_check(dab_topic, test_category, test_name, tester, device_id):
+    print("\n[Test] High Contrast Text Check During Video Playback")
+    print("Objective: Verify that toggling high contrast text during video playback does not interrupt video playback.")
+
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    logs = []
+    result = TestResult(test_id, device_id, "system/settings/set", json.dumps({"highContrastText": True}), "UNKNOWN", "", logs)
+
+    try:
+        print(f"Step 1: Disable High Contrast Text before the test.")
+        topic = "system/settings/set"
+        payload = json.dumps({"highContrastText": False})
+        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
+        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
+        if validate_state == False:
+            return result
+
+        print(f"Step 2: Play a video in any one application, e.g. YouTube, Netflix, PrimeVideo...")
+        validate_state = yes_or_no(result, logs, "The video is playing?")
+        if validate_state == False:
+            print(f"Play video failed.")
+            logs.append(f"[FAILED] Play video failed.")
+            result.test_result = "FAILED"
+
+        print(f"Step 3: Enable High Contrast Text.")
+        topic = "system/settings/set"
+        payload = json.dumps({"highContrastText": True})
+        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
+        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
+        if validate_state == False:
+            return result
+
+        print(f"Step 4: Verify video playback is not affected by toggling the high contrast text setting")
+        validate_state = yes_or_no(result, logs, f"Video playback is not affected by toggling the high contrast text setting?")
+        if validate_state == True:
+            print(f"Video playback is not affected.")
+            logs.append(f"[PASS] Video playback is not affected.")
+            result.test_result = "PASS"
+        else:
+            print(f"Text over images is affected.")
+            logs.append(f"[FAILED] Text over images is affected.")
+            result.test_result = "FAILED"
+
+    except Exception as e:
+        logs.append(f"[ERROR] {str(e)}")
+        result.test_result = "SKIPPED"
+
+    # Print concise final test result status
     print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
     return result
 
@@ -916,4 +1213,9 @@ FUNCTIONAL_TEST_CASE = [
     ("system/settings/set", "functional", run_screensaver_inactive_after_reboot_check, "ScreensaverInactiveAfterRebootCheck", "2.1", False),
     ("system/settings/set", "functional", run_screensavertimeout_300_check, "ScreensaverTimeout300Check", "2.1", False),
     ("system/settings/set", "functional", run_screensavertimeout_reboot_check, "ScreensaverTimeoutRebootCheck", "2.1", False),
+    ("system/settings/set", "functional", run_screensavertimeout_guest_mode_check, "ScreensaverTimeoutGuestModeCheck", "2.1", False),
+    ("system/settings/list", "functional", run_screensavertimeout_minimum_check, "ScreensaverMinTimeoutCheck", "2.1", False),
+    ("system/settings/list", "functional", run_screensavermintimeout_reboot_check, "ScreensaverMinTimeoutRebootCheck", "2.1", False),
+    ("system/settings/set", "functional", run_highContrastText_text_over_images_check, "HighContrasTextTextOverImagesCheck", "2.1", False),
+    ("system/settings/set", "functional", run_highContrastText_video_playback_check, "HighContrasTextVideoPlaybackCheck", "2.1", False),
 ]
