@@ -1,6 +1,7 @@
 ###### Requirements without Version Specifiers ######
 paho-mqtt == 1.6.1
 readchar
+sys
 FileCache
 jsons
 jsonschema
