@@ -28,7 +28,7 @@ def key_press(test_result, durationInMs=0, expectedLatencyMs=None):
                 return False
     sleep(1)
 
-        # ✅ Remove YesNoQuestion → directly validate
+        # Remove YesNoQuestion → directly validate
     if isinstance(expectedLatencyMs, int):
         return Default_Validations(test_result, durationInMs, expectedLatencyMs)
     else:
@@ -62,7 +62,7 @@ def long_key_press(test_result, durationInMs=0, expectedLatencyMs=None):
                 return False
 
     sleep(1)
-        # ✅ Remove YesNoQuestion → directly validate
+        # Remove YesNoQuestion → directly validate
     if isinstance(expectedLatencyMs, int):
         return Default_Validations(test_result, durationInMs, expectedLatencyMs)
     else:
