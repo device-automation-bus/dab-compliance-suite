@@ -1,8 +1,8 @@
 # DAB Compliance Testing Suite #
 
-This project contains tools and tests to validate Device Automation Bus 2.0 Partner implementations end-to-end.
+This project contains tools and tests to validate Device Automation Bus 2.1 Partner implementations end-to-end.
 
-# Follow these steps to prepare and run the test suite: #
+## Follow these steps to prepare and run the test suite: ##
 
 ## Download the Test Suite ##
 
@@ -127,7 +127,6 @@ Just follow this single step:
   ❯ python3 main.py -v -b <mqtt-broker-ip> -I <dab-device-id> -s "end_to_end_cobalt"
   ```
 
-
 ## Commands ##
 
 These are the main commands of the tool:
@@ -220,8 +219,7 @@ Test Result Types:
   PASS              → Test succeeded with expected output  
   FAILED            → Test ran but result was incorrect  
   OPTIONAL_FAILED   → Feature not supported or not required (e.g., DAB 2.1 on DAB 2.0 device)  
-  SKIPPED           → Internal issue or unsupported feature (e.g., precheck failed)  
-  NEGATIVE PASSED   → Test expected failure and got it (e.g., error 400 or 404)
+  SKIPPED           → Internal issue — test incomplete. Retry is required (e.g., pre-check failed).
 
 Summary:
 
@@ -253,7 +251,8 @@ SKIPPED
   - The test didn't complete due to internal error.
   - Example: error code 500 or device not responding.
 
-NEGATIVE TEST PASSED
+NEGATIVE TEST PASSED (Not a test result type — represents negative test results in the execution terminal log)
+
   - The test expected an error and got it.
   - Example: error 400 or 404 = correct behavior for a negative test.
 
@@ -290,4 +289,5 @@ How to Handle in Tests
 
   - If a required topic is missing from "operation/list" → FAIL
   - If telemetry topics are missing from "operation/list" → OK (no FAIL)
-  - If telemetry tests are run but not supported → OPTIONAL_FAILED
+  - If telemetry tests are run but not supported → OPTIONAL_FAILED 
+  - NOTE: The remaining DAB operations are mandatory and should be implemented properly. They should not result in optional failed or failed tests — they must pass.
