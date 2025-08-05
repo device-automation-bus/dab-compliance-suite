@@ -4,8 +4,9 @@ apps = dict(
     netflix = 'Netflix',
     amazon = 'PrimeVideo',
     sample_app = 'Sample_App',
-    sample_app_url = 'Sample_App_Url' 
+    sample_app_url = 'Sample_App_Url',
+    removable_app = 'Netflix' 
 )
 
 # Please set the voice asssitant you want to set here.
-va = 'AmazonAlexa'
+va = 'GoogleAssistant'

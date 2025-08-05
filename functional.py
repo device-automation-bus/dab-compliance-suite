@@ -6,6 +6,7 @@ import time
 import sys
 from readchar import readchar
 from util.enforcement_manager import EnforcementManager
+from util.config_loader import ensure_app_available 
 
 # --- Sleep Time Constants ---
 APP_LAUNCH_WAIT = 5
@@ -13,6 +14,10 @@ APP_EXIT_WAIT = 3
 APP_STATE_CHECK_WAIT = 2
 APP_RELAUNCH_WAIT = 4
 CONTENT_LOAD_WAIT = 6
+DEVICE_REBOOT_WAIT = 180  # Max wait for device reboot
+TELEMETRY_DURATION_MS = 5000
+TELEMETRY_METRICS_WAIT = 30  # Max wait for telemetry metrics (seconds)
+HEALTH_CHECK_INTERVAL = 5    # Seconds between health check polls
 
 # === Reusable Helper ===
 def execute_cmd_and_log(tester, device_id, topic, payload, logs = None):
@@ -1195,6 +1200,471 @@ def run_highContrastText_video_playback_check(dab_topic, test_category, test_nam
     print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
     return result
 
+# === Test 21: SetInvalidVoiceAssistant ===
+def run_set_invalid_voice_assistant_check(dab_topic, test_category, test_name, tester, device_id):
+    """
+    Objective: Validate that the system rejects unsupported voice assistant names.
+    This negative test sends a 'voice/set' request with an obviously invalid
+    voice assistant name ("invalid") and verifies that the system returns an
+    error without performing any action.
+    """
+
+    print(f"\n[Test] Set Invalid Voice Assistant, Test name: {test_name}")
+    print("Objective: Validate system rejects unsupported voice assistant names.")
+
+    # Generate test ID
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+
+    # Use clearly invalid assistant name
+    invalid_assistant = "invalid"
+    request_payload = json.dumps({"voiceAssistant": invalid_assistant})
+
+    logs = []
+    result = TestResult(test_id, device_id, "voice/set", request_payload, "UNKNOWN", "", logs)
+
+    try:
+        # Step 0: Pre-check supported voice assistants
+        print("Step 0: Checking supported voice assistants via 'voice/list'.")
+        _, resp_list = execute_cmd_and_log(tester, device_id, "voice/list", "{}", logs)
+        supported_list = []
+        if resp_list:
+            try:
+                supported_list = json.loads(resp_list).get("voiceAssistants", [])
+                print(f"Supported assistants: {supported_list}")
+            except Exception as e:
+                logs.append(f"[WARNING] Could not parse voice/list response: {str(e)}")
+
+        if invalid_assistant in supported_list:
+            logs.append(f"[SKIPPED] '{invalid_assistant}' is supported, skipping negative test.")
+            result.test_result = "SKIPPED"
+            return result
+
+        # Step 1: Attempt to set invalid voice assistant
+        print(f"Step 1: Sending 'voice/set' request with invalid assistant '{invalid_assistant}'.")
+        _, response = execute_cmd_and_log(tester, device_id, "voice/set", request_payload, logs)
+
+        # Step 2: Parse response and validate error handling
+        error_detected = False
+        if response:
+            try:
+                resp_json = json.loads(response)
+                status = resp_json.get("status")
+                message = resp_json.get("message", "").lower()
+                print(f"Received response: {resp_json}")
+
+                if status != 200 or "unsupported" in message or "error" in message:
+                    logs.append(f"[PASS] System correctly rejected invalid assistant '{invalid_assistant}'.")
+                    error_detected = True
+            except Exception as e:
+                logs.append(f"[ERROR] Failed to parse response: {str(e)}")
+
+        if error_detected:
+            result.test_result = "PASS"
+        else:
+            logs.append(f"[FAIL] System accepted invalid assistant '{invalid_assistant}'.")
+            result.test_result = "FAILED"
+
+    except Exception as e:
+        logs.append(f"[ERROR] Exception occurred: {str(e)}")
+        result.test_result = "SKIPPED"
+
+    # Print concise final test result status
+    print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}\n({'-' * 100})")
+
+    return result
+
+# === Test 22: Device Restart and Telemetry Validation ===
+def run_device_restart_and_telemetry_check(dab_topic, test_category, test_name, tester, device_id):
+    print(f"\n[Test] Device Restart and Telemetry Check, Test name: {test_name}")
+    print("Objective: Restart device, verify health check, start telemetry, receive metrics, stop telemetry.")
+
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    logs = []
+    result = TestResult(test_id, device_id, "system/restart", "{}", "UNKNOWN", "", logs)
+
+    try:
+        # === Step 1: Restart & Wait for Health ===
+        print("[Step 1] Restarting device and waiting until it's healthy...")
+        execute_cmd_and_log(tester, device_id, "system/restart", "{}", logs)
+
+        start_time = time.time()
+        device_ready = False
+        while time.time() - start_time < DEVICE_REBOOT_WAIT:
+            _, resp = execute_cmd_and_log(tester, device_id, "health-check/get", "{}", logs)
+            if resp:
+                try:
+                    resp_json = json.loads(resp)
+                    if resp_json.get("status") == 200 and resp_json.get("healthy", True):
+                        print("Device is online and healthy.")
+                        device_ready = True
+                        break
+                except Exception:
+                    pass
+            time.sleep(HEALTH_CHECK_INTERVAL)
+
+        if not device_ready:
+            logs.append("[FAIL] Device did not come back online in expected time.")
+            result.test_result = "FAILED"
+            return result
+        # === Step 2: Start Telemetry & Wait for Metrics ===
+        print("[Step 2] Starting telemetry and listening for metrics...")
+        telemetry_payload = json.dumps({"duration": TELEMETRY_DURATION_MS})
+        _, start_resp = execute_cmd_and_log(tester, device_id, "device-telemetry/start", telemetry_payload, logs)
+
+        if not start_resp or json.loads(start_resp).get("status") != 200:
+            logs.append("[FAIL] Failed to start telemetry session.")
+            result.test_result = "FAILED"
+            return result
+        metrics_received = False
+        telemetry_wait_start = time.time()
+        while time.time() - telemetry_wait_start < TELEMETRY_METRICS_WAIT:
+            try:
+                if hasattr(tester.dab_client, "get_message"):
+                    metric_msg = tester.dab_client.get_message(f"dab/{device_id}/device-telemetry/metrics", timeout=3)
+                else:
+                    metric_msg = tester.dab_client.response()
+
+                if metric_msg:
+                    print(f"Received telemetry: {metric_msg}")
+                    logs.append(f"[PASS] Telemetry metrics received: {metric_msg}")
+                    metrics_received = True
+                    break
+            except Exception:
+                pass
+
+        if not metrics_received:
+            logs.append("[FAIL] No telemetry metrics received within wait time.")
+            result.test_result = "FAILED"
+            return result
+
+        # === Step 3: Stop Telemetry & Mark PASS ===
+        print("[Step 3] Stopping telemetry session...")
+        execute_cmd_and_log(tester, device_id, "device-telemetry/stop", "{}", logs)
+
+        logs.append("[PASS] Restart and telemetry workflow completed successfully.")
+        result.test_result = "PASS"
+
+    except Exception as e:
+        logs.append(f"[ERROR] Exception occurred: {str(e)}")
+        result.test_result = "SKIPPED"
+
+    print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}\n({'-' * 100})")
+    return result
+
+# === Test 23: Stop App Telemetry Without Active Session (Negative) ===
+def run_stop_app_telemetry_without_active_session_check(dab_topic, test_category, test_name, tester, device_id):
+    """
+    Objective: Ensure device handles redundant app-telemetry/stop gracefully when no session is active.
+    """
+
+    print(f"\n[Test] Stop App Telemetry Without Active Session (Negative), Test name: {test_name}")
+    print("Objective: Ensure device handles redundant app-telemetry/stop gracefully when no session is active.")
+
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    app_id = config.apps.get("youtube", "YouTube")
+    payload = json.dumps({"appId": app_id})
+    logs = []
+    result = TestResult(test_id, device_id, "app-telemetry/stop", payload, "UNKNOWN", "", logs)
+
+    try:
+        print("[Step 1] Sending app-telemetry/stop to ensure no active session...")
+        _, response = execute_cmd_and_log(tester, device_id, "app-telemetry/stop", payload, logs)
+
+        if not response:
+            logs.append("[FAIL] No response received.")
+            result.test_result = "FAILED"
+            return result
+
+        resp_json = json.loads(response)
+        status = resp_json.get("status")
+        message = str(resp_json.get("error", "")).lower()
+
+        if status == 200:
+            logs.append("[PASS] Device gracefully accepted stop request with no active session (status 200).")
+            result.test_result = "PASS"
+        elif status in (400, 500) and ("not started" in message or "no active session" in message):
+            logs.append(f"[PASS] Device returned expected error: {message} (status: {status}).")
+            result.test_result = "PASS"
+        else:
+            logs.append(f"[FAIL] Unexpected response: status={status}, message='{message}'.")
+            result.test_result = "FAILED"
+
+    except Exception as e:
+        logs.append(f"[ERROR] Exception occurred: {str(e)}")
+        result.test_result = "SKIPPED"
+
+    print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}\n{'-' * 100}")
+    return result
+
+# === Test24: Launch Video and Verify Health Check ===
+def run_launch_video_and_health_check(dab_topic, test_category, test_name, tester, device_id):
+    """
+    Objective:
+        Launch YouTube with specific video content,
+        wait for playback to start, then perform a
+        health-check/get to confirm device is healthy.
+    """
+
+    print(f"\n[Test] Launch Video and Health Check, Test name: {test_name}")
+    print("Objective: Launch video content and verify device health via health-check/get.")
+
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    app_id = config.apps.get("youtube", "YouTube")
+    video_id = "2ZggAa6LuiM"  # Replace with a valid test video ID
+    logs = []
+
+    result = TestResult(test_id, device_id, "applications/launch-with-content", json.dumps({"appId": app_id, "contentId": video_id}), "UNKNOWN", "", logs)
+    try:
+        # Step 1: Launch the YouTube video
+        print(f"[Step 1] Launching '{app_id}' with video ID '{video_id}'.")
+        payload = json.dumps({"appId": app_id, "contentId": video_id})
+        _, launch_resp = execute_cmd_and_log(tester, device_id, "applications/launch-with-content", payload, logs)
+
+        # Validate launch response
+        valid, result = validate_response(tester, "applications/launch-with-content", payload, launch_resp, result, logs)
+        if not valid:
+            return result
+
+        # Step 2: Wait for video playback
+        print(f"[Step 2] Waiting {APP_LAUNCH_WAIT + CONTENT_LOAD_WAIT} seconds for video to start playing...")
+        time.sleep(APP_LAUNCH_WAIT + CONTENT_LOAD_WAIT)
+
+        # Step 3: Perform a health-check
+        print("[Step 3] Performing health-check/get...")
+        _, health_resp = execute_cmd_and_log(tester, device_id, "health-check/get", "{}", logs)
+
+        # Validate health-check response
+        if not health_resp:
+            logs.append("[FAIL] No response received from health-check/get.")
+            result.test_result = "FAILED"
+            return result
+
+        try:
+            health_data = json.loads(health_resp)
+        except json.JSONDecodeError:
+            logs.append("[FAIL] Invalid JSON response from health-check/get.")
+            result.test_result = "FAILED"
+            return result
+
+        status = health_data.get("status")
+        healthy = health_data.get("healthy", False)
+
+        if status == 200 and healthy is True:
+            logs.append("[PASS] Device is healthy after video launch.")
+            result.test_result = "PASS"
+        else:
+            logs.append(f"[FAIL] Device health check failed. Status: {status}, Healthy: {healthy}")
+            result.test_result = "FAILED"
+
+        # Step 4: Exit the app
+        print(f"[Step 4] Exiting application '{app_id}' to clean up.")
+        exit_payload = json.dumps({"appId": app_id})
+        _, exit_resp = execute_cmd_and_log(tester, device_id, "applications/exit", exit_payload, logs)
+        validate_response(tester, "applications/exit", exit_payload, exit_resp, result, logs)
+
+    except Exception as e:
+        logs.append(f"[ERROR] Exception occurred: {str(e)}")
+        result.test_result = "SKIPPED"
+
+    print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}\n{'-' * 100}")
+    return result
+
+# === Test25: Voice List With No Voice Assistant Configured (Negative) ===
+def run_voice_list_with_no_voice_assistant(dab_topic, test_category, test_name, tester, device_id):
+    """
+    Objective:
+        Validate system behavior when requesting the list of voice assistants
+        on a device with no voice assistant configured.
+    Expected:
+        System should return an empty list OR an appropriate error message/status.
+    """
+
+    print(f"\n[Test] Voice List With No Voice Assistant, Test name: {test_name}")
+    print("Objective: Ensure system gracefully handles voice/list request when no voice assistant is configured.")
+
+    # Generate test ID
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    request_payload = "{}"  # No parameters required
+
+    logs = []
+    result = TestResult(test_id, device_id, "voice/list", request_payload, "UNKNOWN", "", logs)
+
+    try:
+        # Step 1: Send voice/list request
+        print("Step 1: Sending 'voice/list' request...")
+        _, response = execute_cmd_and_log(tester, device_id, "voice/list", request_payload, logs)
+
+        if not response:
+            logs.append("[FAIL] No response received for voice/list request.")
+            result.test_result = "FAILED"
+            return result
+
+        # Step 2: Parse response
+        try:
+            resp_json = json.loads(response)
+        except Exception as e:
+            logs.append(f"[ERROR] Invalid JSON in response: {str(e)}")
+            result.test_result = "FAILED"
+            return result
+
+        status = resp_json.get("status")
+        assistants = resp_json.get("voiceAssistants", [])
+
+        print(f"Response status: {status}")
+        print(f"Voice Assistants list: {assistants}")
+
+        # Step 3: Validate negative condition
+        if status == 200 and isinstance(assistants, list) and len(assistants) == 0:
+            logs.append("[PASS] No voice assistants configured, empty list returned as expected.")
+            result.test_result = "PASS"
+        elif status != 200:
+            logs.append(f"[PASS] Received expected non-200 status for no voice assistant case: {status}")
+            result.test_result = "PASS"
+        else:
+            logs.append("[FAIL] Voice assistants list is not empty when none expected.")
+            result.test_result = "FAILED"
+
+    except Exception as e:
+        logs.append(f"[ERROR] Exception occurred: {str(e)}")
+        result.test_result = "SKIPPED"
+
+    # Final result print
+    print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}")
+    print("-" * 100)
+    return result
+
+# === Test26: Exit App While Already Exiting (Negative) ===
+def run_exit_app_while_exiting(dab_topic, test_category, test_name, tester, device_id):
+    """
+    Objective:
+        Validate the system handles redundant applications/exit requests gracefully
+        when the app is already in the process of exiting.
+    """
+
+    print(f"\n[Test] Exit App While Exiting, Test name: {test_name}")
+    print("Objective: Ensure system gracefully handles redundant exit requests when app is already exiting.")
+
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    app_id = config.apps.get("youtube", "YouTube")
+    logs = []
+    result = TestResult(test_id, device_id, "applications/exit", json.dumps({"appId": app_id}), "UNKNOWN", "", logs)
+
+    try:
+        # Step 1: Launch the app to ensure it's running before exit
+        print(f"Step 1: Launching application '{app_id}' to prepare for exit test.")
+        execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": app_id}), logs)
+        print(f"Waiting {APP_LAUNCH_WAIT} seconds for application to launch.")
+        time.sleep(APP_LAUNCH_WAIT)
+
+        # Step 2: Send the first exit request
+        print(f"Step 2: Sending first applications/exit request for '{app_id}'.")
+        execute_cmd_and_log(tester, device_id, "applications/exit", json.dumps({"appId": app_id}), logs)
+
+        # Step 3: Immediately send the second exit request (redundant)
+        print("Step 3: Sending second applications/exit request immediately (while app is still exiting).")
+        _, second_response = execute_cmd_and_log(tester, device_id, "applications/exit", json.dumps({"appId": app_id}), logs)
+
+        # Step 4: Validate system response for the redundant request
+        if second_response:
+            try:
+                resp_json = json.loads(second_response)
+                status = resp_json.get("status")
+                message = resp_json.get("message", "").lower()
+
+                if status == 200 or "already exiting" in message or "not running" in message:
+                    logs.append("[PASS] System gracefully handled redundant exit request.")
+                    result.test_result = "PASS"
+                else:
+                    logs.append(f"[FAIL] Unexpected status/message for redundant exit: {resp_json}")
+                    result.test_result = "FAILED"
+            except Exception as e:
+                logs.append(f"[ERROR] Failed to parse redundant exit response: {str(e)}")
+                result.test_result = "FAILED"
+        else:
+            logs.append("[FAIL] No response received for redundant exit request.")
+            result.test_result = "FAILED"
+
+    except Exception as e:
+        logs.append(f"[ERROR] Exception occurred during test: {str(e)}")
+        result.test_result = "SKIPPED"
+
+    # Print concise final result
+    print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}\n{'-' * 100}")
+    return result
+
+
+def run_launch_when_uninstalled_check(dab_topic, test_category, test_name, tester, device_id):
+    """
+    Objective:
+        Validate launching an uninstalled app fails with a relevant error.
+    Steps:
+        1. Uninstall the removable app.
+        2. Attempt to launch the app.
+        3. Expect an error response (not a success).
+        4. Reinstall the app from local file for cleanup.
+    """
+
+    print(f"\n[Test] Launch App When Uninstalled, Test name: {test_name}")
+    print("Objective: Validate that launching an uninstalled app returns an appropriate error.")
+
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    removable_app_id = config.apps.get("removable_app", None)
+    if not removable_app_id:
+        print("[SKIPPED] No removable_app defined in config.apps. Cannot run this test.")
+        logs = ["[SKIPPED] No removable_app defined in config.apps."]
+        result = TestResult(test_id, device_id, "applications/launch", "{}", "SKIPPED", "", logs)
+        return result
+
+    logs = []
+    result = TestResult(test_id, device_id, "applications/launch", json.dumps({"appId": removable_app_id}), "UNKNOWN", "", logs)
+
+    try:
+        # Step 1: Uninstall the app
+        print(f"[Step 1] Uninstalling removable app '{removable_app_id}' before test...")
+        uninstall_payload = json.dumps({"appId": removable_app_id})
+        _, uninstall_resp = execute_cmd_and_log(tester, device_id, "applications/uninstall", uninstall_payload, logs)
+
+        time.sleep(3)  # Wait for uninstall to complete
+
+        # Step 2: Attempt to launch uninstalled app
+        print(f"[Step 2] Attempting to launch uninstalled app '{removable_app_id}'...")
+        launch_payload = json.dumps({"appId": removable_app_id})
+        _, launch_resp = execute_cmd_and_log(tester, device_id, "applications/launch", launch_payload, logs)
+
+        if launch_resp:
+            try:
+                resp_json = json.loads(launch_resp)
+                status = resp_json.get("status", 0)
+                if status != 200:
+                    logs.append(f"[PASS] Launch failed as expected. Status: {status}")
+                    result.test_result = "PASS"
+                else:
+                    logs.append(f"[FAIL] Launch succeeded unexpectedly for uninstalled app. Status: {status}")
+                    result.test_result = "FAILED"
+            except Exception:
+                logs.append("[FAIL] Could not parse launch response JSON.")
+                result.test_result = "FAILED"
+        else:
+            logs.append("[PASS] No response received (expected for uninstalled app).")
+            result.test_result = "PASS"
+
+        # Step 3: Reinstall the app dynamically
+        print(f"[Step 3] Reinstalling '{removable_app_id}' from local file to restore state...")
+        try:
+            apk_path = ensure_app_available(removable_app_id)  # Dynamically resolves correct APK path
+            install_payload = json.dumps({"fileLocation": f"file://{apk_path}"})
+            _, install_resp = execute_cmd_and_log(tester, device_id, "applications/install", install_payload, logs)
+            logs.append(f"[INFO] Reinstall response: {install_resp}")
+        except Exception as e:
+            logs.append(f"[WARNING] Failed to reinstall app: {str(e)}")
+
+    except Exception as e:
+        logs.append(f"[ERROR] Exception occurred: {str(e)}")
+        result.test_result = "SKIPPED"
+
+    print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}\n{'-' * 100}")
+    return result
+
 # === Functional Test Case List ===
 FUNCTIONAL_TEST_CASE = [
     ("applications/get-state", "functional", run_app_foreground_check, "AppForegroundCheck", "2.0", False),
@@ -1218,4 +1688,11 @@ FUNCTIONAL_TEST_CASE = [
     ("system/settings/list", "functional", run_screensavermintimeout_reboot_check, "ScreensaverMinTimeoutRebootCheck", "2.1", False),
     ("system/settings/set", "functional", run_highContrastText_text_over_images_check, "HighContrasTextTextOverImagesCheck", "2.1", False),
     ("system/settings/set", "functional", run_highContrastText_video_playback_check, "HighContrasTextVideoPlaybackCheck", "2.1", False),
+    ("voice/set", "functional", run_set_invalid_voice_assistant_check, "SetInvalidVoiceAssistant", "2.0", True),
+    ("system/restart", "functional", run_device_restart_and_telemetry_check, "DeviceRestartAndTelemetryCheck", "2.0", False),
+    ("app-telemetry/stop", "functional", run_stop_app_telemetry_without_active_session_check, "StopAppTelemetryWithoutActiveSession", "2.1", True),
+    ("applications/launch-with-content", "functional", run_launch_video_and_health_check, "LaunchVideoAndHealthCheck", "2.1", False),
+    ("voice/list", "functional", run_voice_list_with_no_voice_assistant, "VoiceListWithNoVoiceAssistant", "2.0", True),
+    ("applications/exit", "functional", run_exit_app_while_exiting, "ExitAppWhileExiting", "2.0", True),
+    ("applications/launch", "functional", run_launch_when_uninstalled_check, "LaunchAppNotInstalled", "2.1", True),
 ]
