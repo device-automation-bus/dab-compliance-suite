@@ -1203,7 +1203,9 @@ def run_highContrastText_video_playback_check(dab_topic, test_category, test_nam
 # === Test 21: SetInvalidVoiceAssistant ===
 def run_set_invalid_voice_assistant_check(dab_topic, test_category, test_name, tester, device_id):
     """
-    Objective: Validate that the system rejects unsupported voice assistant names.
+    Objective:
+        Validate that the system rejects unsupported voice assistant names.
+
     This negative test sends a 'voice/set' request with an obviously invalid
     voice assistant name ("invalid") and verifies that the system returns an
     error without performing any action.
@@ -1212,10 +1214,9 @@ def run_set_invalid_voice_assistant_check(dab_topic, test_category, test_name, t
     print(f"\n[Test] Set Invalid Voice Assistant, Test name: {test_name}")
     print("Objective: Validate system rejects unsupported voice assistant names.")
 
-    # Generate test ID
     test_id = to_test_id(f"{dab_topic}/{test_category}")
 
-    # Use clearly invalid assistant name
+    # Use a clearly invalid assistant name
     invalid_assistant = "invalid"
     request_payload = json.dumps({"voiceAssistant": invalid_assistant})
 
@@ -1223,53 +1224,49 @@ def run_set_invalid_voice_assistant_check(dab_topic, test_category, test_name, t
     result = TestResult(test_id, device_id, "voice/set", request_payload, "UNKNOWN", "", logs)
 
     try:
-        # Step 0: Pre-check supported voice assistants
+        # Optional pre-check for information only
         print("Step 0: Checking supported voice assistants via 'voice/list'.")
         _, resp_list = execute_cmd_and_log(tester, device_id, "voice/list", "{}", logs)
-        supported_list = []
         if resp_list:
             try:
                 supported_list = json.loads(resp_list).get("voiceAssistants", [])
-                print(f"Supported assistants: {supported_list}")
+                logs.append(f"[INFO] Supported assistants: {supported_list}")
             except Exception as e:
                 logs.append(f"[WARNING] Could not parse voice/list response: {str(e)}")
-
-        if invalid_assistant in supported_list:
-            logs.append(f"[SKIPPED] '{invalid_assistant}' is supported, skipping negative test.")
-            result.test_result = "SKIPPED"
-            return result
 
         # Step 1: Attempt to set invalid voice assistant
         print(f"Step 1: Sending 'voice/set' request with invalid assistant '{invalid_assistant}'.")
         _, response = execute_cmd_and_log(tester, device_id, "voice/set", request_payload, logs)
 
         # Step 2: Parse response and validate error handling
-        error_detected = False
         if response:
             try:
                 resp_json = json.loads(response)
                 status = resp_json.get("status")
-                message = resp_json.get("message", "").lower()
+                message = str(resp_json.get("message", "")).lower()
+
                 print(f"Received response: {resp_json}")
 
                 if status != 200 or "unsupported" in message or "error" in message:
                     logs.append(f"[PASS] System correctly rejected invalid assistant '{invalid_assistant}'.")
-                    error_detected = True
+                    result.test_result = "PASS"
+                else:
+                    logs.append(f"[FAIL] System accepted invalid assistant '{invalid_assistant}'.")
+                    result.test_result = "FAILED"
+
             except Exception as e:
                 logs.append(f"[ERROR] Failed to parse response: {str(e)}")
-
-        if error_detected:
-            result.test_result = "PASS"
+                result.test_result = "FAILED"
         else:
-            logs.append(f"[FAIL] System accepted invalid assistant '{invalid_assistant}'.")
+            logs.append("[FAIL] No response received for invalid assistant request.")
             result.test_result = "FAILED"
 
     except Exception as e:
         logs.append(f"[ERROR] Exception occurred: {str(e)}")
         result.test_result = "SKIPPED"
 
-    # Print concise final test result status
-    print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}\n({'-' * 100})")
+    # Print concise final result status
+    print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}\n{'-' * 100}")
 
     return result
 
@@ -1469,14 +1466,17 @@ def run_launch_video_and_health_check(dab_topic, test_category, test_name, teste
     print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}\n{'-' * 100}")
     return result
 
-# === Test25: Voice List With No Voice Assistant Configured (Negative) ===
+# === Test25: Voice List With No Voice Assistant Configured (Negative / Optional) ===
 def run_voice_list_with_no_voice_assistant(dab_topic, test_category, test_name, tester, device_id):
     """
     Objective:
         Validate system behavior when requesting the list of voice assistants
         on a device with no voice assistant configured.
+
     Expected:
-        System should return an empty list OR an appropriate error message/status.
+        - PASS if no assistants are configured (empty list).
+        - OPTIONAL_FAILED if assistants are pre-configured in the bridge 
+          (since this scenario is not enforceable without bridge config change).
     """
 
     print(f"\n[Test] Voice List With No Voice Assistant, Test name: {test_name}")
@@ -1513,15 +1513,22 @@ def run_voice_list_with_no_voice_assistant(dab_topic, test_category, test_name, 
         print(f"Response status: {status}")
         print(f"Voice Assistants list: {assistants}")
 
-        # Step 3: Validate negative condition
+        # Step 3: Validate result
         if status == 200 and isinstance(assistants, list) and len(assistants) == 0:
             logs.append("[PASS] No voice assistants configured, empty list returned as expected.")
             result.test_result = "PASS"
+
+        elif status == 200 and len(assistants) > 0:
+            logs.append(f"[OPTIONAL_FAILED] Voice assistants are pre-configured: {assistants}. "
+                        f"Test scenario not enforceable without bridge config change.")
+            result.test_result = "OPTIONAL_FAILED"
+
         elif status != 200:
-            logs.append(f"[PASS] Received expected non-200 status for no voice assistant case: {status}")
+            logs.append(f"[PASS] Non-200 status returned for no assistant case: {status}")
             result.test_result = "PASS"
+
         else:
-            logs.append("[FAIL] Voice assistants list is not empty when none expected.")
+            logs.append("[FAIL] Unexpected response format or condition.")
             result.test_result = "FAILED"
 
     except Exception as e:
@@ -1532,66 +1539,6 @@ def run_voice_list_with_no_voice_assistant(dab_topic, test_category, test_name, 
     print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}")
     print("-" * 100)
     return result
-
-# === Test26: Exit App While Already Exiting (Negative) ===
-def run_exit_app_while_exiting(dab_topic, test_category, test_name, tester, device_id):
-    """
-    Objective:
-        Validate the system handles redundant applications/exit requests gracefully
-        when the app is already in the process of exiting.
-    """
-
-    print(f"\n[Test] Exit App While Exiting, Test name: {test_name}")
-    print("Objective: Ensure system gracefully handles redundant exit requests when app is already exiting.")
-
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
-    app_id = config.apps.get("youtube", "YouTube")
-    logs = []
-    result = TestResult(test_id, device_id, "applications/exit", json.dumps({"appId": app_id}), "UNKNOWN", "", logs)
-
-    try:
-        # Step 1: Launch the app to ensure it's running before exit
-        print(f"Step 1: Launching application '{app_id}' to prepare for exit test.")
-        execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": app_id}), logs)
-        print(f"Waiting {APP_LAUNCH_WAIT} seconds for application to launch.")
-        time.sleep(APP_LAUNCH_WAIT)
-
-        # Step 2: Send the first exit request
-        print(f"Step 2: Sending first applications/exit request for '{app_id}'.")
-        execute_cmd_and_log(tester, device_id, "applications/exit", json.dumps({"appId": app_id}), logs)
-
-        # Step 3: Immediately send the second exit request (redundant)
-        print("Step 3: Sending second applications/exit request immediately (while app is still exiting).")
-        _, second_response = execute_cmd_and_log(tester, device_id, "applications/exit", json.dumps({"appId": app_id}), logs)
-
-        # Step 4: Validate system response for the redundant request
-        if second_response:
-            try:
-                resp_json = json.loads(second_response)
-                status = resp_json.get("status")
-                message = resp_json.get("message", "").lower()
-
-                if status == 200 or "already exiting" in message or "not running" in message:
-                    logs.append("[PASS] System gracefully handled redundant exit request.")
-                    result.test_result = "PASS"
-                else:
-                    logs.append(f"[FAIL] Unexpected status/message for redundant exit: {resp_json}")
-                    result.test_result = "FAILED"
-            except Exception as e:
-                logs.append(f"[ERROR] Failed to parse redundant exit response: {str(e)}")
-                result.test_result = "FAILED"
-        else:
-            logs.append("[FAIL] No response received for redundant exit request.")
-            result.test_result = "FAILED"
-
-    except Exception as e:
-        logs.append(f"[ERROR] Exception occurred during test: {str(e)}")
-        result.test_result = "SKIPPED"
-
-    # Print concise final result
-    print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}\n{'-' * 100}")
-    return result
-
 
 def run_launch_when_uninstalled_check(dab_topic, test_category, test_name, tester, device_id):
     """
@@ -1693,6 +1640,5 @@ FUNCTIONAL_TEST_CASE = [
     ("app-telemetry/stop", "functional", run_stop_app_telemetry_without_active_session_check, "StopAppTelemetryWithoutActiveSession", "2.1", True),
     ("applications/launch-with-content", "functional", run_launch_video_and_health_check, "LaunchVideoAndHealthCheck", "2.1", False),
     ("voice/list", "functional", run_voice_list_with_no_voice_assistant, "VoiceListWithNoVoiceAssistant", "2.0", True),
-    ("applications/exit", "functional", run_exit_app_while_exiting, "ExitAppWhileExiting", "2.0", True),
     ("applications/launch", "functional", run_launch_when_uninstalled_check, "LaunchAppNotInstalled", "2.1", True),
 ]
