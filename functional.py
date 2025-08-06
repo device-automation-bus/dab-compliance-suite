@@ -7,6 +7,8 @@ import sys
 from readchar import readchar
 from util.enforcement_manager import EnforcementManager
 from util.config_loader import ensure_app_available 
+from paho.mqtt.properties import Properties
+from paho.mqtt.packettypes import PacketTypes
 
 # --- Sleep Time Constants ---
 APP_LAUNCH_WAIT = 5
@@ -149,6 +151,25 @@ def get_supported_setting(tester, device_id, key, result, logs, do_list = True):
     logs.append(f"[FAILED] System settings '{key}' is unsupported on this device.")
     result.test_result = "FAILED"
     return None, result
+
+# === Helper: Restart Device  ===
+
+
+def fire_and_forget_restart(dab_client, device_id):
+    """
+    Fire-and-forget system restart request with proper MQTT v5 ResponseTopic.
+    """
+    topic = f"dab/{device_id}/system/restart"
+    response_topic = f"dab/_response/{topic}"
+
+    properties = Properties(PacketTypes.PUBLISH)
+    properties.ResponseTopic = response_topic
+
+    # Send with correct headers — no subscription, no waiting
+    dab_client._DabClient__client.publish(topic, "{}", qos=0, properties=properties)
+
+    print(f"[INFO] Sent restart command to {topic} (fire-and-forget).")
+
 
 # === Test 1: App in FOREGROUND Validate app moves to FOREGROUND after launch ===
 def run_app_foreground_check(dab_topic, test_category, test_name, tester, device_id):
@@ -1612,6 +1633,58 @@ def run_launch_when_uninstalled_check(dab_topic, test_category, test_name, teste
     print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}\n{'-' * 100}")
     return result
 
+# === Test 26: Launch App While Device Restarting (Negative) ===
+def run_launch_app_while_restarting_check(dab_topic, test_category, test_name, tester, device_id):
+    """
+    Validates that launching an app while device is restarting fails.
+    """
+    print(f"\n[Test] Launch App While Device Restarting, Test name: {test_name}")
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    app_id = config.apps.get("youtube", "YouTube")
+    logs = []
+    result = TestResult(test_id, device_id, "applications/launch",
+                        json.dumps({"appId": app_id}), "UNKNOWN", "", logs)
+
+    try:
+        # Step 1: Fire-and-forget restart
+        print("[Step 1] Sending system/restart (fire-and-forget)...")
+        fire_and_forget_restart(tester.dab_client, device_id)
+
+        # Step 2: Short delay to ensure device starts going offline
+        offline_wait_time = 3
+        print(f"[Step 2] Waiting {offline_wait_time}s for device to begin restart...")
+        time.sleep(offline_wait_time)
+
+        # Step 3: Attempt to launch app
+        print(f"[Step 3] Attempting to launch '{app_id}' while restarting...")
+        _, launch_response = execute_cmd_and_log(tester, device_id, "applications/launch",
+                                                 json.dumps({"appId": app_id}), logs)
+
+        # Step 4: Validate expected failure
+        if not launch_response:
+            logs.append("[PASS] No response received — launch failed as expected during restart.")
+            result.test_result = "PASS"
+        else:
+            try:
+                resp_json = json.loads(launch_response)
+                status = resp_json.get("status")
+                if status != 200:
+                    logs.append(f"[PASS] Received error status ({status}) during restart.")
+                    result.test_result = "PASS"
+                else:
+                    logs.append("[FAIL] Launch succeeded unexpectedly during restart.")
+                    result.test_result = "FAILED"
+            except Exception:
+                logs.append("[PASS] Invalid/empty response — treated as expected failure.")
+                result.test_result = "PASS"
+
+    except Exception as e:
+        logs.append(f"[ERROR] {str(e)}")
+        result.test_result = "SKIPPED"
+
+    print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}\n{'-' * 100}")
+    return result
+
 # === Functional Test Case List ===
 FUNCTIONAL_TEST_CASE = [
     ("applications/get-state", "functional", run_app_foreground_check, "AppForegroundCheck", "2.0", False),
@@ -1641,4 +1714,6 @@ FUNCTIONAL_TEST_CASE = [
     ("applications/launch-with-content", "functional", run_launch_video_and_health_check, "LaunchVideoAndHealthCheck", "2.1", False),
     ("voice/list", "functional", run_voice_list_with_no_voice_assistant, "VoiceListWithNoVoiceAssistant", "2.0", True),
     ("applications/launch", "functional", run_launch_when_uninstalled_check, "LaunchAppNotInstalled", "2.1", True),
+    ("applications/launch", "functional", run_launch_app_while_restarting_check, "LaunchAppWhileDeviceRestarting", "2.1", True),
+
 ]
