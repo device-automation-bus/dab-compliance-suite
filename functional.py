@@ -22,14 +22,57 @@ TELEMETRY_METRICS_WAIT = 30  # Max wait for telemetry metrics (seconds)
 HEALTH_CHECK_INTERVAL = 5    # Seconds between health check polls
 
 # === Reusable Helper ===
-def execute_cmd_and_log(tester, device_id, topic, payload, logs = None):
+
+class UnsupportedOperationError(Exception):
+    def __init__(self, topic):
+        self.topic = topic
+        super().__init__(f"DAB operation '{topic}' is not supported by the device.")
+
+SUPPORTED_OPERATIONS = []
+
+def fetch_supported_operations(tester, device_id):
+    global SUPPORTED_OPERATIONS
+    if not SUPPORTED_OPERATIONS:
+        print("[INFO] Fetching supported DAB operations via 'operations/list'...")
+        result_code = tester.execute_cmd(device_id, "operations/list", "{}")
+        response = tester.dab_client.response()
+        try:
+            data = json.loads(response)
+            if isinstance(data, dict) and "operations" in data:
+                SUPPORTED_OPERATIONS = data["operations"]
+                #print(f"[INFO] Supported DAB operations: {SUPPORTED_OPERATIONS}")
+            else:
+                print("[WARNING] Invalid operations/list response format.")
+        except Exception as e:
+            print(f"[ERROR] Failed to fetch supported operations: {e}")
+
+
+def execute_cmd_and_log(tester, device_id, topic, payload, logs=None, result=None):
+    global SUPPORTED_OPERATIONS
+
+    if not SUPPORTED_OPERATIONS:
+        fetch_supported_operations(tester, device_id)
+
+    if topic not in SUPPORTED_OPERATIONS:
+        msg = f"[OPTIONAL_FAILED] Operation '{topic}' is not supported by the device."
+        print(msg)
+        if logs is not None:
+            logs.append(msg)
+        if result is not None:
+            result.test_result = "OPTIONAL_FAILED"
+            result.reason = msg
+        raise UnsupportedOperationError(topic)
+
     print(f"\nExecuting: {topic} with payload: {payload}")
     result_code = tester.execute_cmd(device_id, topic, payload)
     response = tester.dab_client.response()
     if logs is not None:
         logs.append(f"[{topic}] Response: {response}")
-        print_response(response, topic)
+        
     return result_code, response
+
+# The 'print_response' function is removed from here
+# It is still defined in the file but is no longer called by this function.
 
 def print_response(response, topic_for_color=None, indent=10):
     if isinstance(response, str):
@@ -1684,6 +1727,571 @@ def run_launch_app_while_restarting_check(dab_topic, test_category, test_name, t
 
     print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}\n{'-' * 100}")
     return result
+  
+# === Test 27: Network Reset Check ===
+def run_network_reset_check(dab_topic, test_category, test_name, tester, device_id):
+    print(f"\n[Test] Network Reset Check, Test name: {test_name}")
+    print("Objective: Reset all network settings and verify DAB responds successfully.")
+
+    logs = []
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    result = TestResult(test_id, device_id, "system/network-reset", "{}", "UNKNOWN", "", logs)
+
+    try:
+        # Step 1: Validate required operations using operations/list
+        print("[STEP 1] Checking if 'system/network-reset' and 'system/info' are supported...")
+        required_ops = {"system/network-reset", "system/info"}
+        
+        try:
+            # Use execute_cmd_and_log to fetch operations and handle unsupported cases
+            _, response = execute_cmd_and_log(tester, device_id, "operations/list", "{}", logs)
+            if response:
+                supported_ops = set(json.loads(response).get("operations", []))
+                missing_ops = required_ops - supported_ops
+                if missing_ops:
+                    msg = f"[OPTIONAL_FAILED] Missing required operations: {', '.join(missing_ops)}. Cannot perform this test."
+                    print(msg)
+                    logs.append(msg)
+                    result.test_result = "OPTIONAL_FAILED"
+                    return result
+                logs.append("[INFO] All required operations are supported.")
+        except UnsupportedOperationError as e:
+            # This catch handles the case where 'operations/list' itself is not supported
+            logs.append(f"[OPTIONAL_FAILED] '{e.topic}' is not supported. Cannot validate required operations.")
+            result.test_result = "OPTIONAL_FAILED"
+            return result
+
+        # Step 2: Execute network reset
+        print("[STEP 2] Sending DAB request to reset network settings...")
+        result_code, response = execute_cmd_and_log(tester, device_id, "system/network-reset", "{}", logs, result)
+        if result_code != 200:
+            logs.append(f"[FAIL] Unexpected response code from 'system/network-reset': {result_code}")
+            result.test_result = "FAILED"
+            return result
+
+        # Step 3: Validate DAB responsiveness via system/info
+        print("[STEP 3] Verifying DAB is still responsive using 'system/info'...")
+        result_code_2, response_2 = execute_cmd_and_log(tester, device_id, "system/info", "{}", logs, result)
+        if result_code_2 == 200:
+            logs.append("[PASS] DAB responded successfully after network reset.")
+            result.test_result = "PASS"
+        else:
+            logs.append(f"[FAIL] 'system/info' failed after reset. Status: {result_code_2}")
+            result.test_result = "FAILED"
+
+    except UnsupportedOperationError as e:
+        logs.append(f"[OPTIONAL_FAILED] Unsupported operation: {str(e)}")
+        result.test_result = "OPTIONAL_FAILED"
+
+    except Exception as e:
+        logs.append(f"[ERROR] Exception during test execution: {str(e)}")
+        result.test_result = "SKIPPED"
+
+    print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}\n{'-' * 100}")
+    return [result]
+
+# === Test 28: Factory Reset and Recovery Check ===
+
+def run_factory_reset_and_recovery_check(dab_topic, test_category, test_name, tester, device_id):
+    print(f"\n[Test] Factory Reset and Device Recovery Check, Test name: {test_name}")
+    print("Objective: Validate factory reset and confirm device returns online with healthy DAB.")
+
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    logs = []
+    result = TestResult(test_id, device_id, dab_topic, "{}", "UNKNOWN", "", logs)
+
+    try:
+        # Step 1: Send factory reset
+        print("Step 1: Sending system/factory-reset command...")
+        result_code, response = execute_cmd_and_log(tester, device_id, dab_topic, "{}", logs, result)
+
+        if result_code != 200:
+            logs.append(f"[FAIL] Unexpected response code from factory reset: {result_code}")
+            result.test_result = "FAILED"
+            return result
+
+        logs.append("[INFO] Factory reset command accepted. Waiting for reboot...")
+        print("[INFO] Waiting for device to reboot and DAB to come back online...")
+
+        # Step 2: Wait and poll for device health
+        max_wait_sec = 120
+        poll_interval = 10
+        attempts = max_wait_sec // poll_interval
+
+        for i in range(attempts):
+            print(f"[INFO] Attempt {i+1}/{attempts}: Checking device health...")
+            time.sleep(poll_interval)
+            try:
+                health_code, health_resp = execute_cmd_and_log(
+                    tester, device_id, "health-check/get", "{}", logs, result
+                )
+                if health_code == 200:
+                    logs.append("[PASS] Device returned online and passed health check after reset.")
+                    result.test_result = "PASS"
+                    break
+            except UnsupportedOperationError as e:
+                logs.append(f"[OPTIONAL_FAILED] {str(e)}")
+                result.test_result = "OPTIONAL_FAILED"
+                return result
+            except Exception as e:
+                logs.append(f"[INFO] Retry failed: {e}")
+
+        if result.test_result != "PASS":
+            logs.append("[FAIL] Device did not respond to health-check/get after factory reset.")
+            result.test_result = "FAILED"
+
+    except UnsupportedOperationError as e:
+        logs.append(f"[OPTIONAL_FAILED] {str(e)}")
+        result.test_result = "OPTIONAL_FAILED"
+
+    except Exception as e:
+        logs.append(f"[ERROR] {str(e)}")
+        if result.test_result == "UNKNOWN":
+            result.test_result = "SKIPPED"
+
+    print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}\n{'-'*100}")
+    return result
+
+# === Test 29: Behavior when personalized ads setting is not supported ===
+# Functional Test: Validate behavior when 'personalizedAds' setting is NOT supported on the device
+def run_personalized_ads_response_check(dab_topic, test_category, test_name, tester, device_id):
+    print(f"\n[Test] Personalized Ads Optional Check, test name: {test_name}")
+    print("Objective: Verify device behavior for the optional 'personalizedAds' setting.")
+
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    logs = []
+    payload_set = json.dumps({"personalizedAds": True})
+    
+    result = TestResult(test_id, device_id, "system/settings/set", payload_set, "UNKNOWN", "", logs )
+
+    try:
+        # Step 1: Check if system/settings/list is supported
+        print("Step 1: Checking if 'system/settings/list' operation is supported...")
+        try:
+            _, response = execute_cmd_and_log(tester, device_id, "system/settings/list", "{}", logs)
+            if response:
+                settings_list = json.loads(response).get("settings", [])
+                setting_ids = [setting.get("settingId") for setting in settings_list]
+                if "personalizedAds" in setting_ids:
+                    logs.append("[INFO] 'personalizedAds' is listed in supported settings.")
+                    print("[INFO] 'personalizedAds' is listed in supported settings.")
+                    result.test_result = "OPTIONAL_FAILED"
+                    print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}\n{'-' * 100}")
+                    return result
+                else:
+                    logs.append("[INFO] 'personalizedAds' is NOT listed in supported settings. Proceeding with set attempt.")
+                    print("[INFO] 'personalizedAds' is NOT listed in supported settings. Proceeding with set attempt.")
+            else:
+                logs.append("[WARNING] No response received for 'system/settings/list'. Proceeding anyway.")
+
+        except UnsupportedOperationError:
+            logs.append("[INFO] 'system/settings/list' not supported. Skipping list check and trying to set directly.")
+            print("[INFO] 'system/settings/list' not supported. Skipping list check and trying to set directly.")
+
+        # Step 2: Check if system/settings/set is supported
+        print("Step 2: Checking if 'system/settings/set' operation is supported...")
+        try:
+            execute_cmd_and_log(tester, device_id, "system/settings/set", "{}", logs)
+        except UnsupportedOperationError:
+            logs.append("[SKIPPED] 'system/settings/set' operation not supported. Test not applicable.")
+            result.test_result = "SKIPPED"
+            print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}\n{'-' * 100}")
+            return result
+
+        # Step 3: Attempt to set personalizedAds
+        print(f"Step 3: Attempting to set 'personalizedAds' with payload: {payload_set}")
+        status_code, response = execute_cmd_and_log(tester, device_id, "system/settings/set", payload_set, logs)
+        print_response(response)
+
+        if not response:
+            logs.append("[FAIL] No response received.")
+            result.test_result = "FAILED"
+            return result
+
+        resp_json = json.loads(response)
+        status = resp_json.get("status")
+        error_msg = resp_json.get("error", "").lower()
+
+        if status in (400, 501) and ("not supported" in error_msg or "do not support" in error_msg or "invalid" in error_msg):
+            logs.append(f"[PASS] Device correctly rejected unsupported setting with status {status}.")
+            result.test_result = "PASS"
+        elif status == 200:
+            logs.append("[OPTIONAL_FAILED] Device accepted 'personalizedAds' setting despite not listing it.")
+            result.test_result = "OPTIONAL_FAILED"
+        else:
+            logs.append(f"[FAILED] Unexpected status: {status}, error: {error_msg}")
+            result.test_result = "FAILED"
+
+    except Exception as e:
+        logs.append(f"[ERROR] Exception during test: {str(e)}")
+        result.test_result = "FAILED"
+
+    print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}\n{'-' * 100}")
+    return result
+
+
+# === Test 30: Personalized Ads Setting Persistence Check ===
+def run_personalized_ads_persistence_check(dab_topic, test_category, test_name, tester, device_id):
+    print(f"\n[Test] Personalized Ads Persistence Check, test name: {test_name}")
+    print("Objective: Verify that 'personalizedAds' setting persists after device restart.")
+
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    logs = []
+    result = TestResult(test_id, device_id, "system/settings/set", json.dumps({"personalizedAds": True}), "UNKNOWN", "", logs)
+
+    try:
+        # Step 1: Check if required operations are supported using operations/list
+        print("[STEP 1] Fetching supported DAB operations using 'operations/list' to verify required operations.")
+        required_ops = {"system/settings/set", "system/settings/get", "system/restart"}
+        status, response = execute_cmd_and_log(tester, device_id, "operations/list", "{}", logs)
+
+        if status != 200:
+            msg = f"[FAIL] Failed to retrieve supported operations. Status: {status}"
+            print(msg)
+            logs.append(msg)
+            result.test_result = "FAILED"
+            return result
+
+        try:
+            supported_ops = set(json.loads(response).get("operations", []))
+            missing_ops = required_ops - supported_ops
+            if missing_ops:
+                msg = f"[OPTIONAL_FAILED] Missing required operations: {', '.join(missing_ops)}. Cannot perform persistence check."
+                print(msg)
+                logs.append(msg)
+                result.test_result = "OPTIONAL_FAILED"
+                return result
+            logs.append("[INFO] All required operations are supported.")
+        except Exception as e:
+            msg = f"[ERROR] Failed to parse operations/list response: {str(e)}"
+            print(msg)
+            logs.append(msg)
+            result.test_result = "FAILED"
+            return result
+
+        # Step 2: Enable personalizedAds
+        print("[STEP 2] Enabling 'personalizedAds' setting using system/settings/set.")
+        status, _ = execute_cmd_and_log(tester, device_id, "system/settings/set",
+                                        json.dumps({"personalizedAds": True}), logs)
+        if status != 200:
+            msg = f"[FAIL] Failed to set personalizedAds. Received status: {status}"
+            print(msg)
+            logs.append(msg)
+            result.test_result = "FAILED"
+            return result
+        logs.append("[INFO] Successfully enabled personalizedAds setting.")
+
+        # Step 3: Restart the device
+        print("[STEP 3] Sending system/restart command to reboot the device.")
+        status, _ = execute_cmd_and_log(tester, device_id, "system/restart", "{}", logs)
+        if status != 200:
+            msg = f"[FAIL] Device restart failed with status: {status}"
+            print(msg)
+            logs.append(msg)
+            result.test_result = "FAILED"
+            return result
+        print("[INFO] Device restart initiated. Waiting for device to come back online...")
+        logs.append("[INFO] Device restart initiated.")
+        time.sleep(15)  # Modify as needed based on device boot duration
+
+        # Step 4: Verify personalizedAds after restart
+        print("[STEP 4] Fetching 'personalizedAds' value post-reboot using system/settings/get.")
+        status, response = execute_cmd_and_log(tester, device_id, "system/settings/get",
+                                               json.dumps({"settingId": "personalizedAds"}), logs)
+        if status != 200:
+            msg = f"[FAIL] Unable to retrieve 'personalizedAds' after restart. Status: {status}"
+            print(msg)
+            logs.append(msg)
+            result.test_result = "FAILED"
+            return result
+
+        value = json.loads(response).get("value")
+        if value is True:
+            print("[PASS] 'personalizedAds' setting persisted after device restart.")
+            logs.append("[PASS] 'personalizedAds' setting persisted after device restart.")
+            result.test_result = "PASS"
+        else:
+            msg = f"[FAIL] 'personalizedAds' setting did not persist. Retrieved value: {value}"
+            print(msg)
+            logs.append(msg)
+            result.test_result = "FAILED"
+
+    except Exception as e:
+        msg = f"[ERROR] Exception occurred during test execution: {str(e)}"
+        print(msg)
+        logs.append(msg)
+        result.test_result = "FAILED"
+
+    print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}\n{'-' * 100}")
+    return result
+
+
+# === Test 31: Personalized Ads Not Supported Check ===
+
+def run_personalized_ads_not_supported_check(dab_topic, test_category, test_name, tester, device_id):
+    print(f"\n[Test] Personalized Ads Not-Supported Check, test name: {test_name}")
+    print("Objective: If 'personalizedAds' is not supported, device should reject with 501. If listed in settings, mark as OPTIONAL_FAILED.")
+
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    logs = []
+    set_payload = json.dumps({"personalizedAds": True})
+
+    result = TestResult(test_id, device_id, "system/settings/set", json.dumps({"personalizedAds": True}), "UNKNOWN", "", logs)
+
+    try:
+        # Step 0: Try to use settings/list to see if 'personalizedAds' appears at all
+        print("[STEP 0] Checking 'system/settings/list' for 'personalizedAds' support...")
+        listed = False
+        try:
+            _, list_resp = execute_cmd_and_log(tester, device_id, "system/settings/list", "{}", logs, result)
+            if list_resp:
+                try:
+                    # Expecting a JSON object; many bridges return a flat map of supported settings or a list of settingIds.
+                    data = json.loads(list_resp)
+                    # Handle both shapes gracefully:
+                    # 1) {"personalizedAds": <capabilities or True/False>}
+                    # 2) {"settings":[{"settingId":"..."}, ...]}
+                    if isinstance(data, dict):
+                        if "settings" in data and isinstance(data["settings"], list):
+                            listed = any((isinstance(s, dict) and s.get("settingId") == "personalizedAds") for s in data["settings"])
+                        else:
+                            listed = "personalizedAds" in data
+                except Exception as e:
+                    logs.append(f"[WARN] Couldn't parse system/settings/list response: {e}")
+        except UnsupportedOperationError:
+            logs.append("[INFO] 'system/settings/list' not supported; will validate by attempting 'system/settings/set'.")
+
+        if listed:
+            msg = "[OPTIONAL_FAILED] 'personalizedAds' is listed in supported settings (device supports it)."
+            print(msg)
+            logs.append(msg)
+            result.test_result = "OPTIONAL_FAILED"
+            print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}\n{'-' * 100}")
+            return result
+
+        # Step 1: Not listed → attempt to set; expect 501 Not Implemented (treated as Not Supported)
+        print("[STEP 1] 'personalizedAds' not listed. Attempting 'system/settings/set' expecting 501 (Not Implemented).")
+        status_code, set_resp = execute_cmd_and_log(tester, device_id, "system/settings/set", set_payload, logs, result)
+
+        # Parse response safely
+        resp_json = {}
+        if set_resp:
+            try:
+                resp_json = json.loads(set_resp)
+            except Exception as e:
+                logs.append(f"[ERROR] Invalid JSON in set response: {e}")
+
+        status = resp_json.get("status", status_code)
+
+        if status == 501:
+            logs.append("[PASS] Device returned 501 (Not Implemented) for 'personalizedAds' — treated as not supported.")
+            result.test_result = "PASS"
+        elif status == 200:
+            logs.append("[OPTIONAL_FAILED] Device accepted 'personalizedAds' (status 200) even though it was not listed.")
+            result.test_result = "OPTIONAL_FAILED"
+        else:
+            logs.append(f"[FAILED] Unexpected status for unsupported setting. Got: {status}; Expected: 501.")
+            result.test_result = "FAILED"
+
+    except UnsupportedOperationError as e:
+        # If set itself isn’t supported, that’s effectively “not supported” for this setting too → PASS by your rule?
+        # You said “use 501 not error”; but if the op is missing entirely we’ll treat as PASS (equivalent outcome).
+        logs.append(f"[PASS] '{e.topic}' operation not supported; treated as not supported for 'personalizedAds'.")
+        result.test_result = "PASS"
+    except Exception as e:
+        logs.append(f"[ERROR] Exception during test: {str(e)}")
+        result.test_result = "FAILED"
+
+    print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}\n{'-' * 100}")
+    return result
+
+# === Test 32: Personalized Video Ads Check ===
+def run_personalized_ads_Video_ads_are_personalized(dab_topic, test_category, test_name, tester, device_id):
+    print(f"\n[Test] Personalized Ads Manual Validation Check, test name: {test_name}")
+    print("Objective: Enable personalized ads and validate via tester confirmation if ads are personalized.")
+
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    logs = []
+    set_payload = json.dumps({"personalizedAds": True})
+
+    result = TestResult(test_id, device_id, "system/settings/set", json.dumps({"personalizedAds": True}), "UNKNOWN", "", logs)
+
+
+    try:
+        # STEP 0: Check support using system/settings/list
+        print("[STEP 0] Checking 'system/settings/list' for 'personalizedAds' support...")
+        listed = False
+        try:
+            _, list_resp = execute_cmd_and_log(tester, device_id, "system/settings/list", "{}", logs, result)
+            if list_resp:
+                try:
+                    data = json.loads(list_resp)
+                    if isinstance(data, dict):
+                        if "settings" in data and isinstance(data["settings"], list):
+                            listed = any((isinstance(s, dict) and s.get("settingId") == "personalizedAds") for s in data["settings"])
+                        else:
+                            listed = "personalizedAds" in data
+                except Exception as e:
+                    logs.append(f"[WARN] Couldn't parse system/settings/list response: {e}")
+        except UnsupportedOperationError:
+            logs.append("[INFO] 'system/settings/list' not supported; will proceed to attempt 'system/settings/set'.")
+
+        if not listed:
+            msg = "[OPTIONAL_FAILED] 'personalizedAds' is not supported on this device. Skipping manual validation."
+            print(msg)
+            logs.append(msg)
+            result.test_result = "OPTIONAL_FAILED"
+            print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}\n{'-' * 100}")
+            return result
+
+        # STEP 1: Enable personalized ads
+        print("[STEP 1] Enabling 'personalizedAds' setting on the device.")
+        status_code, set_resp = execute_cmd_and_log(tester, device_id, "system/settings/set", set_payload, logs, result)
+
+        resp_json = {}
+        if set_resp:
+            try:
+                resp_json = json.loads(set_resp)
+            except Exception as e:
+                logs.append(f"[ERROR] Invalid JSON in set response: {e}")
+
+        status = resp_json.get("status", status_code)
+
+        if status != 200:
+            logs.append(f"[FAILED] Failed to enable 'personalizedAds'. Status: {status}")
+            result.test_result = "FAILED"
+            print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}\n{'-' * 100}")
+            return result
+
+        # STEP 2: Prompt for manual verification
+        print("\n[STEP 2] Manual validation required:")
+        print("Navigate through Google TV home screen, app discovery pages, and open a few ad-supported apps (e.g., YouTube).")
+        print("Check if the displayed ads are highly relevant to the Google account's known interests (hobbies, favorite genres, recent searches).")
+        user_input = input("Are the ads personalized? (y/n): ").strip().lower()
+
+        if user_input == "y":
+            logs.append("[PASS] Tester confirmed that ads are personalized.")
+            result.test_result = "PASSED"
+        elif user_input == "n":
+            logs.append("[FAIL] Tester confirmed ads are NOT personalized.")
+            result.test_result = "FAILED"
+        else:
+            logs.append("[ERROR] Invalid input provided for manual check.")
+            result.test_result = "FAILED"
+
+    except UnsupportedOperationError as e:
+        logs.append(f"[OPTIONAL_FAILED] '{e.topic}' not supported. Cannot perform manual validation for 'personalizedAds'.")
+        result.test_result = "OPTIONAL_FAILED"
+    except Exception as e:
+        logs.append(f"[ERROR] Exception during test: {str(e)}")
+        result.test_result = "FAILED"
+
+    print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}\n{'-' * 100}")
+    return result
+
+# === Test 33: Personalized Ads Apply and Display Check ===
+
+def run_personalized_ads_apply_and_display_check(dab_topic, test_category, test_name, tester, device_id):
+    """
+    Positive: Enable personalized ads and verify device applies the setting and shows personalized ads.
+    Manual validation uses yes_or_no() for the ad observation step.
+    Behavior:
+      - If system/settings/list works and doesn't list 'personalizedAds' -> OPTIONAL_FAILED (feature not supported).
+      - If list fails (e.g., rc=500) -> proceed to set anyway.
+      - If set returns 501 -> OPTIONAL_FAILED (not supported).
+      - If set returns 200 -> ask tester to confirm ads are personalized (PASS/FAIL).
+      - Other statuses -> FAILED.
+    """
+    print(f"\n[Test] Personalized Ads Apply & Display (Manual), test name: {test_name}")
+    print("Objective: Enable 'personalizedAds' and confirm ads shown are tailored to the user.")
+
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    logs = []
+    set_payload = json.dumps({"personalizedAds": True})
+    result = TestResult(test_id, device_id, "system/settings/set", set_payload, "UNKNOWN", "", logs)
+
+    try:
+        # STEP 0: Preconditions (manual)
+        if not yes_or_no(result, logs, "Is the device powered on AND a user is logged in?"):
+            logs.append("[FAILED] Preconditions not met (power/login).")
+            result.test_result = "FAILED"
+            return result
+
+        # STEP 1: Best-effort: ensure ops are loaded, and check 'system/settings/set' support
+        try:
+            execute_cmd_and_log(tester, device_id, "operations/list", "{}", logs, result)
+        except Exception as e:
+            logs.append(f"[WARN] operations/list failed; continuing. {e}")
+
+        try:
+            execute_cmd_and_log(tester, device_id, "system/settings/set", "{}", logs, result)
+        except UnsupportedOperationError as e:
+            logs.append(f"[OPTIONAL_FAILED] '{e.topic}' not supported; cannot enable 'personalizedAds'.")
+            result.test_result = "OPTIONAL_FAILED"
+            return result
+
+        # STEP 2: Try system/settings/list (if it fails, don't fail the test—just continue)
+        listed = False
+        try:
+            rc, list_resp = execute_cmd_and_log(tester, device_id, "system/settings/list", "{}", logs, result)
+            if list_resp:
+                try:
+                    data = json.loads(list_resp)
+                    if isinstance(data, dict):
+                        if "settings" in data and isinstance(data["settings"], list):
+                            listed = any((isinstance(s, dict) and s.get("settingId") == "personalizedAds") for s in data["settings"])
+                        else:
+                            listed = "personalizedAds" in data
+                except Exception as e:
+                    logs.append(f"[WARN] Could not parse settings/list JSON: {e}")
+            else:
+                logs.append("[WARN] Empty response from system/settings/list; continuing without list gate.")
+        except UnsupportedOperationError:
+            logs.append("[INFO] 'system/settings/list' not supported by device; continuing without list gate.")
+        except Exception as e:
+            logs.append(f"[WARN] system/settings/list failed (e.g., rc=500). Continuing. {e}")
+
+        # If list says it's NOT supported, mark optional and bail
+        if rc == 200 and listed is False:
+            logs.append("[OPTIONAL_FAILED] 'personalizedAds' is not listed in supported settings (feature not supported).")
+            result.test_result = "OPTIONAL_FAILED"
+            return result
+
+        # STEP 3: Enable personalizedAds
+        status_code, set_resp = execute_cmd_and_log(tester, device_id, "system/settings/set", set_payload, logs, result)
+        try:
+            status = json.loads(set_resp).get("status", status_code) if set_resp else status_code
+        except Exception:
+            status = status_code
+
+        if status == 501:
+            logs.append("[OPTIONAL_FAILED] Device returned 501 (Not Implemented) for 'personalizedAds' set — treat as not supported.")
+            result.test_result = "OPTIONAL_FAILED"
+            return result
+        if status != 200:
+            logs.append(f"[FAILED] Failed to enable 'personalizedAds'. Status: {status}")
+            result.test_result = "FAILED"
+            return result
+
+        # STEP 4: Manual ad observation (yes_or_no)
+        print("\nPlease navigate to ad surfaces (home screen, discovery rows, YouTube, other ad-supported apps).")
+        print("Look for ads tailored to the logged-in user's interests (recent searches, favorite genres, etc.).")
+        if yes_or_no(result, logs, "Do the ads appear tailored/personalized to the user?"):
+            logs.append("[PASS] Tester confirmed ads are personalized.")
+            result.test_result = "PASS"
+        else:
+            logs.append("[FAILED] Tester reported ads are NOT personalized.")
+            result.test_result = "FAILED"
+
+    except UnsupportedOperationError as e:
+        logs.append(f"[OPTIONAL_FAILED] '{e.topic}' not supported.")
+        result.test_result = "OPTIONAL_FAILED"
+    except Exception as e:
+        logs.append(f"[ERROR] Exception during test: {e}")
+        result.test_result = "FAILED"
+
+    print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}\n{'-' * 100}")
+    return result
 
 # === Functional Test Case List ===
 FUNCTIONAL_TEST_CASE = [
@@ -1715,5 +2323,12 @@ FUNCTIONAL_TEST_CASE = [
     ("voice/list", "functional", run_voice_list_with_no_voice_assistant, "VoiceListWithNoVoiceAssistant", "2.0", True),
     ("applications/launch", "functional", run_launch_when_uninstalled_check, "LaunchAppNotInstalled", "2.1", True),
     ("applications/launch", "functional", run_launch_app_while_restarting_check, "LaunchAppWhileDeviceRestarting", "2.1", True),
+    ("system/network-reset", "functional", run_network_reset_check, "NetworkResetCheck", "2.1", False),
+    ("system/factory-reset", "functional", run_factory_reset_and_recovery_check, "Factory Reset and Recovery Check", "2.1", False ),
+    ("system/settings/list", "functional", run_personalized_ads_response_check, "behavior when personalized ads setting is not supported", "2.1", False ),
+    ("system/settings/set", "functional", run_personalized_ads_persistence_check, "Personalized Ads Setting Persistence Check", "2.1", False),
+    ("system/settings/list", "functional", run_personalized_ads_not_supported_check, "PersonalizedAdsNotSupportedCheck", "2.1", False),
+    ("system/settings/set", "functional", run_personalized_ads_Video_ads_are_personalized, "Video ads are personalized", "2.1", False),
+    ("system/settings/set", "functional", run_personalized_ads_apply_and_display_check, "display_check for personalized", "2.1", False),
 
 ]
