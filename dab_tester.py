@@ -12,6 +12,8 @@ import os
 from util.enforcement_manager import EnforcementManager
 from util.enforcement_manager import ValidateCode
 import re
+from packaging.version import InvalidVersion
+import dab_version as ver
 
 class DabTester:
     def __init__(self,broker, override_dab_version=None):
@@ -52,17 +54,13 @@ class DabTester:
         # treat this as OPTIONAL_FAILED instead of skipping or erroring out.
         # This ensures transparency in test result reporting.
         # ------------------------------------------------------------------------
-        # Get dab version version (default "2.0") and convert both to float
-        dab_version = self.dab_version or "2.0"
-        required_version = float(test_version)
+        dab_version = self.dab_version or ver.DABVersion.V2_0
 
         # If the required test version > current dab version, mark as OPTIONAL_FAILED
         try:
-            required_version = float(test_version)
-            dab_version_float = float(dab_version)
-            if dab_version_float < required_version:
+            if dab_version < test_version:
                 test_result.test_result = "OPTIONAL_FAILED"
-                log(test_result, f"\033[1;33m[ OPTIONAL_FAILED - Requires DAB Version {required_version}, but DAB version is {dab_version_float} ]\033[0m")
+                log(test_result, f"\033[1;33m[ OPTIONAL_FAILED - Requires DAB Version {test_version}, but DAB version is {dab_version} ]\033[0m")
                 return test_result
         except Exception as e:
             log(test_result, f"[WARNING] Version comparison failed: {e}")
@@ -306,7 +304,7 @@ class DabTester:
                 body_str = "{}"  # No fixed payload required
                 func = test_case[2]
                 title = test_case[3] if len(test_case) > 3 else "FunctionalTest"
-                test_version = str(test_case[4]) if len(test_case) > 4 else "2.0"
+                test_version = ver.parse(test_case[4]) if len(test_case) > 4 else ver.DABVersion.V2_0
                 is_negative = bool(test_case[5]) if len(test_case) > 5 else False
                 expected = 0  # Expected not used but kept for tuple shape
 
@@ -324,12 +322,12 @@ class DabTester:
             topic, body_str, func, expected, title = test_case[:5]
 
             # Defaults
-            test_version = "2.0"
+            test_version = ver.DABVersion.V2_0
             is_negative = False
 
             # logic: test_version is always the 6th, is_negative is 7th
             if len(test_case) >= 6:
-                test_version = str(test_case[5])
+                test_version = ver.parse(test_case[5])
             if len(test_case) == 7:
                 is_negative = bool(test_case[6])
 
@@ -369,7 +367,7 @@ class DabTester:
         Honors override_dab_version if explicitly provided.
         """
         if hasattr(self, 'override_dab_version') and self.override_dab_version:
-            self.dab_version = self.override_dab_version
+            self.dab_version = ver.parse(self.override_dab_version)
             print(f"[INFO] Forced DAB version (override): {self.dab_version}")
             return
         try:
@@ -379,15 +377,15 @@ class DabTester:
 
             if response:
                 resp_json = json.loads(response)
-                self.dab_version = resp_json.get("DAB Version", "2.0")
+                self.dab_version = ver.parse_array(resp_json.get("versions", ["2.0"]))
                 print(f"[INFO] Detected DAB version: {self.dab_version}")
             else:
                 print("[WARNING] Empty response from DAB version check. Using fallback.")
-                self.dab_version = "2.0"
+                self.dab_version = ver.DABVersion.V2_0
 
         except Exception as e:
             print(f"[ERROR] Failed to detect DAB version: {e}")
-            self.dab_version = "2.0"
+            self.dab_version = ver.DABVersion.V2_0
 
     def get_device_info(self, device_id):
         try:
