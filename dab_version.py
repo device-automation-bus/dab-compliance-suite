@@ -5,7 +5,6 @@ from packaging.version import Version, InvalidVersion
 class DABVersion(Version, Enum):
     V2_0 = "2.0"
     V2_1 = "2.1"
-    V2_2 = "2.2"
 
 
 def _to_version(version) -> Version:
