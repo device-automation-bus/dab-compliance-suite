@@ -15,16 +15,12 @@ import dab.output
 import dab.version
 import argparse
 import conformance
-import voice_audio
-import voice_text
 import output_image
 import netflix
 import functional
 
 ALL_SUITES = {
     "conformance": conformance.CONFORMANCE_TEST_CASE,
-    "voice_audio": voice_audio.SEND_VOICE_AUDIO_TEST_CASES,
-    "voice_text": voice_text.SEND_VOICE_TEXT_TEST_CASES,
     "output_image": output_image.OUTPUT_IMAGE_TEST_CASES,
     "netflix": netflix.NETFLIX_TEST_CASES,
     "functional": functional.FUNCTIONAL_TEST_CASE,
