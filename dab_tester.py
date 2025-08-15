@@ -155,7 +155,7 @@ class DabTester:
                     # ------------------------------------------------------------------------------
                     # Check if operation is listed in dab/operations/list
                     supported_code, op_check_log = self.dab_checker.is_operation_supported(device_id, dab_request_topic)
-                    if supported_code == ValidateCode.SUPPORTED:
+                    if supported_code == ValidateCode.SUPPORT:
                         test_result.test_result = "FAILED"
                         log(test_result, op_check_log)
                         log(test_result, f"\033[1;31m[ FAILED - Required DAB operation is NOT IMPLEMENTED (501) ]\033[0m")

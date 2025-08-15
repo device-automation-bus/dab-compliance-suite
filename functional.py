@@ -12,6 +12,8 @@ from paho.mqtt.packettypes import PacketTypes
 
 # --- Sleep Time Constants ---
 APP_LAUNCH_WAIT = 5
+APP_UNINSTALL_WAIT = 5
+APP_CLEAR_DATA_WAIT = 5
 APP_EXIT_WAIT = 3
 APP_STATE_CHECK_WAIT = 2
 APP_RELAUNCH_WAIT = 4
@@ -104,6 +106,24 @@ def yes_or_no(result, logs, question=""):
              return False
          else:
              continue
+
+def select_input(result, logs, arr):
+    print(f"*0: There is no option that meet the requirement.")
+    logs.append(f"*0: There is no option that meet the requirement.")
+    index = 0
+    for value in arr:
+        index = index + 1
+        print(f"*{index}: {value}")
+        logs.append(f"*{index}: {value}")
+
+    while True:
+        print(f"Please input number:")
+        user_input = readchar()
+        if user_input.isdigit() == False or int(user_input) > index:
+            continue
+        print(f"[{user_input}]")
+        logs.append(f"[{user_input}]")
+        return int(user_input)
 
 def countdown(title, count):
     while count:
@@ -2293,6 +2313,270 @@ def run_personalized_ads_apply_and_display_check(dab_topic, test_category, test_
     print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}\n{'-' * 100}")
     return result
 
+# === Test 34: Uninstall An Application Currently Running Foreground Check ===
+def run_uninstall_foreground_app_check(dab_topic, test_category, test_name, tester, device_id):
+    print("\n[Test] Uninstall An Application Currently Running Foreground Check")
+    print("Objective: Validate application currently running foreground can be uninstalled successfully.")
+
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    logs = []
+    result = TestResult(test_id, device_id, "applications/uninstall", json.dumps({"appId": "[appId]"}), "UNKNOWN", "", logs)
+
+    try:
+        print(f"Step 1: Select one non-system application in the applications list.")
+        topic = "applications/list"
+        payload = json.dumps({})
+        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
+        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
+        if validate_state == False:
+            return result
+
+        applications = json.loads(response).get("applications")
+        appId_list = []
+
+        for application in applications:
+            appId = application.get("appId")
+            appId_list.append(appId)
+
+        logs.append(f"Please select one Non-System application in the list.")
+        print(f"Please select one Non-System application in the list.")
+        index = select_input(result, logs, appId_list)
+        if index == 0:
+            print(f"There are no non-system applications in the applications list.")
+            logs.append(f"[OPTIONAL_FAILED] There are no non-system applications in the applications list.")
+            result.test_result = "OPTIONAL_FAILED"
+            print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+            return result
+
+        appId = appId_list[index - 1]
+        logs.append(f"Select appId '{appId}'.")
+
+        print(f"Step 2: Launching application '{appId}'.")
+        execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": appId}), logs)
+        print(f"Waiting {APP_LAUNCH_WAIT} seconds for application to launch and stabilize.")
+        time.sleep(APP_LAUNCH_WAIT)
+
+        print(f"Step 3: Getting state of application '{appId}'.")
+        _, response = execute_cmd_and_log(tester, device_id, "applications/get-state", json.dumps({"appId": appId}), logs)
+        state = json.loads(response).get("state", "").upper() if response else "UNKNOWN"
+        print(f"Current application state: {state}.")
+
+        if state != "FOREGROUND":
+            logs.append(f"[FAIL] App state is '{state}', expected 'FOREGROUND'.")
+            result.test_result = "FAILED"
+
+        print(f"Step 4: Uninstall application '{appId}'.")
+        _, response = execute_cmd_and_log(tester, device_id, "applications/uninstall", json.dumps({"appId": appId}), logs)
+        status = json.loads(response).get("status", 0) if response else 0
+        print(f"Waiting {APP_UNINSTALL_WAIT} seconds for application to uninstall.")
+        time.sleep(APP_UNINSTALL_WAIT)
+
+        if status == 200:
+            print(f"Uninstall an application currently running foreground successful.")
+            logs.append(f"[PASS] Uninstall an application currently running foreground successful.")
+            result.test_result = "PASS"
+        else:
+            print(f"Uninstall an application currently running foreground fail.")
+            logs.append(f"[FAIL] Uninstall an application currently running foreground fail.")
+            result.test_result = "FAILED"
+
+    except UnsupportedOperationError as e:
+        logs.append(f"[OPTIONAL_FAILED] Unsupported operation: {str(e)}")
+        result.test_result = "OPTIONAL_FAILED"
+
+    except Exception as e:
+        logs.append(f"[ERROR] {str(e)}")
+        result.test_result = "SKIPPED"
+
+    # Print concise final test result status
+    print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+    return result
+
+# === Test 35: Uninstall An System Application Check ===
+def run_uninstall_system_app_check(dab_topic, test_category, test_name, tester, device_id):
+    print("\n[Test] Uninstall An System Application Check")
+    print("Objective: Validate system application can not be uninstalled.")
+
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    logs = []
+    result = TestResult(test_id, device_id, "applications/uninstall", json.dumps({"appId": "[appId]"}), "UNKNOWN", "", logs)
+
+    try:
+        print(f"Step 1: Select one system application in the applications list.")
+        topic = "applications/list"
+        payload = json.dumps({})
+        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
+        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
+        if validate_state == False:
+            return result
+
+        applications = json.loads(response).get("applications")
+        appId_list = []
+
+        for application in applications:
+            appId = application.get("appId")
+            appId_list.append(appId)
+
+        logs.append(f"Please select one System application in the list.")
+        print(f"Please select one System application in the list.")
+        index = select_input(result, logs, appId_list)
+        if index == 0:
+            print(f"There are no system applications in the applications list.")
+            logs.append(f"[OPTIONAL_FAILED] There are no system applications in the applications list.")
+            result.test_result = "OPTIONAL_FAILED"
+            print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+            return result
+
+        appId = appId_list[index - 1]
+        logs.append(f"Select appId '{appId}'.")
+
+        print(f"Step 2: Uninstall application '{appId}'.")
+        _, response = execute_cmd_and_log(tester, device_id, "applications/uninstall", json.dumps({"appId": appId}), logs)
+        status = json.loads(response).get("status", 0) if response else 0
+        print(f"Waiting {APP_UNINSTALL_WAIT} seconds for application to uninstall.")
+        time.sleep(APP_UNINSTALL_WAIT)
+
+        if status == 403:
+            print(f"The system application '{appId}' cannot be uninstalled.")
+            logs.append(f"[PASS] The system application '{appId}' cannot be uninstalled.")
+            result.test_result = "PASS"
+        elif status == 200:
+            print(f"The system application '{appId}' can be uninstalled.")
+            logs.append(f"[FAIL] The system application '{appId}' can be uninstalled.")
+            result.test_result = "FAILED"
+        else:
+            logs.append(f"[ERROR] {str(e)}")
+            result.test_result = "SKIPPED"
+
+    except UnsupportedOperationError as e:
+        logs.append(f"[OPTIONAL_FAILED] Unsupported operation: {str(e)}")
+        result.test_result = "OPTIONAL_FAILED"
+
+    except Exception as e:
+        logs.append(f"[ERROR] {str(e)}")
+        result.test_result = "SKIPPED"
+
+    # Print concise final test result status
+    print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+    return result
+
+# === Test 36: Clear Data For An Application Currently Running Foreground Check ===
+def run_clear_data_foreground_app_check(dab_topic, test_category, test_name, tester, device_id):
+    print("\n[Test] Clear Data For An Application Currently Running Foreground Check")
+    print("Objective: Validate application currently running foreground can be cleared data successfully.")
+
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    appId = config.apps.get("youtube", "YouTube")
+    logs = []
+    result = TestResult(test_id, device_id, "applications/clear-data", json.dumps({"appId": appId}), "UNKNOWN", "", logs)
+
+    try:
+        print(f"Step 2: Launching application '{appId}'.")
+        execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": appId}), logs)
+        print(f"Waiting {APP_LAUNCH_WAIT} seconds for application to launch and stabilize.")
+        time.sleep(APP_LAUNCH_WAIT)
+
+        print(f"Step 3: Getting state of application '{appId}'.")
+        _, response = execute_cmd_and_log(tester, device_id, "applications/get-state", json.dumps({"appId": appId}), logs)
+        state = json.loads(response).get("state", "").upper() if response else "UNKNOWN"
+        print(f"Current application state: {state}.")
+
+        if state != "FOREGROUND":
+            logs.append(f"[FAIL] App state is '{state}', expected 'FOREGROUND'.")
+            result.test_result = "FAILED"
+
+        print(f"Step 4: Clear application '{appId}' data.")
+        _, response = execute_cmd_and_log(tester, device_id, "applications/clear-data", json.dumps({"appId": appId}), logs)
+        status = json.loads(response).get("status", 0) if response else 0
+        print(f"Waiting {APP_CLEAR_DATA_WAIT} seconds for application to clear data.")
+        time.sleep(APP_CLEAR_DATA_WAIT)
+
+        if status == 200:
+            print(f"Clear data for an application currently running foreground successful.")
+            logs.append(f"[PASS] Clear data for an application currently running foreground successful.")
+            result.test_result = "PASS"
+        else:
+            print(f"Clear data for an application currently running foreground fail.")
+            logs.append(f"[FAIL] Clear data for an application currently running foreground fail.")
+            result.test_result = "FAILED"
+
+    except UnsupportedOperationError as e:
+        logs.append(f"[OPTIONAL_FAILED] Unsupported operation: {str(e)}")
+        result.test_result = "OPTIONAL_FAILED"
+
+    except Exception as e:
+        logs.append(f"[ERROR] {str(e)}")
+        result.test_result = "SKIPPED"
+
+    # Print concise final test result status
+    print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+    return result
+
+# === Test 37: Clear Data For An System Application Check ===
+def run_clear_data_system_app_check(dab_topic, test_category, test_name, tester, device_id):
+    print("\n[Test] Clear Data For An System Application Check")
+    print("Objective: Validate system application can be cleared data successfully.")
+
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    logs = []
+    result = TestResult(test_id, device_id, "applications/uninstall", json.dumps({"appId": "[appId]"}), "UNKNOWN", "", logs)
+
+    try:
+        print(f"Step 1: Select one system application in the applications list.")
+        topic = "applications/list"
+        payload = json.dumps({})
+        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
+        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
+        if validate_state == False:
+            return result
+
+        applications = json.loads(response).get("applications")
+        appId_list = []
+
+        for application in applications:
+            appId = application.get("appId")
+            appId_list.append(appId)
+
+        logs.append(f"Please select one System application in the list.")
+        print(f"Please select one System application in the list.")
+        index = select_input(result, logs, appId_list)
+        if index == 0:
+            print(f"There are no system applications in the applications list.")
+            logs.append(f"[OPTIONAL_FAILED] There are no system applications in the applications list.")
+            result.test_result = "OPTIONAL_FAILED"
+            print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+            return result
+
+        appId = appId_list[index - 1]
+        logs.append(f"Select appId '{appId}'.")
+
+        print(f"Step 4: Clear data for system application '{appId}'.")
+        _, response = execute_cmd_and_log(tester, device_id, "applications/clear-data", json.dumps({"appId": appId}), logs)
+        status = json.loads(response).get("status", 0) if response else 0
+        print(f"Waiting {APP_CLEAR_DATA_WAIT} seconds for application to uninstall.")
+        time.sleep(APP_CLEAR_DATA_WAIT)
+
+        if status == 200:
+            print(f"Clear data for an system application successful.")
+            logs.append(f"[PASS] Clear data for an system application successful.")
+            result.test_result = "PASS"
+        else:
+            print(f"Clear data for an system application fail.")
+            logs.append(f"[FAIL] Clear data for an system application fail.")
+            result.test_result = "FAILED"
+
+    except UnsupportedOperationError as e:
+        logs.append(f"[OPTIONAL_FAILED] Unsupported operation: {str(e)}")
+        result.test_result = "OPTIONAL_FAILED"
+
+    except Exception as e:
+        logs.append(f"[ERROR] {str(e)}")
+        result.test_result = "SKIPPED"
+
+    # Print concise final test result status
+    print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+    return result
+
 # === Functional Test Case List ===
 FUNCTIONAL_TEST_CASE = [
     ("applications/get-state", "functional", run_app_foreground_check, "AppForegroundCheck", "2.0", False),
@@ -2330,5 +2614,8 @@ FUNCTIONAL_TEST_CASE = [
     ("system/settings/list", "functional", run_personalized_ads_not_supported_check, "PersonalizedAdsNotSupportedCheck", "2.1", False),
     ("system/settings/set", "functional", run_personalized_ads_Video_ads_are_personalized, "Video ads are personalized", "2.1", False),
     ("system/settings/set", "functional", run_personalized_ads_apply_and_display_check, "display_check for personalized", "2.1", False),
-
+    ("applications/uninstall", "functional", run_uninstall_foreground_app_check, "UninstallForegroundAppCheck", "2.1", False),
+    ("applications/uninstall", "functional", run_uninstall_system_app_check, "UninstallSystemAppCheck", "2.1", False),
+    ("applications/clear-data", "functional", run_clear_data_foreground_app_check, "ClearDataForegroundAppCheck", "2.1", False),
+    ("applications/clear-data", "functional", run_clear_data_system_app_check, "ClearDataSystemAppCheck", "2.1", False),
 ]
