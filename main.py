@@ -11,6 +11,7 @@ import dab.device_telemetry
 import dab.voice
 import dab.applications
 import dab.system
+import dab.content
 import dab.output
 import dab.version
 import argparse
