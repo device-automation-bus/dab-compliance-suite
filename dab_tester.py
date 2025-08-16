@@ -13,6 +13,10 @@ from util.enforcement_manager import EnforcementManager
 from util.enforcement_manager import ValidateCode
 import re
 
+# Raised when preflight (discovery/health) decides we should stop the run.
+class PreflightTermination(Exception):
+    pass
+
 class DabTester:
     def __init__(self,broker, override_dab_version=None):
         self.dab_client = DabClient()
@@ -30,6 +34,156 @@ class DabTester:
             print(f"[ERROR] Failed to load valid DAB topics: {e}")
             self.valid_dab_topics = set()
 
+    def _preflight_discovery_or_raise(self, device_id: str):
+        """
+        Run dab/discovery and ensure `device_id` is present.
+        If not present (or discovery fails), raise PreflightTermination.
+        """
+        try:
+            discovered_list = self.dab_client.discover_devices() or []
+        except Exception as e:
+            print(f"[ERROR] DAB discovery failed: {e}")
+            raise PreflightTermination("Discovery failed.")
+
+        if not discovered_list:
+            print("[ERROR] No devices responded to 'dab/discovery'.")
+            raise PreflightTermination("No devices discovered.")
+
+        found_devices = []
+        target_ip = None
+        for entry in discovered_list:
+            did = entry.get("deviceId") or entry.get("device_id")
+            ip  = entry.get("ip") or entry.get("ipAddress") or "n/a"
+            if did:
+                found_devices.append((did, ip))
+                if did == device_id:
+                    target_ip = ip
+
+        if target_ip is None:
+            ids = ", ".join(sorted({d for d, _ in found_devices})) if found_devices else "(none)"
+            print(f"[ERROR] Target '{device_id}' not present in discovery results.")
+            print(f"        Discovered deviceIds: [{ids}]")
+            raise PreflightTermination("Target not discoverable.")
+
+        print(f"[OK] Target '{device_id}' is discoverable (ip: {target_ip}).")
+
+    def pretest_health_check(self, device_id: str, retries: int = 3, delay_sec: int = 10,
+                            interactive: bool = True, fatal: bool = False) -> bool:
+        """
+        Run dab/<device-id>/health-check/get before each test.
+        Retries `retries` times (in addition to the first attempt) with `delay_sec` delay.
+        If still unhealthy, interactively ask user to Retry / Continue / Terminate.
+        Returns True if we should proceed with the test; False to skip/stop.
+        """
+        total_attempts = retries + 1
+        for attempt in range(1, total_attempts + 1):
+            try:
+                self.dab_client.request(device_id, "health-check/get", "{}")
+                resp_text = self.dab_client.response() or ""
+                status = self.dab_client.last_error_code()
+
+                healthy = False
+                message = ""
+                if resp_text:
+                    try:
+                        j = json.loads(resp_text)
+                        healthy = bool(j.get("healthy", False))
+                        message = j.get("message", "")
+                    except Exception:
+                        pass
+
+                status_str = status if status is not None else "N/A"
+                msg_suffix = f" | message='{message}'" if message else ""
+                print(f"[INFO] Health check attempt {attempt}/{total_attempts}: status={status_str}, healthy={healthy}{msg_suffix}")
+
+                if status == 200 and healthy:
+                    print("[OK] Device is healthy. Proceeding...\n")
+                    return True
+
+                if attempt < total_attempts:
+                    print(f"[WAIT] Device unhealthy; retrying in {delay_sec}s ...")
+                    sleep(delay_sec)
+
+            except Exception as e:
+                if attempt < total_attempts:
+                    print(f"[WARN] Health-check error: {e}. Retrying in {delay_sec}s ...")
+                    sleep(delay_sec)
+                else:
+                    print(f"[WARN] Health-check error: {e}.")
+
+        print("\n[ERROR] Device health check failed after multiple attempts.")
+        print("        Please verify:")
+        print("        • Device power/network")
+        print("        • DAB service is enabled and responsive")
+        print("        • Broker connectivity")
+
+        if not interactive:
+            return False
+
+        while True:
+            answer = input(
+                "\n[PROMPT] Device is unhealthy.\n"
+                "         Choose an action:\n"
+                "         [R]etry health-check now\n"
+                "         [C]ontinue anyway (NOT recommended)\n"
+                "         [T]erminate this run (partial results will be saved)\n"
+                "         Enter choice [R/c/t]: "
+            ).strip().lower()
+
+            if answer in ("", "r", "retry"):
+                try:
+                    print("[INFO] Retrying health-check once ...")
+                    self.dab_client.request(device_id, "health-check/get", "{}")
+                    resp_text = self.dab_client.response() or ""
+                    status = self.dab_client.last_error_code()
+
+                    healthy = False
+                    message = ""
+                    if resp_text:
+                        try:
+                            j = json.loads(resp_text)
+                            healthy = bool(j.get("healthy", False))
+                            message = j.get("message", "")
+                        except Exception:
+                            pass
+
+                    status_str = status if status is not None else "N/A"
+                    msg_suffix = f" | message='{message}'" if message else ""
+                    print(f"[INFO] Retry response: status={status_str}, healthy={healthy}{msg_suffix}")
+
+                    if status == 200 and healthy:
+                        print("[OK] Device is healthy now. Proceeding...\n")
+                        return True
+
+                    print("[WARN] Still unhealthy.")
+                except Exception as e:
+                    print(f"[WARN] Health-check error: {e}.")
+                continue
+
+            if answer in ("c", "continue"):
+                print("[INFO] Proceeding despite unhealthy state...\n")
+                return True
+
+            if answer in ("t", "terminate", "q", "quit"):
+                print("[INFO] Terminating per user choice.")
+                if fatal:
+                    self.Close()
+                    sys_exit(5)
+                return False
+
+            print("[INFO] Invalid choice. Please enter R, C, or T.")
+
+    def _preflight_before_each_test_or_raise(self, device_id: str):
+        """
+        Full preflight: discovery then health-check.
+        Raises PreflightTermination if we should stop the run.
+        """
+        self._preflight_discovery_or_raise(device_id)
+        ok = self.pretest_health_check(device_id, retries=3, delay_sec=10, interactive=True, fatal=False)
+        if not ok:
+            raise PreflightTermination("Health-check failed; user chose to terminate.")
+
+
     def execute_cmd(self,device_id,dab_request_topic,dab_request_body="{}"):
         self.dab_client.request(device_id,dab_request_topic,dab_request_body)
         if self.dab_client.last_error_code() == 200:
@@ -43,6 +197,9 @@ class DabTester:
 
         if dab_request_topic is None:
             return None
+        
+        # Full preflight (discovery + health). If it fails/terminates, stop the run.
+        self._preflight_before_each_test_or_raise(device_id)
         # Initialize result object for logging and reporting
         test_result = TestResult(to_test_id(f"{dab_request_topic}/{test_title}"), device_id, dab_request_topic, dab_request_body, "UNKNOWN", "", [])
         print("\ntesting", dab_request_topic, " ", dab_request_body, "... ", end='', flush=True)
@@ -186,20 +343,65 @@ class DabTester:
 
     def Execute_Functional_Tests(self, device_id, functional_tests, test_result_output_path=""):
         result_list = []
-        for test_case in functional_tests:
-            dab_topic, test_category, test_func, test_name, *_ = test_case
+
+        # iterate with index so we can skip the remainder cleanly on termination
+        for idx, test_case in enumerate(functional_tests, 1):
+            # unpack safely so variables exist even if preflight raises
+            try:
+                dab_topic, test_category, test_func, test_name, *_ = test_case
+            except Exception:
+                dab_topic, test_category, test_func, test_name = ("unknown/topic", "functional", None, "Unknown")
+
+            # Preflight per functional test (mirror conformance)
+            try:
+                self._preflight_before_each_test_or_raise(device_id)
+            except PreflightTermination:
+                # mark current test as skipped
+                test_id = to_test_id(f"{dab_topic}/{test_category}")
+                result_list.append(
+                    TestResult(
+                        test_id, device_id, dab_topic, "{}", "SKIPPED", "",
+                        ["Preflight failed (discovery/health). Skipping this test and remaining functional tests."]
+                    )
+                )
+                # mark remaining tests as skipped
+                for remaining in functional_tests[idx:]:
+                    try:
+                        r_topic, r_category, *_ = remaining
+                    except Exception:
+                        r_topic, r_category = ("unknown/topic", "functional")
+                    r_test_id = to_test_id(f"{r_topic}/{r_category}")
+                    result_list.append(
+                        TestResult(
+                            r_test_id, device_id, r_topic, "{}", "SKIPPED", "",
+                            ["Run terminated during preflight. Remaining functional tests skipped."]
+                        )
+                    )
+                break  # stop executing further tests in the loop
+
             # Call the actual functional test function, passing required params
             try:
-                result = test_func(dab_topic, test_category, test_name, self, device_id)
-                result_list.append(result)
+                if callable(test_func):
+                    result = test_func(dab_topic, test_category, test_name, self, device_id)
+                    result_list.append(result)
+                else:
+                    # if the test function isn't callable, record a skipped result
+                    test_id = to_test_id(f"{dab_topic}/{test_category}")
+                    result_list.append(
+                        TestResult(
+                            test_id, device_id, dab_topic, "{}", "SKIPPED", "",
+                            ["Invalid functional test function: not callable."]
+                        )
+                    )
             except Exception as e:
                 print(f"[ERROR] Functional test execution failed: {e}")
 
         if not test_result_output_path:
             test_result_output_path = "./test_result/functional_result.json"
 
-        device_info = self.get_device_info(device_id) 
-        self.write_test_result_json("functional", result_list, test_result_output_path, device_info = device_info)
+        device_info = self.get_device_info(device_id)
+        self.write_test_result_json("functional", result_list, test_result_output_path, device_info=device_info)
+
 
     def Execute_All_Tests(self, suite_name, device_id, Test_Set, test_result_output_path):
         if not self.dab_version:
