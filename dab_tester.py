@@ -1,6 +1,7 @@
 from dab_client import DabClient
 from dab_checker import DabChecker
 from result_json import TestResult, TestSuite
+from logger import LOGGER
 from time import sleep
 from readchar import readchar
 from re import split
@@ -11,44 +12,62 @@ import config
 import os
 from util.enforcement_manager import EnforcementManager
 from util.enforcement_manager import ValidateCode
+from sys import exit as sys_exit
 import re
+import time  
 
 # Raised when preflight (discovery/health) decides we should stop the run.
 class PreflightTermination(Exception):
     pass
 
 class DabTester:
-    def __init__(self,broker, override_dab_version=None):
+    def __init__(self, broker, override_dab_version=None):
         self.dab_client = DabClient()
-        self.dab_client.connect(broker,1883)
+        self.dab_client.connect(broker, 1883)
         self.dab_checker = DabChecker(self)
         self.verbose = False
         self.dab_version = None  # Will be set by auto-detect logic
         self.override_dab_version = override_dab_version
+        self.logger = LOGGER
+        self.logger.verbose = self.verbose
         # Load valid DAB topics using jsons
         try:
             with open("valid_dab_topics.json", "r", encoding="utf-8") as f:
                 self.valid_dab_topics = set(jsons.load(jsons.loads(f.read())))
-
         except Exception as e:
-            print(f"[ERROR] Failed to load valid DAB topics: {e}")
+            self.logger.error(f"Could not load 'valid_dab_topics.json'. The topic validation set is empty. Exception: {type(e).__name__}: {e}")
             self.valid_dab_topics = set()
-
+    # -----------------------------
+    # Core send/request wrapper
+    # -----------------------------
+    def execute_cmd(self,device_id,dab_request_topic,dab_request_body="{}"):
+        self.dab_client.request(device_id,dab_request_topic,dab_request_body)
+        if self.dab_client.last_error_code() == 200:
+            return 0
+        else:
+            return 1
+    # -----------------------------
+    # Preflight helpers
+    # “Preflight” just means the quick checks we run before a test starts—like an aviation pre-flight checklist.
+    # -----------------------------
     def _preflight_discovery_or_raise(self, device_id: str):
         """
         Run dab/discovery and ensure `device_id` is present.
         If not present (or discovery fails), raise PreflightTermination.
         """
+        self.logger.info(f"Preflight step 1 of 2: looking for the device on the MQTT broker using discovery. Target device is '{device_id}'.")
         try:
             discovered_list = self.dab_client.discover_devices() or []
         except Exception as e:
-            print(f"[ERROR] DAB discovery failed: {e}")
+            msg = f"DAB discovery failed: {e}"
+            self.logger.error(f"Discovery did not complete. Reason: {msg}")
             raise PreflightTermination("Discovery failed.")
 
         if not discovered_list:
-            print("[ERROR] No devices responded to 'dab/discovery'.")
+            self.logger.error("No devices responded to discovery on the broker.")
             raise PreflightTermination("No devices discovered.")
 
+        # Summarize findings and ensure target is present
         found_devices = []
         target_ip = None
         for entry in discovered_list:
@@ -59,16 +78,18 @@ class DabTester:
                 if did == device_id:
                     target_ip = ip
 
+        if found_devices:
+            readable = ", ".join(f"{did} at {ip}" for did, ip in found_devices)
+            self.logger.info(f"Discovery found these devices: {readable}.")
+
         if target_ip is None:
-            ids = ", ".join(sorted({d for d, _ in found_devices})) if found_devices else "(none)"
-            print(f"[ERROR] Target '{device_id}' not present in discovery results.")
-            print(f"        Discovered deviceIds: [{ids}]")
+            ids = ", ".join(sorted({d for d, _ in found_devices})) if found_devices else "none"
+            self.logger.error(f"The target device '{device_id}' was not in the discovery results. Devices seen: {ids}.")
             raise PreflightTermination("Target not discoverable.")
 
-        print(f"[OK] Target '{device_id}' is discoverable (ip: {target_ip}).")
+        self.logger.ok(f"Discovery successful. The target device '{device_id}' is reachable at {target_ip}.")
 
-    def pretest_health_check(self, device_id: str, retries: int = 3, delay_sec: int = 10,
-                            interactive: bool = True, fatal: bool = False) -> bool:
+    def pretest_health_check(self, device_id: str, retries: int = 3, delay_sec: int = 10, interactive: bool = True, fatal: bool = False,) -> bool:
         """
         Run dab/<device-id>/health-check/get before each test.
         Retries `retries` times (in addition to the first attempt) with `delay_sec` delay.
@@ -76,7 +97,10 @@ class DabTester:
         Returns True if we should proceed with the test; False to skip/stop.
         """
         total_attempts = retries + 1
+        self.logger.info(f"Preflight step 2 of 2: checking device health before running the test. Target device is '{device_id}'.")
+
         for attempt in range(1, total_attempts + 1):
+            self.logger.info(f"Health check attempt {attempt} of {total_attempts} on the topic 'dab/{device_id}/health-check/get'.")
             try:
                 self.dab_client.request(device_id, "health-check/get", "{}")
                 resp_text = self.dab_client.response() or ""
@@ -93,46 +117,43 @@ class DabTester:
                         pass
 
                 status_str = status if status is not None else "N/A"
-                msg_suffix = f" | message='{message}'" if message else ""
-                print(f"[INFO] Health check attempt {attempt}/{total_attempts}: status={status_str}, healthy={healthy}{msg_suffix}")
+                msg_suffix = f" with message: {message}" if message else ""
+                self.logger.info(f"Health check response: HTTP {status_str}. Healthy flag is {healthy}{msg_suffix}.")
 
                 if status == 200 and healthy:
-                    print("[OK] Device is healthy. Proceeding...\n")
+                    self.logger.ok("Health check passed. Proceeding to run the test.")
                     return True
 
                 if attempt < total_attempts:
-                    print(f"[WAIT] Device unhealthy; retrying in {delay_sec}s ...")
+                    self.logger.info(f"The device did not report healthy. Waiting {delay_sec} seconds before trying again.")
                     sleep(delay_sec)
 
             except Exception as e:
                 if attempt < total_attempts:
-                    print(f"[WARN] Health-check error: {e}. Retrying in {delay_sec}s ...")
+                    self.logger.warn(f"There was an error during the health check: {e}. Waiting {delay_sec} seconds and trying again.")
                     sleep(delay_sec)
                 else:
-                    print(f"[WARN] Health-check error: {e}.")
+                    self.logger.warn(f"There was an error during the health check: {e}.")
 
-        print("\n[ERROR] Device health check failed after multiple attempts.")
-        print("        Please verify:")
-        print("        • Device power/network")
-        print("        • DAB service is enabled and responsive")
-        print("        • Broker connectivity")
+        self.logger.error("The device did not pass the health check after several attempts. Check the device power, network connectivity, DAB service availability, and connection to the MQTT broker.")
 
         if not interactive:
             return False
 
         while True:
+            self.logger.prompt("The device is unhealthy. Choose one of the options: Retry now (R), Continue anyway (C), or Terminate this run (T).")
             answer = input(
                 "\n[PROMPT] Device is unhealthy.\n"
                 "         Choose an action:\n"
                 "         [R]etry health-check now\n"
                 "         [C]ontinue anyway (NOT recommended)\n"
                 "         [T]erminate this run (partial results will be saved)\n"
-                "         Enter choice [R/c/t]: "
+                "         Enter choice [R/C/T]: "
             ).strip().lower()
 
             if answer in ("", "r", "retry"):
                 try:
-                    print("[INFO] Retrying health-check once ...")
+                    self.logger.info("Retrying the health check once immediately.")
                     self.dab_client.request(device_id, "health-check/get", "{}")
                     resp_text = self.dab_client.response() or ""
                     status = self.dab_client.last_error_code()
@@ -148,61 +169,73 @@ class DabTester:
                             pass
 
                     status_str = status if status is not None else "N/A"
-                    msg_suffix = f" | message='{message}'" if message else ""
-                    print(f"[INFO] Retry response: status={status_str}, healthy={healthy}{msg_suffix}")
+                    msg_suffix = f" with message: {message}" if message else ""
+                    self.logger.info(f"Health check response: HTTP {status_str}. Healthy flag is {healthy}{msg_suffix}.")
 
                     if status == 200 and healthy:
-                        print("[OK] Device is healthy now. Proceeding...\n")
+                        self.logger.ok("Health check passed on the retry. Proceeding.")
                         return True
+                    self.logger.warn("The device is still unhealthy after the retry.")
 
-                    print("[WARN] Still unhealthy.")
                 except Exception as e:
-                    print(f"[WARN] Health-check error: {e}.")
+                    self.logger.warn(f"There was an error during the health check retry: {e}.")
                 continue
 
             if answer in ("c", "continue"):
-                print("[INFO] Proceeding despite unhealthy state...\n")
+                self.logger.info("Proceeding even though the device reported unhealthy.")
                 return True
 
             if answer in ("t", "terminate", "q", "quit"):
-                print("[INFO] Terminating per user choice.")
+                self.logger.info("Terminating this run based on the selected option.")
                 if fatal:
                     self.Close()
                     sys_exit(5)
                 return False
 
-            print("[INFO] Invalid choice. Please enter R, C, or T.")
+            self.logger.info("That was not a valid choice. Enter R, C, or T.")
 
     def _preflight_before_each_test_or_raise(self, device_id: str):
         """
         Full preflight: discovery then health-check.
         Raises PreflightTermination if we should stop the run.
         """
+        # 1) Discovery (hard gate; no prompt)
         self._preflight_discovery_or_raise(device_id)
+
+        # 2) Health-check (prompt allowed)
         ok = self.pretest_health_check(device_id, retries=3, delay_sec=10, interactive=True, fatal=False)
         if not ok:
             raise PreflightTermination("Health-check failed; user chose to terminate.")
-
-
-    def execute_cmd(self,device_id,dab_request_topic,dab_request_body="{}"):
-        self.dab_client.request(device_id,dab_request_topic,dab_request_body)
-        if self.dab_client.last_error_code() == 200:
-            return 0
-        else:
-            return 1
-    
+    # -----------------------------
+    # Main Execute for a single test
+    # -----------------------------
     def Execute(self, device_id, test_case):
-        # Unpack the test case (supports both 2.0 and 2.1 tests)
+        # Unpack first so we can announce the test name before any preflight work
         (dab_request_topic, dab_request_body, validate_output_function, expected_response, test_title, is_negative, test_version) = self.unpack_test_case(test_case)
 
         if dab_request_topic is None:
             return None
-        
-        # Full preflight (discovery + health). If it fails/terminates, stop the run.
+        # Announce which test is starting (printed always)
+        test_id = to_test_id(f"{dab_request_topic}/{test_title}")
+        self.logger.result(f"Starting test '{test_title}' (ID {test_id}) on topic '{dab_request_topic}' for device '{device_id}'.")
+
+        # ---------- test section ----------
+        self.logger.test_start(
+            name=test_title,
+            test_id=test_id,
+            topic=dab_request_topic,
+            device=device_id,
+            request_body=dab_request_body,
+            suite=None  # keep None; pass suite name from callers if desired
+        )
+        section_wall_start = time.time()
+        # -------------------------------------------------------------
+
+        # Full preflight (discovery + health). If it fails/terminates, let it propagate to stop the run.
         self._preflight_before_each_test_or_raise(device_id)
+
         # Initialize result object for logging and reporting
         test_result = TestResult(to_test_id(f"{dab_request_topic}/{test_title}"), device_id, dab_request_topic, dab_request_body, "UNKNOWN", "", [])
-        print("\ntesting", dab_request_topic, " ", dab_request_body, "... ", end='', flush=True)
         # ------------------------------------------------------------------------
         # DAB Version Compatibility Check
         # If the test is meant for DAB 2.1 but the dav version is on DAB 2.0,
@@ -220,10 +253,14 @@ class DabTester:
             if dab_version_float < required_version:
                 test_result.test_result = "OPTIONAL_FAILED"
                 log(test_result, f"\033[1;33m[ OPTIONAL_FAILED - Requires DAB Version {required_version}, but DAB version is {dab_version_float} ]\033[0m")
+                # close section before returning
+                total_ms = int((time.time() - section_wall_start) * 1000)
+                self.logger.test_end(outcome=test_result.test_result, duration_ms=total_ms)
                 return test_result
         except Exception as e:
             log(test_result, f"[WARNING] Version comparison failed: {e}")
 
+        # Check operation support via operations/list (prechecker)
         if dab_request_topic != 'operations/list':
             validate_code, prechecker_log = self.dab_checker.is_operation_supported(device_id, dab_request_topic)
 
@@ -231,11 +268,14 @@ class DabTester:
                 test_result.test_result = "OPTIONAL_FAILED"
                 log(test_result, prechecker_log)
                 log(test_result, f"\033[1;33m[ OPTIONAL_FAILED - Requires DAB Operation is NOT SUPPORTED ]\033[0m")
+                total_ms = int((time.time() - section_wall_start) * 1000)
+                self.logger.test_end(outcome=test_result.test_result, duration_ms=total_ms)
                 return test_result
 
         # ------------------------------------------------------------------------
         # If precheck is supported and this is not a negative test case
         # Use precheck to determine if operation is supported
+        # Optional precheck for non-negative tests
         # ------------------------------------------------------------------------
         if not is_negative:
             validate_code, prechecker_log = self.dab_checker.precheck(device_id, dab_request_topic, dab_request_body)
@@ -243,6 +283,8 @@ class DabTester:
                 test_result.test_result = "OPTIONAL_FAILED"
                 log(test_result, prechecker_log)
                 log(test_result, f"\033[1;33m[ OPTIONAL_FAILED ]\033[0m")
+                total_ms = int((time.time() - section_wall_start) * 1000)
+                self.logger.test_end(outcome=test_result.test_result, duration_ms=total_ms)
                 return test_result
             log(test_result, prechecker_log)
 
@@ -256,6 +298,8 @@ class DabTester:
             except Exception as e:
                 test_result.test_result = "SKIPPED"
                 log(test_result, f"\033[1;34m[ SKIPPED - Internal Error During Execution ]\033[0m {str(e)}")
+                total_ms = int((time.time() - section_wall_start) * 1000)
+                self.logger.test_end(outcome=test_result.test_result, duration_ms=total_ms)
                 return test_result
 
             # If execution succeeded (error code 200)
@@ -270,7 +314,7 @@ class DabTester:
                         if checker_log:
                             log(test_result, checker_log)
                     else:
-                         self.dab_checker.end_precheck(device_id, dab_request_topic, dab_request_body)
+                        self.dab_checker.end_precheck(device_id, dab_request_topic, dab_request_body)
                 except Exception as e:
                     # If this is a negative test case and validation fails (e.g., 200 response with incorrect behavior),
                     # treat it as PASS because failure was the expected outcome in this scenario.
@@ -278,10 +322,14 @@ class DabTester:
                         # For negative test: failure is expected — pass the test
                         test_result.test_result = "PASS"
                         log(test_result, f"\033[1;33m[ NEGATIVE TEST PASSED - Exception as Expected ]\033[0m {str(e)}")
+                        total_ms = int((time.time() - section_wall_start) * 1000)
+                        self.logger.test_end(outcome=test_result.test_result, duration_ms=total_ms)
                         return test_result
                     else:
                         test_result.test_result = "SKIPPED"
                         log(test_result, f"\033[1;34m[ SKIPPED - Internal Error During Validation ]\033[0m {str(e)}")
+                        total_ms = int((time.time() - section_wall_start) * 1000)
+                        self.logger.test_end(outcome=test_result.test_result, duration_ms=total_ms)
                         return test_result
 
                 if validate_result == True:
@@ -339,32 +387,40 @@ class DabTester:
         if self.verbose and test_result.test_result != "SKIPPED":
             log(test_result, test_result.response)
 
+        # ---------- close the test section ----------
+        total_ms = int((time.time() - section_wall_start) * 1000)
+        self.logger.test_end(outcome=test_result.test_result, duration_ms=total_ms)
+        # --------------------------------------------------------
+
         return test_result
 
     def Execute_Functional_Tests(self, device_id, functional_tests, test_result_output_path=""):
+        """
+        Functional runner that mirrors conformance preflight:
+        - For EACH test: run discovery + health-check (via _preflight_before_each_test_or_raise)
+        - If preflight fails once, mark current + remaining as SKIPPED and stop.
+        """
         result_list = []
+        terminated_run = False
 
-        # iterate with index so we can skip the remainder cleanly on termination
         for idx, test_case in enumerate(functional_tests, 1):
-            # unpack safely so variables exist even if preflight raises
             try:
                 dab_topic, test_category, test_func, test_name, *_ = test_case
             except Exception:
                 dab_topic, test_category, test_func, test_name = ("unknown/topic", "functional", None, "Unknown")
 
-            # Preflight per functional test (mirror conformance)
             try:
                 self._preflight_before_each_test_or_raise(device_id)
             except PreflightTermination:
-                # mark current test as skipped
+                # Mark THIS test as skipped
                 test_id = to_test_id(f"{dab_topic}/{test_category}")
                 result_list.append(
                     TestResult(
                         test_id, device_id, dab_topic, "{}", "SKIPPED", "",
-                        ["Preflight failed (discovery/health). Skipping this test and remaining functional tests."]
+                        ["Preflight failed (discovery/health). Skipping this and remaining functional tests."]
                     )
                 )
-                # mark remaining tests as skipped
+                # Mark REMAINING tests as skipped too
                 for remaining in functional_tests[idx:]:
                     try:
                         r_topic, r_category, *_ = remaining
@@ -377,24 +433,25 @@ class DabTester:
                             ["Run terminated during preflight. Remaining functional tests skipped."]
                         )
                     )
-                break  # stop executing further tests in the loop
+                terminated_run = True
+                break  # stop executing further tests
 
-            # Call the actual functional test function, passing required params
+            # Preflight OK → run the functional test
             try:
                 if callable(test_func):
                     result = test_func(dab_topic, test_category, test_name, self, device_id)
                     result_list.append(result)
                 else:
-                    # if the test function isn't callable, record a skipped result
-                    test_id = to_test_id(f"{dab_topic}/{test_category}")
+                    # Not callable — record as SKIPPED but keep going
+                    bad_id = to_test_id(f"{dab_topic}/{test_category}")
                     result_list.append(
                         TestResult(
-                            test_id, device_id, dab_topic, "{}", "SKIPPED", "",
+                            bad_id, device_id, dab_topic, "{}", "SKIPPED", "",
                             ["Invalid functional test function: not callable."]
                         )
                     )
             except Exception as e:
-                print(f"[ERROR] Functional test execution failed: {e}")
+                self.logger.error(f"Functional test execution failed: {e}")
 
         if not test_result_output_path:
             test_result_output_path = "./test_result/functional_result.json"
@@ -402,45 +459,81 @@ class DabTester:
         device_info = self.get_device_info(device_id)
         self.write_test_result_json("functional", result_list, test_result_output_path, device_info=device_info)
 
+        if terminated_run and self.verbose:
+            self.logger.info("Functional test run ended early. Results file is written.")
 
+    # -----------------------------
+    # Conformance (suite) runner
+    # -----------------------------
     def Execute_All_Tests(self, suite_name, device_id, Test_Set, test_result_output_path):
         if not self.dab_version:
             self.detect_dab_version(device_id)
+
         if suite_name == "functional":
             self.Execute_Functional_Tests(device_id, Test_Set, test_result_output_path)
             return
+        
+        # show total tests once (always as RESULT)
+        total_tests = len(Test_Set)
+        self.logger.result(f"Starting {suite_name} suite with {total_tests} tests.")
+
         result_list = TestSuite([], suite_name)
-        for test in Test_Set:
-            result_list.test_result_list.append(self.Execute(device_id, test))
-            #sleep(5)
+        try:
+            # enumerate to print progress before each test
+            for idx, test in enumerate(Test_Set, start=1):
+                try:
+                    topic, _body, _func, _expected, title, _is_negative, _ver = self.unpack_test_case(test)
+                    if topic and title:
+                        self.logger.result(f"{suite_name} progress {idx}/{total_tests}: {title} on topic '{topic}'.")
+                    else:
+                        self.logger.result(f"{suite_name} progress {idx}/{total_tests}: (test case not resolved).")
+                except Exception:
+                    self.logger.result(f"{suite_name} progress {idx}/{total_tests}: (test case not resolved).")
+
+                r = self.Execute(device_id, test)  # may raise PreflightTermination
+                if r:
+                    result_list.test_result_list.append(r)
+        except PreflightTermination:
+            self.logger.warn("The run was terminated during the preflight stage. Writing partial results and stopping.")
+
         if (len(test_result_output_path) == 0):
-            test_result_output_path = f"./test_result/{suite_name}.json"  
-        device_info = self.get_device_info(device_id)   
+            test_result_output_path = f"./test_result/{suite_name}.json"
+        device_info = self.get_device_info(device_id)
         self.write_test_result_json(suite_name, result_list.test_result_list, test_result_output_path, device_info = device_info)
 
+    # -----------------------------
+    # Single test runner
+    # -----------------------------
     def Execute_Single_Test(self, suite_name, device_id, test_case_or_cases, test_result_output_path=""):
         if not self.dab_version:
             self.detect_dab_version(device_id)
+
         if suite_name == "functional":
             self.Execute_Functional_Tests(device_id, test_case_or_cases, test_result_output_path)
             return
 
-        result_list = TestSuite([], suite_name)        
-        # Handle a list of test cases or a single one
-        if isinstance(test_case_or_cases, list):
-            for test_case in test_case_or_cases:
-                result = self.Execute(device_id, test_case)
-                if result:  # Make sure it’s not None
+        result_list = TestSuite([], suite_name)
+        try:
+            if isinstance(test_case_or_cases, list):
+                for test_case in test_case_or_cases:
+                    result = self.Execute(device_id, test_case)  # may raise PreflightTermination
+                    if result:
+                        result_list.test_result_list.append(result)
+            else:
+                result = self.Execute(device_id, test_case_or_cases)  # may raise PreflightTermination
+                if result:
                     result_list.test_result_list.append(result)
-        else:
-            result = self.Execute(device_id, test_case_or_cases)
-            if result:
-                result_list.test_result_list.append(result)
+        except PreflightTermination:
+            self.logger.warn("The run was terminated during the preflight stage. Writing partial results and stopping.")
+
         if len(test_result_output_path) == 0:
             test_result_output_path = f"./test_result/{suite_name}_single.json"
         device_info = self.get_device_info(device_id)
         self.write_test_result_json(suite_name, result_list.test_result_list, test_result_output_path, device_info = device_info)
-        
+
+    # -----------------------------
+    # JSON writer & utilities
+    # -----------------------------
     def write_test_result_json(self, suite_name, result_list, output_path="", device_info=None):
         """
         Serialize and write the test results to a JSON file in a structured format.
@@ -449,20 +542,19 @@ class DabTester:
             suite_name (str): The name of the test suite executed.
             result_list (list): List of TestResult objects containing individual test outcomes.
             output_path (str): The file path where the JSON output should be saved.
-
-        This function computes a result summary, validates the result content,
-        and writes a detailed structured JSON with summary and test details.
+            This function computes a result summary, validates the result content,
+            and writes a detailed structured JSON with summary and test details.
         """
         if not output_path:
             output_path = f"./test_result/{suite_name}.json"
-            # Filter valid test results
+        # Filter valid test results
         valid_results = []
         for result in result_list:
             required_fields = ["test_id", "device_id", "operation", "request", "test_result"]
             if all(hasattr(result, field) and getattr(result, field) is not None for field in required_fields):
                 valid_results.append(result)
             else:
-                print(f"[WARNING] Skipping incomplete test result: {result}")
+                self.logger.warn(f"An incomplete test result was skipped in the JSON writer: {result}")
 
         total_tests = len(result_list)
         passed = sum(1 for t in result_list if getattr(t, "test_result", "") == "PASS")
@@ -488,19 +580,19 @@ class DabTester:
             with open(output_path, "w", encoding="utf-8") as f:
                 # Beautify using jsons and indent=4 passed through jdkwargs
                 f.write(jsons.dumps(result_data, jdkwargs={"indent": 4}))
-            print(f"[✔] JSON saved to {os.path.abspath(output_path)}")
+            self.logger.ok(f"Saved the results JSON at {os.path.abspath(output_path)}.")
             return os.path.abspath(output_path)
 
         except (OSError, PermissionError, FileNotFoundError, TypeError) as e:
             # Catch only expected serialization or file write errors
-            print(f"[✖] Failed to write JSON to {output_path}: {e}")
+            self.logger.error(f"Could not write the results JSON to '{output_path}'. Reason: {e}")
             return ""
-        
+
     def unpack_test_case(self, test_case):
         def fail(reason):
-            print(f"[SKIPPED] Invalid test case: {reason} → {test_case}")
+            self.logger.warn(f"Invalid test case: {reason}. This case will be skipped. Case: {test_case}")
             return (None,) * 7  # Expected structure length
-        
+
         if isinstance(test_case, tuple) and len(test_case) >= 3:
             if test_case[1] == "functional" and callable(test_case[2]):
                 # Functional test detected
@@ -549,7 +641,7 @@ class DabTester:
                 return fail("Invalid or empty topic")
             if topic not in self.valid_dab_topics:
                 return fail(f"Unknown or unsupported DAB topic: {topic}")
-             # Validate function
+            # Validate function
             if not callable(func):
                 return fail("Validator function is not callable")
             # Validate expected response
@@ -563,7 +655,7 @@ class DabTester:
 
         except Exception as e:
             return fail(f"Unexpected error: {str(e)}")
-        
+
     def detect_dab_version(self, device_id):
         """
         Detects DAB version by calling 'dab/version' once.
@@ -572,23 +664,22 @@ class DabTester:
         """
         if hasattr(self, 'override_dab_version') and self.override_dab_version:
             self.dab_version = self.override_dab_version
-            print(f"[INFO] Forced DAB version (override): {self.dab_version}")
+            self.logger.info(f"Using the forced DAB version override: {self.dab_version}.")
             return
         try:
-            # Send request manually (not via test case)
             self.dab_client.request(device_id, "version", "{}")
             response = self.dab_client.response()
 
             if response:
                 resp_json = json.loads(response)
                 self.dab_version = resp_json.get("DAB Version", "2.0")
-                print(f"[INFO] Detected DAB version: {self.dab_version}")
+                self.logger.info(f"DAB version detected: {self.dab_version}.")
             else:
-                print("[WARNING] Empty response from DAB version check. Using fallback.")
+                self.logger.warn("The DAB version check returned an empty response. Defaulting to 2.0.")
                 self.dab_version = "2.0"
 
         except Exception as e:
-            print(f"[ERROR] Failed to detect DAB version: {e}")
+            self.logger.error(f"Could not detect the DAB version due to an error: {e}. Defaulting to 2.0.")
             self.dab_version = "2.0"
 
     def get_device_info(self, device_id):
@@ -610,7 +701,7 @@ class DabTester:
                 }
                 return filtered_info
         except Exception as e:
-            print(f"[ERROR] Failed to fetch device info: {e}")
+            self.logger.error(f"Could not fetch the device info from 'dab/{device_id}/device/info'. Reason: {e}")
         return {}
 
     def clean_result_fields(self, result_list, fields_to_clean=["logs", "request", "response"]):
@@ -639,16 +730,60 @@ class DabTester:
                 # Clean each line
                 cleaned_lines = []
                 for line in lines:
-                    line = ansi_pattern.sub('', line)         # Remove ANSI codes
-                    line = line.replace('"', '').replace("'", '')  # Remove all quotes
+                    line = ansi_pattern.sub('', line)
+                    line = line.replace('"', '').replace("'", '')
                     line = line.strip()
                     if line:
                         cleaned_lines.append(line)
                 setattr(result, field, cleaned_lines)
         return result_list
-    
+
+    def assert_device_available(self, device_id: str, fatal: bool = True) -> bool:
+        """Ensure `device_id` is reachable via discovery (no health-check fallback)."""
+        self.logger.info("Preflight: discovering devices to confirm the target is online.")
+        try:
+            devices = self.dab_client.discover_devices() or []
+        except Exception as e:
+            self.logger.warn(f"Discovery did not complete due to an error: {e}")
+            devices = []
+
+        if devices:
+            target_ip = None
+            pairs = []
+            for d in devices:
+                did = d.get("deviceId") or d.get("device_id")
+                ip  = d.get("ip") or d.get("ipAddress") or "n/a"
+                if did:
+                    pairs.append(f"{did}:{ip}")
+                    if did == device_id:
+                        target_ip = ip
+            self.logger.info(f"Discovered devices: {', '.join(pairs)}")
+
+            if not target_ip:
+                self.logger.fatal(f"The target device '{device_id}' was not found in discovery.")
+                if fatal:
+                    self.Close(); sys_exit(3)
+                return False
+
+            self.logger.ok(f"The target device '{device_id}' is reachable at {target_ip}.")
+            return True
+
+        # If we reach here, discovery returned no devices; do NOT fall back to health-check.
+        self.logger.fatal("No devices were discovered, so the device availability cannot be verified.")
+        if fatal:
+            try:
+                self.Close()
+            except AttributeError:
+                try:
+                    self.dab_client.disconnect()
+                except Exception:
+                    pass
+            sys_exit(4)
+        return False
+
     def Close(self):
         self.dab_client.disconnect()
+
 
 def Default_Validations(test_result, durationInMs=0, expectedLatencyMs=0):
     sleep(0.2)
@@ -666,23 +801,45 @@ def get_test_tool_version():
         return "dev.000000"
 
 def log(test_result, str_print):
-    test_result.logs.append(str_print)
-    print(str_print)
+    """
+    Normalizes any incoming text (even if it has leading/trailing newlines),
+    prints each non-empty line via the unified LOGGER with a timestamp,
+    and stores the stamped line into test_result.logs.
+    """
+    s = str(str_print).replace("\r\n", "\n")
+    for raw in s.split("\n"):
+        line = raw.strip()
+        if not line:
+            continue 
+        LOGGER.result(line)                  # console with timestamp
+        test_result.logs.append(LOGGER.stamp(line))  # persist stamped line
 
 def YesNoQuestion(test_result, question=""):
     positive = ['yes', 'y']
     negative = ['no', 'n']
 
+    # ANSI colors
+    GREEN = "\x1b[32m"
+    RED   = "\x1b[31m"
+    CYAN  = "\x1b[36m"
+    YELL  = "\x1b[33m"
+    RESET = "\x1b[0m"
+
     while True:
-        # user_input = input(question+'(Y/N): ')
-        log(test_result, f"{question}(Y/N)")
-        user_input=readchar()
-        log(test_result, f"[{user_input}]")
-        if user_input.lower() in positive:
+        # Show the prompt with colors: question in cyan, Y in green, N in red
+        colored_prompt = f"{CYAN}{question}{RESET} ({GREEN}Y{RESET}/{RED}N{RESET})"
+        # ensure prompt appears on a new line even if the previous print used end=''
+        log(test_result, colored_prompt)
+        user_input = readchar()
+        lower = user_input.lower()
+        if lower in positive:
+            log(test_result, f"{GREEN}[{user_input}]{RESET}")
             return True
-        elif user_input.lower() in negative:
+        elif lower in negative:
+            log(test_result, f"{RED}[{user_input}]{RESET}")
             return False
         else:
+            log(test_result, f"{YELL}[{user_input}] Please press Y or N.{RESET}")
             continue
 
 def to_test_id(input_string):
