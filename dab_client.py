@@ -4,6 +4,7 @@ from paho.mqtt.properties import Properties
 from paho.mqtt.packettypes import PacketTypes 
 import paho.mqtt.client as mqtt
 import json
+import uuid
 
 METRICS_TIMES = 5
 
@@ -90,3 +91,44 @@ class DabClient:
             print("Internal error",end='')
         elif(self.__code == 501):
             print("Not implemented",end='')
+
+    # ---- Minimal discovery compatible with callers passing attempts + wait_seconds ----
+    def discover_devices(self, attempts: int = 1, wait_seconds: float = 1.0):
+        """
+        Broadcasts to 'dab/discovery' and collects responses on a unique response topic.
+        Compatible with callers that pass attempts + wait_seconds.
+        Returns: [{"deviceId": "<id>", "ip": "<ip or None>"}]
+        """
+        resp_topic = f"dab/_response/discovery/{uuid.uuid4().hex}"
+        found = {}
+
+        def _on_disc(_c, _u, msg):
+            try:
+                d = json.loads(msg.payload.decode("utf-8"))
+                dev = d.get("deviceId") or d.get("device_id")
+                ip  = d.get("ip") or d.get("ipAddress")
+                if dev and dev not in found:
+                    found[dev] = {"deviceId": dev, "ip": ip}
+                elif dev and ip and not found[dev].get("ip"):
+                    found[dev]["ip"] = ip
+            except:
+                pass
+
+        self.__client.message_callback_add(resp_topic, _on_disc)
+        self.__client.subscribe(resp_topic)
+
+        props = Properties(PacketTypes.PUBLISH)
+        props.ResponseTopic = resp_topic
+        payload = "{}"
+
+        n = 1 if attempts is None else max(1, int(attempts))
+        for _ in range(n):
+            self.__client.publish("dab/discovery", payload, properties=props)
+            sleep(max(0.2, float(wait_seconds)))
+
+        try:
+            self.__client.message_callback_remove(resp_topic)
+        except:
+            pass
+        self.__client.unsubscribe(resp_topic)
+        return list(found.values())

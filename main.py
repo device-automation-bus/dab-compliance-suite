@@ -19,6 +19,7 @@ import conformance
 import output_image
 import netflix
 import functional
+from logger import LOGGER 
 
 ALL_SUITES = {
     "conformance": conformance.CONFORMANCE_TEST_CASE,
@@ -73,41 +74,51 @@ if __name__ == "__main__":
     
     parser.set_defaults(case=99999)
     args = parser.parse_args()
-    
-    # Use the DabTester
+    LOGGER.verbose = bool(args.verbose)
     device_id = args.ID
 
     Tester = DabTester(args.broker, override_dab_version=args.dab_version)
     
     Tester.verbose = args.verbose
+    try:
+        Tester.logger.verbose = Tester.verbose 
+    except Exception:
+        pass
+    LOGGER.info(f"Starting run with broker {args.broker}, device ID '{device_id}', suite='{args.suite or 'ALL'}', output='{args.output or '(default)'}', dab-version override='{args.dab_version or 'auto'}'.")
 
     suite_to_run = {}
 
     if (args.suite):
         # Let dict throw KeyError here
         suite_to_run.update({args.suite: ALL_SUITES[args.suite]})
+        LOGGER.info(f"Selected suite: '{args.suite}' with {len(suite_to_run[args.suite])} tests.")
     else:
         suite_to_run = ALL_SUITES
-
+        LOGGER.info(f"No suite specified. All suites selected: {', '.join(suite_to_run.keys())}.")
 
     if(args.list == True):
         for suite in suite_to_run:
+            LOGGER.info(f"Listing test cases for suite '{suite}'...")
             for test_case in suite_to_run[suite]:
                 (dab_request_topic, dab_request_body, validate_output_function, expected_response, test_title, test_version, is_negative) = Tester.unpack_test_case(test_case)
                 if dab_request_topic is None:
                     continue
-                print(to_test_id(f"{dab_request_topic}/{test_title}"))
+                LOGGER.result(to_test_id(f"{dab_request_topic}/{test_title}"))
     else:
         if ((not isinstance(args.case, (str)) or len(args.case) == 0)):
-            # Test all the cases
-            print("Testing all cases")
+            LOGGER.result("Testing all cases")
             for suite in suite_to_run:
+                LOGGER.info(f"Preparing to run suite '{suite}' with {len(suite_to_run[suite])} tests.")
+                Tester.assert_device_available(device_id)
                 Tester.Execute_All_Tests(suite, device_id, suite_to_run[suite], args.output)
+                LOGGER.ok(f"Completed suite '{suite}'.")
         else:
             # Handle single or multiple cases passed via -c
             requested_cases = [c.strip() for c in args.case.split(",")]
+            LOGGER.info(f"Requested case IDs: {requested_cases}")
             matched_tests = []
             for suite in suite_to_run:
+                LOGGER.info(f"Searching for requested cases in suite '{suite}'...")
                 for test_case in suite_to_run[suite]:
                     (dab_request_topic, dab_request_body, validate_output_function, expected_response, test_title, test_version, is_negative) = Tester.unpack_test_case(test_case)
                     if dab_request_topic is None:
@@ -116,9 +127,12 @@ if __name__ == "__main__":
                     if test_id in requested_cases:
                         matched_tests.append(test_case)
                 if matched_tests:
+                    LOGGER.result(f"Matched {len(matched_tests)} case(s) in suite '{suite}'.")
+                    Tester.assert_device_available(device_id)
                     Tester.Execute_Single_Test(suite, device_id, matched_tests, args.output)
                     break
             else:
-                print(f"None of the test case(s) matched: {requested_cases}")
+                LOGGER.error(f"None of the requested test case IDs matched: {requested_cases}")
 
     Tester.Close()
+    LOGGER.ok("Run complete. Connection closed.")
