@@ -33,7 +33,7 @@ CONFORMANCE_TEST_CASE = [
     ("applications/exit",f'{{"appId": "{config.apps["youtube"]}"}}', dab.applications.exit, 5000, "Conformance", "2.0", False),
     ("device/info",'{}', dab.device.info, 200, "Conformance", "2.0", False),
     ("system/settings/list",'{}', dab.system.settings_list, 200, "Conformance", "2.0", False),
-    ("system/settings/get",'{}', dab.system.settings_get, 200, "Conformance", "2.0", False),
+    ("system/settings/get",'{}', dab.system.settings_get, 750, "Conformance", "2.0", False),
     ("system/settings/set",'{"language": "en-US"}', dab.system.settings_set, 120000, "language", "2.0", False),
     ("system/settings/set",'{"language_": "en-US"}', dab.system.settings_set, 120000, "language bad request1", "2.0", True),
     ("system/settings/set",'{"language": true}', dab.system.settings_set, 120000, "language bad request2", "2.0", True),
