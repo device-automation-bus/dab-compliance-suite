@@ -142,6 +142,83 @@ exit_application_response_schema = {
     },
     "required": ["status", "state"]
 }
+# InstallApplicationRequest
+install_application_request_schema = {
+    "type": "object",
+    "properties": {
+        "appId": {"type": "string"},
+        "force": {"type": "boolean"}
+    },
+    "required": ["appId"]
+}
+# InstallApplicationResponse
+install_application_response_schema = {
+    "type": "object",
+    "properties": {
+        "status": {"type": "integer"},
+        "error": {"type": "string"},
+        "state": {"type": "string"}
+    },
+    "required": ["status", "state"]
+}
+
+# UninstallApplicationRequest
+uninstall_application_request_schema = {
+    "type": "object",
+    "properties": {
+        "appId": {"type": "string"},
+        "force": {"type": "boolean"}
+    },
+    "required": ["appId"]
+}
+# UnnstallApplicationResponse
+uninstall_application_response_schema = {
+    "type": "object",
+    "properties": {
+        "status": {"type": "integer"},
+        "error": {"type": "string"},
+        "state": {"type": "string"}
+    },
+    "required": ["status", "state"]
+}
+# Clear_dataApplicationRequest
+clear_data_application_request_schema = {
+    "type": "object",
+    "properties": {
+        "appId": {"type": "string"},
+        "force": {"type": "boolean"}
+    },
+    "required": ["appId"]
+}
+# clear_dataApplicationResponse
+clear_data_application_response_schema = {
+    "type": "object",
+    "properties": {
+        "status": {"type": "integer"},
+        "error": {"type": "string"},
+        "state": {"type": "string"}
+    },
+    "required": ["status", "state"]
+}
+# InstallFromAppstoreApplicationRequest
+install_from_appstore_application_request_schema = {
+    "type": "object",
+    "properties": {
+        "appId": {"type": "string"},
+        "force": {"type": "boolean"}
+    },
+    "required": ["appId"]
+}
+# InstallFromAppstoreApplicationResponse
+install_from_appstore_application_response_schema = {
+    "type": "object",
+    "properties": {
+        "status": {"type": "integer"},
+        "error": {"type": "string"},
+        "state": {"type": "string"}
+    },
+    "required": ["status", "state"]
+}
 
 # Operation: device/info
 # DeviceInfoRequest
@@ -669,6 +746,139 @@ version_response_schema = {
     "required": ["status", "versions"]
 }
 
+#StartLogCollectionRequest
+start_log_collection_request_schema = {
+    "type": "object",
+    "properties": {
+        "duration": { "type": "integer" },
+        "logLevel": { "type": "string" },  # INFO, DEBUG, ERROR
+        "logTypes": {
+            "type": "array",
+            "items": { "type": "string" }
+        }
+    },
+    "required": ["duration"]
+}
+
+#StartLogCollectionResponce
+start_log_collection_response_schema = {
+    "type": "object",
+    "properties": {
+        "status": {"type": "integer"},
+        "error": {"type": "string"}
+    },
+    "required": ["status"]
+}
+
+#StopLogCollectionRequest
+stop_log_collection_request_schema = {
+    "type": "object",
+    "properties": {}
+}
+
+#StopLogCollectionResponse
+stop_log_collection_response_schema = {
+    "type": "object",
+    "properties": {
+        "status": {"type": "integer"},
+        "error": {"type": "string"},
+        "logs": {"type": "string"}  # or binary/file path depending on device
+    },
+    "required": ["status", "logs"]
+}
+
+# Operation: system/power-mode/get
+# GetPowerModeRequest
+power_mode_get_request_schema = dab_request_schema
+
+# GetPowerModeResponse
+power_mode_get_response_schema = {
+    "type": "object",
+    "properties": {
+        "status": {"type": "integer"},
+        "error": {"type": "string"},
+        "powerMode": {"type": "string"}
+    },
+    "required": ["status", "powerMode"]
+}
+
+# Operation: system/power-mode/set
+# SetPowerModeRequest
+power_mode_set_request_schema = {
+    "type": "object",
+    "properties": {
+        "powerMode": {"type": "string"}
+    },
+    "required": ["powerMode"]
+}
+
+# SetPowerModeResponse
+power_mode_set_response_schema = {
+    "type": "object",
+    "properties": {
+        "status": {"type": "integer"},
+        "error": {"type": "string"},
+        "powerMode": {"type": "string"}
+    },
+    "required": ["status", "powerMode"]
+}
+
+# Operation: content/open
+# ContentOpenRequest
+content_open_request_schema = {
+    "type": "object",
+    "properties": {
+        "entryId": {"type": "string"}
+    },
+    "required": ["entryId"]
+}
+
+# ContentOpenResponse
+content_open_response_schema = dab_response_schema
+
+content_entries_schema = {
+    "type": "object",
+    "properties": {
+        "status": {"type": "integer"},
+        "error": {"type": ["string", "null"]},
+        "entries": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "entryId": {"type": "string"},
+                    "title": {"type": "string"},
+                    "appId": {"type": "string"},
+                    "poster": {"type": "string"},
+                    "categories": {
+                        "type": "array",
+                        "items": {"type": "string"}
+                    }
+                },
+                "required": ["entryId", "title", "appId", "poster", "categories"]
+            }
+        },
+    },
+    "required": ["status", "entries"]
+}
+
+# Operation: content/recommendations
+# ContentRecommendationsRequest
+content_recommendations_request_schema = dab_request_schema
+# ContentRecommendationsResponse
+content_recommendations_response_schema = content_entries_schema
+
+# Operation: content/search
+# ContentSearchRequest
+content_search_request_schema = {
+    "type": "object",
+    "properties": {
+        "searchText": {"type": "string"}
+    },
+    "required": ["searchText"]
+}
+# ContentSearchResponse
+content_search_response_schema = content_entries_schema
 
 class dab_response_validator(object):
     def __init__(self):
@@ -701,6 +911,22 @@ class dab_response_validator(object):
     @staticmethod
     def validate_exit_application_response_schema(response):
         validate(instance=jsons.loads(response), schema=exit_application_response_schema)
+
+    @staticmethod
+    def validate_install_application_response_schema(response):
+        validate(instance=jsons.loads(response), schema=install_application_response_schema)
+
+    @staticmethod
+    def validate_uninstall_application_response_schema(response):
+        validate(instance=jsons.loads(response), schema=uninstall_application_response_schema)
+
+    @staticmethod
+    def validate_clear_data_application_response_schema(response):
+        validate(instance=jsons.loads(response), schema=clear_data_application_response_schema)
+    
+    @staticmethod
+    def validate_install_from_appstore_application_response_schema(response):
+        validate(instance=jsons.loads(response), schema=install_from_appstore_application_response_schema)
 
     @staticmethod
     def validate_device_information_schema(response):
@@ -765,22 +991,31 @@ class dab_response_validator(object):
     @staticmethod
     def validate_version_response_schema(response):
         validate(instance=jsons.loads(response), schema=version_response_schema)
-    
-    
 
+    @staticmethod
+    def validate_stop_log_collection_response_schema(response):
+        validate(instance=jsons.loads(response), schema=stop_log_collection_response_schema)
 
+    @staticmethod
+    def validate_start_log_collection_response_schema(response):
+        validate(instance=jsons.loads(response), schema=start_log_collection_response_schema)
 
+    @staticmethod
+    def validate_power_mode_set_response_schema(response):
+        validate(instance=jsons.loads(response), schema=power_mode_set_response_schema)
 
+    @staticmethod
+    def validate_power_mode_get_response_schema(response):
+        validate(instance=jsons.loads(response), schema=power_mode_get_response_schema)
 
+    @staticmethod
+    def validate_content_recommendations_response_schema(response):
+        validate(instance=jsons.loads(response), schema=content_recommendations_response_schema)
 
+    @staticmethod
+    def validate_content_search_response_schema(response):
+        validate(instance=jsons.loads(response), schema=content_search_response_schema)
 
-
-
-
-
-
-
-
-
-
-
+    @staticmethod
+    def validate_content_open_response_schema(response):
+        validate(instance=jsons.loads(response), schema=content_open_response_schema)
