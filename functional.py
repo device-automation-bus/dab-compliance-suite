@@ -33,21 +33,267 @@ class UnsupportedOperationError(Exception):
 SUPPORTED_OPERATIONS = []
 
 def fetch_supported_operations(tester, device_id):
+    """
+    Fill SUPPORTED_OPERATIONS via 'operations/list' and return it.
+    Accepts list[str] or list[{"operation": str}] shapes.
+    """
     global SUPPORTED_OPERATIONS
-    if not SUPPORTED_OPERATIONS:
-        print("[INFO] Fetching supported DAB operations via 'operations/list'...")
-        result_code = tester.execute_cmd(device_id, "operations/list", "{}")
-        response = tester.dab_client.response()
-        try:
-            data = json.loads(response)
-            if isinstance(data, dict) and "operations" in data:
-                SUPPORTED_OPERATIONS = data["operations"]
-                #print(f"[INFO] Supported DAB operations: {SUPPORTED_OPERATIONS}")
-            else:
-                print("[WARNING] Invalid operations/list response format.")
-        except Exception as e:
-            print(f"[ERROR] Failed to fetch supported operations: {e}")
 
+    if SUPPORTED_OPERATIONS:
+        LOGGER.info(f"Using cached operations ({len(SUPPORTED_OPERATIONS)})")
+        return SUPPORTED_OPERATIONS
+
+    LOGGER.info("Fetching supported DAB operations via 'operations/list'")
+    result_code = tester.execute_cmd(device_id, "operations/list", "{}")
+    response = tester.dab_client.response()
+
+    if result_code != 0:
+        code = tester.dab_client.last_error_code()
+        LOGGER.warn(f"'operations/list' failed (code {code}); "
+                    "continuing without cache")
+        tester.dab_client.last_error_msg()
+        return SUPPORTED_OPERATIONS
+
+    try:
+        data = json.loads(response) if response else {}
+        ops = None
+
+        if isinstance(data, dict) and "operations" in data:
+            raw_ops = data["operations"]
+            if isinstance(raw_ops, list):
+                if raw_ops and isinstance(raw_ops[0], dict):
+                    ops = [d.get("operation")
+                           for d in raw_ops
+                           if isinstance(d, dict) and d.get("operation")]
+                else:
+                    ops = [x for x in raw_ops if isinstance(x, str)]
+
+        if not ops:
+            LOGGER.warn("'operations' list missing or invalid in response")
+            return SUPPORTED_OPERATIONS
+
+        SUPPORTED_OPERATIONS = ops
+        LOGGER.ok(f"Cached {len(SUPPORTED_OPERATIONS)} operations")
+        return SUPPORTED_OPERATIONS
+
+    except Exception as e:
+        LOGGER.error(f"Failed to parse 'operations/list' response: {e}")
+        return SUPPORTED_OPERATIONS
+
+
+# === Capability-gate helpers (non-breaking additions) =========================
+from logger import LOGGER
+
+SUPPORTED_SETTINGS_IDS = None   # cached by _fetch_supported_settings_ids
+SUPPORTED_KEY_CODES    = None   # cached by _fetch_supported_key_codes
+
+def _split_items(s: str):
+    return [x.strip() for x in s.split(",") if x and x.strip()]
+
+def _parse_need_spec(spec: str):
+    """
+    Parse a spec like:
+      'ops: a,b | settings: x,y | keys: K_HOME,K_BACK'
+    Default segment = ops (if no prefix is given).
+    """
+    ops_req, set_req, key_req = set(), set(), set()
+    for seg in (p.strip() for p in spec.split("|")):
+        if not seg:
+            continue
+        low = seg.lower()
+        if low.startswith(("ops:", "op:", "operations:")):
+            ops_req.update(_split_items(seg.split(":", 1)[1]))
+        elif low.startswith(("settings:", "setting:", "set:")):
+            set_req.update(_split_items(seg.split(":", 1)[1]))
+        elif low.startswith(("keys:", "key:")):
+            key_req.update(_split_items(seg.split(":", 1)[1]))
+        else:
+            ops_req.update(_split_items(seg))  # default to ops
+    LOGGER.info(
+        f"Parsed need spec → ops={sorted(ops_req)}, "
+        f"settings={sorted(set_req)}, keys={sorted(key_req)}"
+    )
+    return ops_req, set_req, key_req
+
+def _fetch_supported_settings_ids(tester, device_id, logs=None, result=None):
+    """
+    Returns a set of supported setting IDs using 'system/settings/list'.
+    Falls back gracefully if list is unsupported or unparseable.
+    """
+    global SUPPORTED_SETTINGS_IDS
+    if SUPPORTED_SETTINGS_IDS is not None:
+        LOGGER.info(f"Using cached settings IDs ({len(SUPPORTED_SETTINGS_IDS)})")
+        if logs is not None:
+            logs.append(LOGGER.stamp(f"Using cached settings IDs ({len(SUPPORTED_SETTINGS_IDS)})"))
+        return SUPPORTED_SETTINGS_IDS
+    try:
+        _, resp = execute_cmd_and_log(
+            tester, device_id, "system/settings/list", "{}", logs, result
+        )
+        data = json.loads(resp) if resp else {}
+        if isinstance(data, dict) and isinstance(data.get("settings"), list):
+            SUPPORTED_SETTINGS_IDS = {
+                s.get("settingId")
+                for s in data["settings"]
+                if isinstance(s, dict) and s.get("settingId")
+            }
+        elif isinstance(data, dict):
+            SUPPORTED_SETTINGS_IDS = set(data.keys())
+        else:
+            SUPPORTED_SETTINGS_IDS = set()
+        LOGGER.info(f"Fetched {len(SUPPORTED_SETTINGS_IDS)} setting IDs")
+        if logs is not None:
+            logs.append(LOGGER.stamp(f"Fetched {len(SUPPORTED_SETTINGS_IDS)} setting IDs"))
+    except UnsupportedOperationError:
+        SUPPORTED_SETTINGS_IDS = set()
+        LOGGER.info("system/settings/list not supported; skipping settings gate.")
+        if logs is not None:
+            logs.append(LOGGER.stamp("system/settings/list not supported; skipping settings gate."))
+    except Exception as e:
+        SUPPORTED_SETTINGS_IDS = set()
+        LOGGER.warn(f"settings/list parse failed: {e}")
+        if logs is not None:
+            logs.append(LOGGER.stamp(f"settings/list parse failed: {e}"))
+    return SUPPORTED_SETTINGS_IDS
+
+def _fetch_supported_key_codes(tester, device_id, logs=None, result=None):
+    """
+    Returns a set of supported key codes using 'input/key/list'.
+    """
+    global SUPPORTED_KEY_CODES
+    if SUPPORTED_KEY_CODES is not None:
+        LOGGER.info(f"Using cached key codes ({len(SUPPORTED_KEY_CODES)})")
+        if logs is not None:
+            logs.append(LOGGER.stamp(f"Using cached key codes ({len(SUPPORTED_KEY_CODES)})"))
+        return SUPPORTED_KEY_CODES
+    try:
+        _, resp = execute_cmd_and_log(
+            tester, device_id, "input/key/list", "{}", logs, result
+        )
+        data = json.loads(resp) if resp else {}
+        if isinstance(data, dict):
+            for k in ("keys", "supportedKeys", "keyCodes"):
+                if isinstance(data.get(k), list):
+                    SUPPORTED_KEY_CODES = set(data[k])
+                    break
+            else:
+                SUPPORTED_KEY_CODES = set()
+        elif isinstance(data, list):
+            SUPPORTED_KEY_CODES = set(data)
+        else:
+            SUPPORTED_KEY_CODES = set()
+        LOGGER.info(f"Fetched {len(SUPPORTED_KEY_CODES)} key codes")
+        if logs is not None:
+            logs.append(LOGGER.stamp(f"Fetched {len(SUPPORTED_KEY_CODES)} key codes"))
+    except UnsupportedOperationError:
+        SUPPORTED_KEY_CODES = set()
+        LOGGER.info("input/key/list not supported; skipping key gate.")
+        if logs is not None:
+            logs.append(LOGGER.stamp("input/key/list not supported; skipping key gate."))
+    except Exception as e:
+        SUPPORTED_KEY_CODES = set()
+        LOGGER.warn(f"key/list parse failed: {e}")
+        if logs is not None:
+            logs.append(LOGGER.stamp(f"key/list parse failed: {e}"))
+    return SUPPORTED_KEY_CODES
+
+def need(tester, device_id, spec, result=None, logs=None):
+    """
+    One-line capability check. Example:
+        need(tester, device_id,
+             "ops: applications/launch, applications/get-state | "
+             "settings: screenSaver | keys: KEY_HOME",
+             result, logs)
+    If any required item is missing, marks OPTIONAL_FAILED and returns False.
+    """
+    ops_req, set_req, key_req = _parse_need_spec(spec)
+
+    try:
+        # Ensure ops cache is filled
+        if not SUPPORTED_OPERATIONS:
+            LOGGER.info("Fetching supported operations…")
+            fetch_supported_operations(tester, device_id)
+        have_ops = set(SUPPORTED_OPERATIONS or [])
+        miss_ops = ops_req - have_ops
+        if miss_ops:
+            LOGGER.warn("[OPTIONAL_FAILED] Required ops not supported: " +
+                        ", ".join(sorted(miss_ops)))
+            if logs is not None:
+                logs.append(LOGGER.stamp("[OPTIONAL_FAILED] Required ops not supported: " +
+                                         ", ".join(sorted(miss_ops))))
+            if result is not None:
+                result.test_result = "OPTIONAL_FAILED"
+            return False
+
+        # Settings (best-effort; if list unsupported, we skip)
+        if set_req:
+            have_settings = _fetch_supported_settings_ids(
+                tester, device_id, logs, result
+            )
+            if have_settings:
+                miss_set = set_req - have_settings
+                if miss_set:
+                    LOGGER.warn("[OPTIONAL_FAILED] Required settings not supported: " +
+                                ", ".join(sorted(miss_set)))
+                    if logs is not None:
+                        logs.append(LOGGER.stamp("[OPTIONAL_FAILED] Required settings not supported: " +
+                                                 ", ".join(sorted(miss_set))))
+                    if result is not None:
+                        result.test_result = "OPTIONAL_FAILED"
+                    return False
+            else:
+                LOGGER.info("Settings list unavailable; skipping settings gate.")
+                if logs is not None:
+                    logs.append(LOGGER.stamp("Settings list unavailable; skipping settings gate."))
+
+        # Keys (best-effort; if key/list unsupported, we skip)
+        if key_req:
+            have_keys = _fetch_supported_key_codes(
+                tester, device_id, logs, result
+            )
+            if have_keys:
+                miss_keys = key_req - have_keys
+                if miss_keys:
+                    LOGGER.warn("[OPTIONAL_FAILED] Required keys not supported: " +
+                                ", ".join(sorted(miss_keys)))
+                    if logs is not None:
+                        logs.append(LOGGER.stamp("[OPTIONAL_FAILED] Required keys not supported: " +
+                                                 ", ".join(sorted(miss_keys))))
+                    if result is not None:
+                        result.test_result = "OPTIONAL_FAILED"
+                    return False
+            else:
+                LOGGER.info("Key list unavailable; skipping key gate.")
+                if logs is not None:
+                    logs.append(LOGGER.stamp("Key list unavailable; skipping key gate."))
+
+        LOGGER.ok("Capability gate passed.")
+        if logs is not None:
+            logs.append(LOGGER.stamp("Capability gate passed."))
+        return True
+
+    except Exception as e:
+        # Any unexpected failure in gating is a non-enforceable optional fail
+        LOGGER.warn(f"[OPTIONAL_FAILED] Capability check failed: {e}")
+        if logs is not None:
+            logs.append(LOGGER.stamp(f"[OPTIONAL_FAILED] Capability check failed: {e}"))
+        if result is not None:
+            result.test_result = "OPTIONAL_FAILED"
+        return False
+
+def ensure_supported(tester, device_id, result, logs, ops=None, settings=None, keys=None):
+    """
+    Convenience wrapper to avoid building the spec string by hand.
+    """
+    parts = []
+    if ops:      parts.append("ops: "      + ", ".join(sorted(ops)))
+    if settings: parts.append("settings: " + ", ".join(sorted(settings)))
+    if keys:     parts.append("keys: "     + ", ".join(sorted(keys)))
+    spec = " | ".join(parts) or ""
+    LOGGER.info(f"Ensuring support for: {spec or '(none)'}")
+    if logs is not None:
+        logs.append(LOGGER.stamp(f"Ensuring support for: {spec or '(none)'}"))
+    return need(tester, device_id, spec, result, logs)
 
 def execute_cmd_and_log(tester, device_id, topic, payload, logs=None, result=None):
     global SUPPORTED_OPERATIONS
@@ -56,22 +302,22 @@ def execute_cmd_and_log(tester, device_id, topic, payload, logs=None, result=Non
         fetch_supported_operations(tester, device_id)
 
     if topic not in SUPPORTED_OPERATIONS:
-        msg = f"[OPTIONAL_FAILED] Operation '{topic}' is not supported by the device."
-        print(msg)
+        line = f"[OPTIONAL_FAILED] Operation '{topic}' is not supported by the device."
+        LOGGER.warn(line)
         if logs is not None:
-            logs.append(msg)
+            logs.append(line)
         if result is not None:
             result.test_result = "OPTIONAL_FAILED"
-            result.reason = msg
+            result.reason = line
         raise UnsupportedOperationError(topic)
 
-    print(f"\nExecuting: {topic} with payload: {payload}")
-    result_code = tester.execute_cmd(device_id, topic, payload)
-    response = tester.dab_client.response()
+    LOGGER.info(f"Executing {topic} with payload {payload}")
+    rc = tester.execute_cmd(device_id, topic, payload)
+    resp = tester.dab_client.response()
+    LOGGER.info(f"[{topic}] Response: {resp}")
     if logs is not None:
-        logs.append(f"[{topic}] Response: {response}")
-        
-    return result_code, response
+        logs.append(f"[{topic}] Response: {resp}")
+    return rc, resp
 
 # The 'print_response' function is removed from here
 # It is still defined in the file but is no longer called by this function.
@@ -81,31 +327,34 @@ def print_response(response, topic_for_color=None, indent=10):
         try:
             response = json.loads(response)
         except json.JSONDecodeError:
-            print("Invalid JSON string.")
+            LOGGER.error("Invalid JSON string")
             return
     if not isinstance(response, dict):
-        print("Invalid response format.")
+        LOGGER.error("Invalid response format")
         return
-    print("Response:")
+    LOGGER.info("Response:")
     for key, value in response.items():
-        print(f"{' ' * indent}{key}: {value}")
+        LOGGER.info(f"{' ' * indent}{key}: {value}")
+
 
 def yes_or_no(result, logs, question=""):
-     positive = ['YES', 'Y']
-     negative = ['NO', 'N']
+    positive = ['YES', 'Y']
+    negative = ['NO', 'N']
+    while True:
+        prompt = f"{question}(Y/N)"
+        LOGGER.prompt(prompt)
+        if logs is not None:
+            logs.append(prompt)
+        ch = readchar().upper()
+        echo = f"[{ch}]"
+        LOGGER.result(echo)
+        if logs is not None:
+            logs.append(echo)
+        if ch in positive:
+            return True
+        if ch in negative:
+            return False
 
-     while True:
-         logs.append(f"{question}(Y/N)")
-         print(f"{question}(Y/N)")
-         user_input=readchar().upper()
-         logs.append(f"[{user_input}]")
-         print(f"[{user_input}]")
-         if user_input.upper() in positive:
-             return True
-         elif user_input.upper() in negative:
-             return False
-         else:
-             continue
 
 def select_input(result, logs, arr):
     print(f"*0: There is no option that meet the requirement.")
@@ -126,92 +375,120 @@ def select_input(result, logs, arr):
         return int(user_input)
 
 def countdown(title, count):
+    LOGGER.info(f"{title} — starting {count}s")
     while count:
         mins, secs = divmod(count, 60)
-        timer = '{:02d}:{:02d}'.format(mins, secs)
+        timer = f"{mins:02d}:{secs:02d}"
         sys.stdout.write("\r" + title + " --- " + timer)
         sys.stdout.flush()
         time.sleep(1)
         count -= 1
     sys.stdout.write("\r" + title + " --- Done!\n")
+    LOGGER.ok(f"{title} — done")
+
 
 def waiting_for_screensaver(result, logs, screenSaverTimeout, tips):
     while True:
-        validate_state = yes_or_no(result, logs, tips)
-        if validate_state:
+        if yes_or_no(result, logs, tips):
             break
         else:
             continue
     countdown(f"Waiting for {screenSaverTimeout} seconds in idle state.", screenSaverTimeout)
+
+
 def validate_response(tester, dab_topic, dab_payload, dab_response, result, logs):
     if not dab_response:
-        logs.append(f"[FAIL] Request {dab_topic} '{dab_payload}' failed. No response received.")
+        line = f"[FAIL] Request {dab_topic} '{dab_payload}' failed. No response received."
+        LOGGER.error(line)
+        if logs is not None:
+            logs.append(line)
         result.test_result = "FAILED"
-        print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+        LOGGER.result(f"[Result] Test Id: {result.test_id}\nTest Outcome: {result.test_result}\n{'-'*100}")
         return False, result
 
-    response = json.loads(dab_response)
+    try:
+        response = json.loads(dab_response)
+    except Exception:
+        line = f"[FAIL] Request {dab_topic} '{dab_payload}' returned invalid JSON."
+        LOGGER.error(line)
+        if logs is not None:
+            logs.append(line)
+        result.test_result = "FAILED"
+        LOGGER.result(f"[Result] Test Id: {result.test_id}\nTest Outcome: {result.test_result}\n{'-'*100}")
+        return False, result
+
     status = response.get("status")
     if status != 200:
         if status == 501:
-            print(f"Request {dab_topic} '{dab_payload}' is NOT supported on this device.")
-            logs.append(f"[OPTIONAL_FAILED] Request {topic} '{payload}' is NOT supported on this device.")
+            LOGGER.warn(f"Request {dab_topic} '{dab_payload}' is NOT supported on this device.")
+            if logs is not None:
+                logs.append(f"[OPTIONAL_FAILED] Request {dab_topic} '{dab_payload}' is NOT supported on this device.")
             result.test_result = "OPTIONAL_FAILED"
         else:
-            print(f"Request Operation {topic} '{payload}' is FAILED on this device.")
-            logs.append(f"[FAILED] Request Operation {topic} '{payload}' is FAILED on this device.")
+            LOGGER.error(f"Request operation {dab_topic} '{dab_payload}' FAILED on this device.")
+            if logs is not None:
+                logs.append(f"[FAILED] Request operation {dab_topic} '{dab_payload}' FAILED on this device.")
             result.test_result = "FAILED"
 
-        print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+        LOGGER.result(f"[Result] Test Id: {result.test_id}\nTest Outcome: {result.test_result}\n{'-'*100}")
         return False, result
 
     return True, result
+
 
 def verify_system_setting(tester, payload, response, result, logs):
     (key, value), = json.loads(payload).items()
     settings = json.loads(response)
     if key in settings:
         actual_value = settings.get(key)
-        print(f"System settings get '{key}', Expected: {value}, Actual: {actual_value}")
-
+        line = f"System settings get '{key}', Expected: {value}, Actual: {actual_value}"
+        LOGGER.info(line)
         if actual_value == value:
-            logs.append(f"System settings get '{key}', Expected: {value}, Actual: {actual_value}")
+            if logs is not None:
+                logs.append(line)
             return True, result
-        else:
-            logs.append(f"[FAIL] System settings get '{key}', Expected: {value}, Actual: {actual_value}")
-            result.test_result = "FAILED"
+        if logs is not None:
+            logs.append(f"[FAIL] {line}")
+        result.test_result = "FAILED"
     else:
-        print(f"System settings get '{key}' is FAILED on this device.")
-        logs.append(f"[FAILED] System settings get '{key}' is FAILED on this device.")
+        LOGGER.error(f"System settings get '{key}' FAILED on this device.")
+        if logs is not None:
+            logs.append(f"[FAILED] System settings get '{key}' FAILED on this device.")
         result.test_result = "FAILED"
 
-    print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+    LOGGER.result(f"[Result] Test Id: {result.test_id}\nTest Outcome: {result.test_result}\n{'-'*100}")
     return False, result
 
-def get_supported_setting(tester, device_id, key, result, logs, do_list = True):
+
+def get_supported_setting(tester, device_id, key, result, logs, do_list=True):
     topic = "system/settings/list"
-    payload = json.dumps({})
+    payload = "{}"
     if EnforcementManager().check_supported_settings() == False or do_list:
-        _, response = execute_cmd_and_log(tester, device_id, topic, payload)
-        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
-        if validate_state == False:
+        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs, result)
+        ok, result = validate_response(tester, topic, payload, response, result, logs)
+        if ok is False:
             EnforcementManager().set_supported_settings(None)
             return None, result
-        EnforcementManager().set_supported_settings(json.loads(response))
+        try:
+            EnforcementManager().set_supported_settings(json.loads(response))
+        except Exception:
+            EnforcementManager().set_supported_settings(None)
 
     settings = EnforcementManager().get_supported_settings()
     if not settings:
-        print(f"System setting list '{key}' FAILED  on this device.")
-        logs.append(f"[FAILED] System settings list '{key}' FAILED on this device.")
+        LOGGER.error(f"System setting list '{key}' FAILED on this device.")
+        if logs is not None:
+            logs.append(f"[FAILED] System settings list '{key}' FAILED on this device.")
         return None, result
 
     if key in settings:
         setting = settings.get(key)
-        print(f"Get supported setting '{key}: {setting}'")
+        LOGGER.info(f"Get supported setting '{key}: {setting}'")
         return setting, result
 
-    print(f"System setting '{key}' is unsupported on this device.")
-    logs.append(f"[FAILED] System settings '{key}' is unsupported on this device.")
+    LOGGER.error(f"System setting '{key}' is unsupported on this device.")
+    if logs is not None:
+        logs.append(f"[FAILED] System settings '{key}' is unsupported on this device.")
     result.test_result = "FAILED"
     return None, result
 
@@ -224,14 +501,10 @@ def fire_and_forget_restart(dab_client, device_id):
     """
     topic = f"dab/{device_id}/system/restart"
     response_topic = f"dab/_response/{topic}"
-
-    properties = Properties(PacketTypes.PUBLISH)
-    properties.ResponseTopic = response_topic
-
-    # Send with correct headers — no subscription, no waiting
-    dab_client._DabClient__client.publish(topic, "{}", qos=0, properties=properties)
-
-    print(f"[INFO] Sent restart command to {topic} (fire-and-forget).")
+    props = Properties(PacketTypes.PUBLISH)
+    props.ResponseTopic = response_topic
+    dab_client._DabClient__client.publish(topic, "{}", qos=0, properties=props)
+    LOGGER.info(f"Sent restart command to {topic} (fire-and-forget)")
 
 
 # === Test 1: App in FOREGROUND Validate app moves to FOREGROUND after launch ===
