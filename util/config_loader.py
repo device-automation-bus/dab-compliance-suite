@@ -1,20 +1,76 @@
 import os
 import shutil
 import json
+from pathlib import Path
+from typing import Dict, Tuple
 
+def _find_app_file(app_name_prefix: str, config_dir: str, exts=(".apk", ".apks")) -> Tuple[Path, str]:
+    """
+    Look for files like 'Sample_App.apk' (or .apks) in config_dir.
+    Returns (path, ext_without_dot) or (None, '') if not found.
+    """
+    p = Path(config_dir)
+    if not p.exists():
+        return None, ""
+    for entry in p.iterdir():
+        if entry.is_file() and entry.name.startswith(app_name_prefix):
+            ext = entry.suffix.lower()
+            if not exts or ext in exts:
+                return entry.resolve(), ext.lstrip(".")
+    return None, ""
+
+def ensure_app_available(
+    app_id: str = "Sample_App",
+    config_dir: str = "config/apps",
+    timeout: int = 60,
+    allowed_exts = (".apk", ".apks"),
+) -> Dict[str, object]:
+    """
+    Ensures an app file exists in `config_dir` with name like 'Sample_App.<ext>'.
+    If missing, prompts for a source file path and copies it into `config_dir`.
+    Returns a payload dict:
+      { "appId": "<app_id>", "url": "file:///abs/path/Sample_App.<ext>", "format": "<ext>", "timeout": <timeout> }
+    """
+    os.makedirs(config_dir, exist_ok=True)
+
+    # 1) Try to find an existing file for this app_id
+    found_path, fmt = _find_app_file(app_id, config_dir, allowed_exts)
+    if not found_path:
+        # 2) Prompt user for a source file and copy it into place
+        print(f"[!] App '{app_id}' not found in '{config_dir}'")
+        user_path = input("Please provide full path to the app file (e.g., .apk, .apks): ").strip()
+        src = Path(user_path)
+        if not src.is_file():
+            raise FileNotFoundError(f"Provided file does not exist: {src}")
+        ext = src.suffix.lower()
+        if allowed_exts and ext not in allowed_exts:
+            raise ValueError(f"Unsupported app format '{ext}'. Allowed: {', '.join(allowed_exts)}")
+
+        dest = Path(config_dir) / f"{app_id}{ext}"
+        shutil.copy2(src, dest)
+        print(f"[INFO] App copied to: {dest}")
+        found_path, fmt = dest.resolve(), ext.lstrip(".")
+
+    # 3) Build a proper file:// URL (cross-platform-safe)
+    file_url = found_path.as_uri()  # e.g., file:///Users/.../Sample_App.apk
+
+    # 4) Return the ready-to-use payload
+    payload = {
+        "appId": app_id,
+        "url": file_url,
+        "format": fmt or found_path.suffix.lstrip(".").lower(),
+        "timeout": int(timeout),
+    }
+    return payload
+
+# --- (Optional) Keep your existing App Store URL helpers if you still need them) ---
 def prompt_and_store_appstore_url(config_path="config/apps/sample_app.json"):
-    """
-    Prompts user for app store URL and saves it to config/apps/sample_app.json
-    """
     appstore_url = input("Enter App Store URL for installFromAppstore test: ").strip()
     os.makedirs(os.path.dirname(config_path), exist_ok=True)
     with open(config_path, "w", encoding="utf-8") as f:
         json.dump({"app_url": appstore_url}, f, indent=2)
 
 def load_appstore_url(config_path="config/apps/sample_app.json") -> str:
-    """
-    Loads appId (App Store URL) from config/apps/sample_app.json
-    """
     if not os.path.exists(config_path):
         raise FileNotFoundError(f"App config not found: {config_path}")
     with open(config_path, "r", encoding="utf-8") as f:
@@ -22,9 +78,6 @@ def load_appstore_url(config_path="config/apps/sample_app.json") -> str:
     return config.get("app_url", "")
 
 def get_or_prompt_appstore_url(config_path="config/apps/sample_app.json") -> str:
-    """
-    Loads App Store URL if available, otherwise prompts user and saves it.
-    """
     try:
         url = load_appstore_url(config_path)
         if not url.strip():
@@ -33,31 +86,3 @@ def get_or_prompt_appstore_url(config_path="config/apps/sample_app.json") -> str
     except (FileNotFoundError, ValueError):
         prompt_and_store_appstore_url(config_path)
         return load_appstore_url(config_path)
-
-def ensure_app_available(app_name_prefix: str = "Sample_App", config_dir="config/apps"):
-    """
-    Ensures 'Sample_App.xxx' exists in config_dir.
-    If not, prompts user to provide a file path and copies it as 'Sample_App.<original_extension>'.
-    
-    Returns:
-        str: Absolute path to 'Sample_App.xxx' file.
-    """
-    # Check if file already exists
-    for fname in os.listdir(config_dir):
-        if fname.startswith(app_name_prefix):
-            return os.path.abspath(os.path.join(config_dir, fname))
-
-    # Prompt user for file path
-    print(f"[!] App '{app_name_prefix}' not found in '{config_dir}'")
-    user_path = input("Please provide full path to the app file (e.g., .apk, .apks): ").strip()
-
-    if not os.path.isfile(user_path):
-        raise FileNotFoundError(f"Provided file does not exist: {user_path}")
-
-    # Extract extension and copy as 'Sample_App.xxx'
-    _, ext = os.path.splitext(user_path)
-    dest_path = os.path.join(config_dir, f"{app_name_prefix}{ext}")
-    shutil.copy(user_path, dest_path)
-
-    print(f"App copied to: {dest_path}")
-    return os.path.abspath(dest_path)
