@@ -3195,9 +3195,6 @@ def run_uninstall_after_standby_check(dab_topic, test_category, test_name, teste
     Positive: Uninstall a pre-installed removable app when device was in standby (woken for operation).
     Flow: (best-effort) wake via input/key-press -> applications/uninstall -> short wait -> (best-effort) applications/list
     Pass if uninstall returns 200 and (if list is available) the app no longer appears.
-    Notes:
-      - Standby wake is best-effort via input/key-press; not all devices expose power mode controls via DAB.
-      - Data deletion confirmation is OEM/manual; DAB has no per-app storage inspection.
     """
     test_id = to_test_id(f"{dab_topic}/{test_category}")
     app_id = config.apps.get("sample_app", "Sample_App")
@@ -3450,9 +3447,6 @@ def run_uninstall_sample_app_with_local_data_check(dab_topic, test_category, tes
     Positive: Uninstall a third-party app (sample_app) that has local storage data.
     Minimal flow: (optional) launch -> applications/uninstall -> short wait
     Pass if uninstall returns 200.
-    Notes:
-      - Local storage/data deletion is OEM/manual; DAB does not expose per-app storage inspection.
-      - No use of applications/list per request.
     """
     test_id = to_test_id(f"{dab_topic}/{test_category}")
     app_id = config.apps.get("sample_app", "Sample_App")
@@ -3543,9 +3537,6 @@ def run_uninstall_preinstalled_with_local_data_simple(dab_topic, test_category, 
     Positive: Uninstall a pre-installed removable app (with local data).
     Minimal flow: (optional) launch -> applications/uninstall -> short wait
     Pass if uninstall returns 200.
-    Notes:
-      - Local data deletion is OEM/manual to verify; DAB has no per-app storage inspection.
-      - No applications/list used (kept intentionally simple).
     """
     test_id = to_test_id(f"{dab_topic}/{test_category}")
     app_id = config.apps.get("sample_app", "Sample_App")
@@ -4250,9 +4241,6 @@ def run_install_from_url_then_launch_simple(dab_topic, test_category, test_name,
     Positive: Install an application from a valid APK URL when not already installed, then launch it.
     Minimal flow: applications/install(url) -> wait -> applications/launch
     Pass if install == 200 and launch == 200.
-    Notes:
-      - "Not installed" is treated as an external precondition.
-      - No applications/list used; availability is proven by successful launch.
     """
     test_id = to_test_id(f"{dab_topic}/{test_category}")
     app_id = config.apps.get("sample_app", "Sample_App")  # target app ID
@@ -4349,6 +4337,169 @@ def run_install_from_url_then_launch_simple(dab_topic, test_category, test_name,
         msg = f"[SUMMARY] outcome=SKIPPED, install_status=N/A, launch_status=N/A, test_id={test_id}, device={device_id}, appId={app_id}"
         LOGGER.result(msg); logs.append(msg)
         return result
+    
+def run_clear_data_accessibility_settings_reset(dab_topic, test_category, test_name, tester, device_id):
+    """
+    Positive: Verify applications/clear-data resets a third-party app's accessibility settings to defaults.
+    Flow: applications/launch -> applications/clear-data -> applications/launch
+    Pass if clear-data returns 200. (Accessibility reset verification is manual/OEM.)
+    """
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    app_id = config.apps.get("sample_app", "Sample_App")
+    logs = []
+    payload_app = json.dumps({"appId": app_id})
+    result = TestResult(test_id, device_id, "applications/clear-data", payload_app, "UNKNOWN", "", logs)
+
+    try:
+        # Headers
+        msg = f"[TEST] Clear Data (Accessibility Settings) — {test_name} (test_id={test_id}, device={device_id}, appId={app_id})"
+        LOGGER.result(msg); logs.append(msg)
+        msg = "[DESC] Flow: launch → clear-data → relaunch; PASS if clear-data returns 200."
+        LOGGER.result(msg); logs.append(msg)
+        msg = "[DESC] Note: Confirm accessibility settings (e.g., high contrast, screen reader) are enabled BEFORE test; reset is manual/OEM to verify."
+        LOGGER.result(msg); logs.append(msg)
+
+        # Capability gate
+        if not need(tester, device_id, "ops: applications/launch, applications/clear-data", result, logs):
+            msg = (f"[SUMMARY] outcome=OPTIONAL_FAILED, clear_status=N/A, "
+                   f"test_id={test_id}, device={device_id}, appId={app_id}")
+            LOGGER.result(msg); logs.append(msg)
+            return result
+
+        msg = "[INFO] Capability gate passed."
+        LOGGER.info(msg); logs.append(msg)
+
+        # 1) Launch to ensure app session is active (and settings are persisted)
+        msg = f"[STEP] applications/launch {payload_app}"
+        LOGGER.result(msg); logs.append(msg)
+        execute_cmd_and_log(tester, device_id, "applications/launch", payload_app, logs, result)
+        msg = f"[WAIT] {APP_LAUNCH_WAIT}s after launch"
+        LOGGER.info(msg); logs.append(msg)
+        time.sleep(APP_LAUNCH_WAIT)
+
+        # 2) Clear data
+        msg = f"[STEP] applications/clear-data {payload_app}"
+        LOGGER.result(msg); logs.append(msg)
+        rc_clear, resp_clear = execute_cmd_and_log(
+            tester, device_id, "applications/clear-data", payload_app, logs, result
+        )
+        clear_status = dab_status_from(resp_clear, rc_clear)
+        msg = f"[INFO] applications/clear-data transport_rc={rc_clear}, dab_status={clear_status}"
+        LOGGER.info(msg); logs.append(msg)
+
+        # 3) Relaunch to surface first-run / default state
+        msg = f"[STEP] applications/launch {payload_app}"
+        LOGGER.result(msg); logs.append(msg)
+        execute_cmd_and_log(tester, device_id, "applications/launch", payload_app, logs, result)
+        msg = f"[WAIT] {APP_LAUNCH_WAIT}s after relaunch"
+        LOGGER.info(msg); logs.append(msg)
+        time.sleep(APP_LAUNCH_WAIT)
+
+        # Result
+        if clear_status == 200:
+            result.test_result = "PASS"
+            msg = "[RESULT] PASS — applications/clear-data returned 200; verify accessibility defaults manually"
+            LOGGER.result(msg); logs.append(msg)
+        else:
+            result.test_result = "FAILED"
+            msg = f"[RESULT] FAILED — applications/clear-data returned {clear_status} (expected 200)"
+            LOGGER.result(msg); logs.append(msg)
+
+        msg = (f"[SUMMARY] outcome={result.test_result}, clear_status={clear_status}, "
+               f"test_id={test_id}, device={device_id}, appId={app_id}")
+        LOGGER.result(msg); logs.append(msg)
+        return result
+
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        msg = f"[RESULT] SKIPPED — internal error: {e} (test_id={test_id}, device={device_id}, appId={app_id})"
+        LOGGER.result(msg); logs.append(msg)
+        msg = (f"[SUMMARY] outcome=SKIPPED, clear_status=N/A, "
+               f"test_id={test_id}, device={device_id}, appId={app_id}")
+        LOGGER.result(msg); logs.append(msg)
+        return result
+
+def run_clear_data_session_reset(dab_topic, test_category, test_name, tester, device_id):
+    """
+    Positive: Verify applications/clear-data clears a third-party app's user login/session data.
+    Flow: applications/launch -> applications/clear-data -> applications/launch
+    Pass if clear-data returns 200. (Session reset verification is manual/OEM).
+    """
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    app_id = config.apps.get("sample_app", "Sample_App")
+    logs = []
+    payload_app = json.dumps({"appId": app_id})
+    result = TestResult(test_id, device_id, "applications/clear-data", payload_app, "UNKNOWN", "", logs)
+
+    try:
+        # Headers
+        msg = f"[TEST] Clear Data (User Session) — {test_name} (test_id={test_id}, device={device_id}, appId={app_id})"
+        LOGGER.result(msg); logs.append(msg)
+        msg = "[DESC] Flow: launch → clear-data → relaunch; PASS if clear-data returns 200."
+        LOGGER.result(msg); logs.append(msg)
+        msg = "[DESC] Precondition: app installed and user is logged in (session stored locally). Session-clear verification is manual/OEM."
+        LOGGER.result(msg); logs.append(msg)
+
+        # Capability gate
+        if not need(tester, device_id, "ops: applications/launch, applications/clear-data", result, logs):
+            msg = (f"[SUMMARY] outcome=OPTIONAL_FAILED, clear_status=N/A, "
+                   f"test_id={test_id}, device={device_id}, appId={app_id}")
+            LOGGER.result(msg); logs.append(msg)
+            return result
+
+        msg = "[INFO] Capability gate passed."
+        LOGGER.info(msg); logs.append(msg)
+
+        # 1) Launch to ensure current session is active
+        msg = f"[STEP] applications/launch {payload_app}"
+        LOGGER.result(msg); logs.append(msg)
+        execute_cmd_and_log(tester, device_id, "applications/launch", payload_app, logs, result)
+        msg = f"[WAIT] {APP_LAUNCH_WAIT}s after launch"
+        LOGGER.info(msg); logs.append(msg)
+        time.sleep(APP_LAUNCH_WAIT)
+
+        # 2) Clear data
+        msg = f"[STEP] applications/clear-data {payload_app}"
+        LOGGER.result(msg); logs.append(msg)
+        rc_clear, resp_clear = execute_cmd_and_log(
+            tester, device_id, "applications/clear-data", payload_app, logs, result
+        )
+        clear_status = dab_status_from(resp_clear, rc_clear)
+        msg = f"[INFO] applications/clear-data transport_rc={rc_clear}, dab_status={clear_status}"
+        LOGGER.info(msg); logs.append(msg)
+
+        # 3) Relaunch to surface first-run (logged-out) behavior
+        msg = f"[STEP] applications/launch {payload_app}"
+        LOGGER.result(msg); logs.append(msg)
+        execute_cmd_and_log(tester, device_id, "applications/launch", payload_app, logs, result)
+        msg = f"[WAIT] {APP_LAUNCH_WAIT}s after relaunch"
+        LOGGER.info(msg); logs.append(msg)
+        time.sleep(APP_LAUNCH_WAIT)
+
+        # Result
+        if clear_status == 200:
+            result.test_result = "PASS"
+            msg = "[RESULT] PASS — applications/clear-data returned 200; verify login/session is reset manually"
+            LOGGER.result(msg); logs.append(msg)
+        else:
+            result.test_result = "FAILED"
+            msg = f"[RESULT] FAILED — applications/clear-data returned {clear_status} (expected 200)"
+            LOGGER.result(msg); logs.append(msg)
+
+        msg = (f"[SUMMARY] outcome={result.test_result}, clear_status={clear_status}, "
+               f"test_id={test_id}, device={device_id}, appId={app_id}")
+        LOGGER.result(msg); logs.append(msg)
+        return result
+
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        msg = f"[RESULT] SKIPPED — internal error: {e} (test_id={test_id}, device={device_id}, appId={app_id})"
+        LOGGER.result(msg); logs.append(msg)
+        msg = (f"[SUMMARY] outcome=SKIPPED, clear_status=N/A, "
+               f"test_id={test_id}, device={device_id}, appId={app_id}")
+        LOGGER.result(msg); logs.append(msg)
+        return result
+
 
 # === Functional Test Case List ===
 FUNCTIONAL_TEST_CASE = [
@@ -4404,6 +4555,6 @@ FUNCTIONAL_TEST_CASE = [
     ("applications/install", "functional", run_install_after_reboot_then_launch, "InstallAfterRebootThenLaunch", "2.1", False),
     ("applications/install", "functional", run_sequential_installs_then_launch, "SequentialInstallsFromUrlsThenLaunch", "2.1", False),
     ("applications/install", "functional", run_install_from_url_then_launch_simple, "InstallFromUrlThenLaunch_Simple", "2.1", False),
-
-
+    ("applications/clear-data", "functional", run_clear_data_accessibility_settings_reset, "ClearDataAccessibilitySettingsReset", "2.1", False),
+    ("applications/clear-data", "functional", run_clear_data_session_reset, "ClearDataSessionReset", "2.1", False),
 ]

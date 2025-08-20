@@ -22,14 +22,15 @@ def _find_app_file(app_name_prefix: str, config_dir: str, exts=(".apk", ".apks")
 def ensure_app_available(
     app_id: str = "Sample_App",
     config_dir: str = "config/apps",
-    timeout: int = 60,
+    timeout: int = 60000,
     allowed_exts = (".apk", ".apks"),
 ) -> Dict[str, object]:
     """
     Ensures an app file exists in `config_dir` with name like 'Sample_App.<ext>'.
     If missing, prompts for a source file path and copies it into `config_dir`.
-    Returns a payload dict:
-      { "appId": "<app_id>", "url": "file:///abs/path/Sample_App.<ext>", "format": "<ext>", "timeout": <timeout> }
+
+    Returns a payload dict (note: 'url' is a plain absolute file path, not a file:// URI):
+      { "appId": "<app_id>", "url": "/abs/path/Sample_App.<ext>", "format": "<ext>", "timeout": <timeout> }
     """
     os.makedirs(config_dir, exist_ok=True)
 
@@ -51,13 +52,13 @@ def ensure_app_available(
         print(f"[INFO] App copied to: {dest}")
         found_path, fmt = dest.resolve(), ext.lstrip(".")
 
-    # 3) Build a proper file:// URL (cross-platform-safe)
-    file_url = found_path.as_uri()  # e.g., file:///Users/.../Sample_App.apk
+    # 3) Build a plain absolute path string (e.g., /Users/.../Sample_App.apk)
+    file_path = str(found_path)  # CHANGED: previously used found_path.as_uri()
 
     # 4) Return the ready-to-use payload
     payload = {
         "appId": app_id,
-        "url": file_url,
+        "url": file_path, 
         "format": fmt or found_path.suffix.lstrip(".").lower(),
         "timeout": int(timeout),
     }
