@@ -105,17 +105,21 @@ if __name__ == "__main__":
         suite_to_run = ALL_SUITES
         LOGGER.info(f"No suite specified. All suites selected: {', '.join(suite_to_run.keys())}.")
 
-    if(args.list == True):
+    if (args.list == True):
         for suite in suite_to_run:
             LOGGER.info(f"Listing test cases for suite '{suite}'...")
+            listed = 0
             for test_case in suite_to_run[suite]:
                 try:
-                    topic = test_case[0]
-                    title = test_case[4]
-                    if topic:
+                    topic, _body_spec, _func, _expected, title, _is_neg, _ver = Tester.unpack_test_case(test_case)
+                    if topic and title:
                         LOGGER.result(to_test_id(f"{topic}/{title}"))
+                        listed += 1
+                    else:
+                        LOGGER.warn(f"Skipping malformed test tuple (no topic/title): {test_case}")
                 except Exception as e:
-                    LOGGER.warn(f"Skipping malformed test tuple: {e}")
+                    LOGGER.warn(f"Skipping malformed test tuple: {type(e).__name__}: {e}")
+            LOGGER.ok(f"Listed {listed} case(s) in suite '{suite}'.")
 
     else:
         if ((not isinstance(args.case, (str)) or len(args.case) == 0)):

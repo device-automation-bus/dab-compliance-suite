@@ -594,25 +594,47 @@ class DabTester:
         """
         result_list = []
         terminated_run = False
-
+        total_count = len(functional_tests)
+        suite_wall_start = time.time()
         for idx, test_case in enumerate(functional_tests, 1):
             try:
                 dab_topic, test_category, test_func, test_name, *_ = test_case
             except Exception:
                 dab_topic, test_category, test_func, test_name = ("unknown/topic", "functional", None, "Unknown")
 
+            # progress line (like conformance)
+            pretty_name = test_name if isinstance(test_name, str) and test_name.strip() else f"{dab_topic}/{test_category}"
+            self.logger.result(f"functional progress {idx}/{total_count}: {pretty_name} on topic '{dab_topic}'.")
+
+            # --- open a test section (mirrors conformance) ---
+            test_id = to_test_id(f"{dab_topic}/{pretty_name}")
+            self.logger.test_start(
+                name=pretty_name,
+                test_id=test_id,
+                topic=dab_topic,
+                device=device_id,
+                request_body="{}",
+                suite="functional"
+            )
+            section_wall_start = time.time()
+            outcome_for_end = "SKIPPED"  # default if we bail early
+            # --------------------------------------------------
+
             try:
+                # preflight (may raise PreflightTermination)
                 self._preflight_before_each_test_or_raise(device_id)
             except PreflightTermination:
                 # Mark THIS test as skipped
-                test_id = to_test_id(f"{dab_topic}/{test_category}")
-                result_list.append(
-                    TestResult(
-                        test_id, device_id, dab_topic, "{}", "SKIPPED", "",
-                        ["Preflight failed (discovery/health). Skipping this and remaining functional tests."]
-                    )
+                tr = TestResult(
+                    test_id, device_id, dab_topic, "{}", "SKIPPED", "",
+                    ["Preflight failed (discovery/health). Skipping this and remaining functional tests."]
                 )
-                # Mark REMAINING tests as skipped too
+                result_list.append(tr)
+                outcome_for_end = "SKIPPED"
+                total_ms = int((time.time() - section_wall_start) * 1000)
+                self.logger.test_end(outcome=outcome_for_end, duration_ms=total_ms)
+
+                # Mark REMAINING tests as skipped too (no start/end sections for them)
                 for remaining in functional_tests[idx:]:
                     try:
                         r_topic, r_category, *_ = remaining
@@ -633,14 +655,21 @@ class DabTester:
                 if callable(test_func):
                     result = None
                     try:
-                        result = test_func(dab_topic, test_category, test_name, self, device_id)
+                        result = test_func(dab_topic, test_category, pretty_name, self, device_id)
+                        # Ensure we always append a TestResult-like object
+                        if result is None:
+                            result = TestResult(
+                                test_id, device_id, dab_topic, "{}", "SKIPPED", "",
+                                ["Functional test returned no result object."]
+                            )
                         result_list.append(result)
+                        # derive outcome for the end marker
+                        outcome_for_end = getattr(result, "test_result", None) or getattr(result, "outcome", "UNKNOWN")
                     finally:
                         # Always return to Home after each test
                         try:
                             self.return_to_home_after_test(device_id)
                         except Exception:
-                            # Don't let cleanup interfere with the run
                             pass
                 else:
                     # Not callable — record as SKIPPED but keep going
@@ -650,6 +679,7 @@ class DabTester:
                         ["Invalid functional test function: not callable."]
                     )
                     result_list.append(bad_result)
+                    outcome_for_end = "SKIPPED"
                     # Still try to return Home for consistency
                     try:
                         self.return_to_home_after_test(device_id)
@@ -663,12 +693,24 @@ class DabTester:
                     self.return_to_home_after_test(device_id)
                 except Exception:
                     pass
+                tr = TestResult(
+                    test_id, device_id, dab_topic, "{}", "SKIPPED", "",
+                    [f"Functional test execution failed: {e}"]
+                )
+                result_list.append(tr)
+                outcome_for_end = "SKIPPED"
+
+            # --- close the test section (mirrors conformance) ---
+            total_ms = int((time.time() - section_wall_start) * 1000)
+            self.logger.test_end(outcome=outcome_for_end, duration_ms=total_ms)
+            # -----------------------------------------------------
 
         if not test_result_output_path:
             test_result_output_path = "./test_result/functional_result.json"
 
         device_info = self.get_device_info(device_id)
-        self.write_test_result_json("functional", result_list, test_result_output_path, device_info=device_info)
+        total_wall_ms = int((time.time() - suite_wall_start) * 1000)
+        self.write_test_result_json("functional", result_list, test_result_output_path, device_info=device_info, total_wall_ms=total_wall_ms)
 
         if terminated_run and self.verbose:
             self.logger.info("Functional test run ended early. Results file is written.")
@@ -687,7 +729,7 @@ class DabTester:
         # show total tests once (always as RESULT)
         total_tests = len(Test_Set)
         self.logger.result(f"Starting {suite_name} suite with {total_tests} tests.")
-
+        suite_wall_start = time.time()
         result_list = TestSuite([], suite_name)
         try:
             # enumerate to print progress before each test
@@ -710,7 +752,8 @@ class DabTester:
         if (len(test_result_output_path) == 0):
             test_result_output_path = f"./test_result/{suite_name}.json"
         device_info = self.get_device_info(device_id)
-        self.write_test_result_json(suite_name, result_list.test_result_list, test_result_output_path, device_info = device_info)
+        total_wall_ms = int((time.time() - suite_wall_start) * 1000)
+        self.write_test_result_json(suite_name, result_list.test_result_list, test_result_output_path, device_info = device_info, total_wall_ms=total_wall_ms)
 
     # -----------------------------
     # Single test runner
@@ -722,7 +765,7 @@ class DabTester:
         if suite_name == "functional":
             self.Execute_Functional_Tests(device_id, test_case_or_cases, test_result_output_path)
             return
-
+        suite_wall_start = time.time()
         result_list = TestSuite([], suite_name)
         try:
             if isinstance(test_case_or_cases, list):
@@ -740,12 +783,13 @@ class DabTester:
         if len(test_result_output_path) == 0:
             test_result_output_path = f"./test_result/{suite_name}_single.json"
         device_info = self.get_device_info(device_id)
-        self.write_test_result_json(suite_name, result_list.test_result_list, test_result_output_path, device_info = device_info)
+        total_wall_ms = int((time.time() - suite_wall_start) * 1000)
+        self.write_test_result_json(suite_name, result_list.test_result_list, test_result_output_path, device_info = device_info, total_wall_ms=total_wall_ms)
 
     # -----------------------------
     # JSON writer & utilities
     # -----------------------------
-    def write_test_result_json(self, suite_name, result_list, output_path="", device_info=None):
+    def write_test_result_json(self, suite_name, result_list, output_path="", device_info=None, total_wall_ms=None):
         """
         Serialize and write the test results to a JSON file in a structured format.
 
@@ -798,6 +842,24 @@ class DabTester:
             },
             "test_result_list": valid_results
         }
+        overall_ok = (failed == 0 and skipped == 0)
+        self.logger.result("══════════════════════════════════════════════════════════════════════════════")
+        if total_wall_ms is not None:
+            try:
+                pretty = self.logger._fmt_duration(total_wall_ms)
+                self.logger.result(f"Total Time: {pretty} ({int(total_wall_ms)} ms)")
+            except Exception:
+                # fallback just in case
+                self.logger.result(f"Total Time: {int(total_wall_ms)} ms")
+        self.logger.result("Final Results Summary")
+        self.logger.result(f"Suite Summary: {suite_name}")
+        self.logger.result(f"Executed        : {total}")
+        self.logger.result(f"  PASS          : {passed}")
+        self.logger.result(f"  FAIL          : {failed}")
+        self.logger.result(f"  OPTIONAL_FAIL : {optional_failed}")
+        self.logger.result(f"  SKIPPED       : {skipped}")
+        self.logger.result(f"Overall Passed  : {'YES' if overall_ok else 'NO'}")
+        self.logger.result("══════════════════════════════════════════════════════════════════════════════")
         try:
             with open(output_path, "w", encoding="utf-8") as f:
                 # Beautify using jsons and indent=4 passed through jdkwargs
