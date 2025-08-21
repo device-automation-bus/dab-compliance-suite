@@ -19,7 +19,9 @@ import conformance
 import output_image
 import netflix
 import functional
-from logger import LOGGER 
+from logger import LOGGER
+from util.config_loader import init_interactive_setup
+import sys 
 
 ALL_SUITES = {
     "conformance": conformance.CONFORMANCE_TEST_CASE,
@@ -70,18 +72,25 @@ if __name__ == "__main__":
                         choices=["2.0", "2.1"],
                         default=None)
 
+    parser.add_argument("--init", action="store_true",
+                        help="Interactive setup: prompt for app paths (and optional store URL), then exit.")
+
     parser.set_defaults(output="")
-    
     parser.set_defaults(case=99999)
     args = parser.parse_args()
     LOGGER.verbose = bool(args.verbose)
     device_id = args.ID
 
+    # ---- init mode (interactive) ----
+    if args.init:
+        init_interactive_setup(app_ids=("Sample_App",), ask_store_url=True)
+        sys.exit(0)
+
     Tester = DabTester(args.broker, override_dab_version=args.dab_version)
-    
+
     Tester.verbose = args.verbose
     try:
-        Tester.logger.verbose = Tester.verbose 
+        Tester.logger.verbose = Tester.verbose
     except Exception:
         pass
     LOGGER.info(f"Starting run with broker {args.broker}, device ID '{device_id}', suite='{args.suite or 'ALL'}', output='{args.output or '(default)'}', dab-version override='{args.dab_version or 'auto'}'.")
@@ -100,10 +109,14 @@ if __name__ == "__main__":
         for suite in suite_to_run:
             LOGGER.info(f"Listing test cases for suite '{suite}'...")
             for test_case in suite_to_run[suite]:
-                (dab_request_topic, dab_request_body, validate_output_function, expected_response, test_title, test_version, is_negative) = Tester.unpack_test_case(test_case)
-                if dab_request_topic is None:
-                    continue
-                LOGGER.result(to_test_id(f"{dab_request_topic}/{test_title}"))
+                try:
+                    topic = test_case[0]
+                    title = test_case[4]
+                    if topic:
+                        LOGGER.result(to_test_id(f"{topic}/{title}"))
+                except Exception as e:
+                    LOGGER.warn(f"Skipping malformed test tuple: {e}")
+
     else:
         if ((not isinstance(args.case, (str)) or len(args.case) == 0)):
             LOGGER.result("Testing all cases")

@@ -12,6 +12,7 @@ import config
 import os
 from util.enforcement_manager import EnforcementManager
 from util.enforcement_manager import ValidateCode
+from util.config_loader import resolve_body_or_raise, PayloadConfigError
 from sys import exit as sys_exit
 import re
 import time  
@@ -46,6 +47,57 @@ class DabTester:
             return 0
         else:
             return 1
+
+    # -----------------------------
+    # Early-skip helpers (generic, payload/config aware)
+    # -----------------------------
+    def _skipped_result_for_invalid_case(self, device_id, test_case, reason: str):
+        """Return a SKIPPED TestResult for invalid test_case so it's counted."""
+        topic = "invalid/test"
+        title = "InvalidTestCase"
+        try:
+            if isinstance(test_case, tuple) and len(test_case) >= 1 and isinstance(test_case[0], str) and test_case[0].strip():
+                topic = test_case[0].strip()
+            if isinstance(test_case, tuple) and len(test_case) >= 5 and isinstance(test_case[4], str) and test_case[4].strip():
+                title = test_case[4].strip()
+        except Exception:
+            pass
+
+        test_id = to_test_id(f"{topic}/{title}")
+        tr = TestResult(test_id, device_id, topic, "{}", "SKIPPED", "", [])
+        tr.test_result = "SKIPPED"  # <-- ensure writer sees it
+        log(tr, f"[TEST] {title} (test_id={test_id}, device={device_id})")
+        log(tr, "[DESC] Skipped because the test case could not be unpacked.")
+        log(tr, f"[REASON] {reason}")
+        return tr
+
+    def _resolve_body_or_skip(self, device_id: str, topic: str, title: str, body_spec):
+        """
+        Build the request body. If it fails (e.g., missing APK/App Store URL),
+        return a SKIPPED TestResult with a precise reason and hint.
+        Returns: (ok: bool, body_str: Optional[str], tr_if_skipped: Optional[TestResult])
+        """
+        test_id = to_test_id(f"{topic}/{title}")
+        try:
+            body_str = resolve_body_or_raise(body_spec)
+            return True, body_str, None
+        except PayloadConfigError as e:
+            reason = str(e)
+            hint = getattr(e, "hint", "")
+            if hint:
+                self.logger.warn(f"[SKIPPED] {test_id} — payload/config missing: {reason}. {hint}")
+            else:
+                self.logger.warn(f"[SKIPPED] {test_id} — payload/config missing: {reason}.")
+
+            tr = TestResult(test_id, device_id, topic, "{}", "SKIPPED", "", [])
+            tr.test_result = "SKIPPED"  # ensure it’s counted in results
+            log(tr, f"[TEST] {title} (test_id={test_id}, device={device_id})")
+            log(tr, "[DESC] Skipped because request payload could not be generated.")
+            log(tr, f"[REASON] {reason}")
+            if hint:
+                log(tr, f"[HINT] {hint}")
+            return False, None, tr
+
     # -----------------------------
     # Preflight helpers
     # “Preflight” just means the quick checks we run before a test starts—like an aviation pre-flight checklist.
@@ -327,17 +379,26 @@ class DabTester:
         ok = self.pretest_health_check(device_id, retries=3, delay_sec=10, interactive=True, fatal=False)
         if not ok:
             raise PreflightTermination("Health-check failed; user chose to terminate.")
+
     # -----------------------------
     # Main Execute for a single test
     # -----------------------------
     def Execute(self, device_id, test_case):
-        # Unpack first so we can announce the test name before any preflight work
-        (dab_request_topic, dab_request_body, validate_output_function, expected_response, test_title, is_negative, test_version) = self.unpack_test_case(test_case)
+        # Unpack first (do not open a section yet)
+        (dab_request_topic, body_spec, validate_output_function, expected_response, test_title, is_negative, test_version) = self.unpack_test_case(test_case)
 
         if dab_request_topic is None:
-            return None
-        # Announce which test is starting (printed always)
+            # Unpack failed → return a SKIPPED result so it's counted
+            return self._skipped_result_for_invalid_case(device_id, test_case, "Unpack failed")
+
         test_id = to_test_id(f"{dab_request_topic}/{test_title}")
+
+        # Try to build/resolve payload. If it fails, return a SKIPPED TestResult (no test_start)
+        ok, dab_request_body, skipped_tr = self._resolve_body_or_skip(device_id, dab_request_topic, test_title, body_spec)
+        if not ok:
+            return skipped_tr
+
+        # Announce which test is starting (printed always), now that payload is ready
         self.logger.result(f"Starting test '{test_title}' (ID {test_id}) on topic '{dab_request_topic}' for device '{device_id}'.")
 
         # ---------- test section ----------
@@ -565,7 +626,7 @@ class DabTester:
                         )
                     )
                 terminated_run = True
-                break  # stop executing further tests
+                break
 
             # Preflight OK → run the functional test
             try:
@@ -612,7 +673,6 @@ class DabTester:
         if terminated_run and self.verbose:
             self.logger.info("Functional test run ended early. Results file is written.")
 
-
     # -----------------------------
     # Conformance (suite) runner
     # -----------------------------
@@ -641,7 +701,7 @@ class DabTester:
                 except Exception:
                     self.logger.result(f"{suite_name} progress {idx}/{total_tests}: (test case not resolved).")
 
-                r = self.Execute(device_id, test)  # may raise PreflightTermination
+                r = self.Execute(device_id, test)
                 if r:
                     result_list.test_result_list.append(r)
         except PreflightTermination:
@@ -667,11 +727,11 @@ class DabTester:
         try:
             if isinstance(test_case_or_cases, list):
                 for test_case in test_case_or_cases:
-                    result = self.Execute(device_id, test_case)  # may raise PreflightTermination
+                    result = self.Execute(device_id, test_case)
                     if result:
                         result_list.test_result_list.append(result)
             else:
-                result = self.Execute(device_id, test_case_or_cases)  # may raise PreflightTermination
+                result = self.Execute(device_id, test_case_or_cases)
                 if result:
                     result_list.test_result_list.append(result)
         except PreflightTermination:
@@ -698,34 +758,45 @@ class DabTester:
         """
         if not output_path:
             output_path = f"./test_result/{suite_name}.json"
-        # Filter valid test results
-        valid_results = []
-        for result in result_list:
-            required_fields = ["test_id", "device_id", "operation", "request", "test_result"]
-            if all(hasattr(result, field) and getattr(result, field) is not None for field in required_fields):
-                valid_results.append(result)
-            else:
-                self.logger.warn(f"An incomplete test result was skipped in the JSON writer: {result}")
 
-        total_tests = len(result_list)
-        passed = sum(1 for t in result_list if getattr(t, "test_result", "") == "PASS")
-        failed = sum(1 for t in result_list if getattr(t, "test_result", "") == "FAILED")
-        optional_failed = sum(1 for t in result_list if getattr(t, "test_result", "") == "OPTIONAL_FAILED")
-        skipped = sum(1 for t in result_list if getattr(t, "test_result", "") == "SKIPPED")
+        def _outcome_of(r):
+            return getattr(r, "test_result", None) or getattr(r, "outcome", None) or ""
+
+        # Keep only well-formed TestResult objects
+        valid_results = []
+        for r in result_list:
+            try:
+                # accept if either .test_result or .outcome exists
+                if all(hasattr(r, a) for a in ("test_id", "device_id", "operation", "request")) and _outcome_of(r):
+                    valid_results.append(r)
+                else:
+                    self.logger.warn(f"An incomplete test result was skipped in the JSON writer: {r}")
+            except Exception:
+                self.logger.warn(f"An invalid result object was skipped in the JSON writer: {r}")
+
+        # Clean only valid results so what we write is tidy
         self.clean_result_fields(valid_results, fields_to_clean=["logs", "request", "response"])
+
+        # Counts must match what we write
+        total = len(valid_results)
+        passed = sum(1 for t in valid_results if _outcome_of(t) == "PASS")
+        failed = sum(1 for t in valid_results if _outcome_of(t) == "FAILED")
+        optional_failed = sum(1 for t in valid_results if _outcome_of(t) == "OPTIONAL_FAILED")
+        skipped = sum(1 for t in valid_results if _outcome_of(t) == "SKIPPED")
+
         result_data = {
             "test_version": get_test_tool_version(),
             "suite_name": suite_name,
             "device_info": device_info if device_info else {},
             "result_summary": {
-                "tests_executed": total_tests,
+                "tests_executed": total,
                 "tests_passed": passed,
                 "tests_failed": failed,
                 "tests_optional_failed": optional_failed,
                 "tests_skipped": skipped,
-                "overall_passed": failed == 0 and skipped == 0
+                "overall_passed": (failed == 0 and skipped == 0)
             },
-            "test_result_list": result_list
+            "test_result_list": valid_results
         }
         try:
             with open(output_path, "w", encoding="utf-8") as f:
@@ -778,16 +849,9 @@ class DabTester:
             if len(test_case) == 7:
                 is_negative = bool(test_case[6])
 
-            # Handle body string evaluation if it's a lambda
-            if callable(body_str):
-                try:
-                    body_str = body_str()
-                except KeyError as e:
-                    return fail(f"Missing config key: {e}")
-
-            # Validations
-            if body_str is not None and not isinstance(body_str, str):
-                return fail("Body must be a string or None")
+            # NOTE: Do NOT evaluate lambdas here — keep body_str as-is (callable allowed)
+            if body_str is not None and not (isinstance(body_str, (str, dict, list)) or callable(body_str)):
+                return fail("Body must be a string, dict/list, callable, or None")
             if not isinstance(topic, str) or not topic.strip():
                 return fail("Invalid or empty topic")
             if topic not in self.valid_dab_topics:
