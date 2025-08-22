@@ -13,7 +13,7 @@ import dab.version
 import json
 from util.enforcement_manager import EnforcementManager
 from util.config_loader import ensure_app_available
-from util.config_loader import get_or_prompt_appstore_url
+from util.config_loader import ensure_app_available, get_appstore_url_or_fail
 
 # Implement the test cases for conformance test.
 CONFORMANCE_TEST_CASE = [
@@ -185,15 +185,14 @@ CONFORMANCE_TEST_CASE = [
     ("voice/send-text",f'{{"requestText" : "Play lady Gaga music on YouTube", "voiceSystem": true}}', dab.voice.send_text, 10000, "Conformance With VA Bad Request5", "2.0", True),
     ("version",' {}', dab.version.default, 200, "Conformance", "2.0", False),
     ("system/restart",' {}', dab.system.restart, 30000, "Conformance", "2.0", False),
-    ("applications/install", lambda: json.dumps({"fileLocation": f"file://{ensure_app_available()}"}), dab.applications.install, 120000, "Install App Conformance", "2.1", False), 
+    ("applications/install", lambda: json.dumps(ensure_app_available(app_id="Sample_App", prompt_if_missing=False)), dab.applications.install, 120000, "Install App Conformance", "2.1", False),
     ("applications/install", lambda: json.dumps({"fileLocation": f""}), dab.applications.install, 120000, "Install App Conformance With Blank URL", "2.1", True),
     ("applications/install", lambda: json.dumps({"fileLocation": f"file://{ensure_app_available('unsupported_format_app.txt')}"}), dab.applications.install, 120000, "Install App Conformance With Incorrect Format", "2.1", True),
-
     ("applications/uninstall",lambda: f'{{"appId": "{config.apps["sample_app"]}"}}', dab.applications.uninstall, 50000, "Conformance", "2.1", False),
     ("applications/uninstall",lambda: f'{{"appId": "com.example!@#"}}', dab.applications.uninstall, 50000, "Conformance Bad Request", "2.1", True),
-    ("applications/clear-data",lambda: f'{{"app_url": "{config.apps["sample_app_url"]}"}}', dab.applications.clear_data, 10000, "Conformance", "2.1", False),
+    ("applications/clear-data",lambda: f'{{"appId": "{config.apps["youtube"]}"}}', dab.applications.clear_data, 10000, "Conformance", "2.1", False),
     ("applications/clear-data",lambda: f'{{"appId": ""}}', dab.applications.clear_data, 10000, "Conformance Bad Request", "2.1", True),
-    ("applications/install-from-app-store", lambda: json.dumps({"appId": get_or_prompt_appstore_url()}), dab.applications.install_from_appstore, 120000, "Install App Conformance", "2.1" , False),
+    ("applications/install-from-app-store", lambda: json.dumps({"appId": get_appstore_url_or_fail(), "timeout": 60000}), dab.applications.install_from_appstore, 120000, "Install From App Store Conformance", "2.1", False),
     ("system/logs/start-collection", '{}', dab.system.start_log_collection, 200, "Conformance", "2.1" , False), 
     ("system/logs/stop-collection", '{}', dab.system.stop_log_collection, 200, "Conformance", "2.1" , False), 
     ("system/logs/stop-collection", '{}', dab.system.stop_log_collection, 400, "Stop Without Start Negative", "2.1" , True),
@@ -204,5 +203,5 @@ CONFORMANCE_TEST_CASE = [
     ("system/power-mode/get", '{}', dab.system.power_mode_get, 200, "Conformance", "2.1" , False),
     ("system/power-mode/set", '{"powerMode": "Standby"}', dab.system.power_mode_set, 200, "Conformance", "2.1" , False),
     ("system/power-mode/set", '{"powerMode": "invalid"}', dab.system.power_mode_set, 200, "Conformance Bad Request", "2.1" , True),
-    ("system/setup/skip", '{}', dab.system.setup_skip, 1000, "Conformance", "2.1" , False),
+    ("system/setup/skip", '{}', dab.system.setup_skip, 1000, "Conformance", "2.1" , False),    
 ]

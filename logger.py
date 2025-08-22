@@ -116,5 +116,19 @@ class RunLogger:
             self.result(f"Result: {outcome}")
         self.result("═" * 79)
 
+    def _fmt_duration(self, ms: int) -> str:
+        try:
+            ms = int(ms)
+        except Exception:
+            return f"{ms} ms"
+        s, ms = divmod(ms, 1000)
+        m, s = divmod(s, 60)
+        h, m = divmod(m, 60)
+        return f"{h:02d}:{m:02d}:{s:02d}.{ms:03d}"
+
+    def suite_footer(self, duration_ms: int, label: str = "Suite Wall Time") -> None:
+        self.result("══════════════════════════════════════════════════════════════════════════════")
+        self.result(f"{label}: {self._fmt_duration(duration_ms)} ({int(duration_ms)} ms)")
+
 # Shared singleton
 LOGGER = RunLogger(verbose=False, enable_color=True)
