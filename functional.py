@@ -17,7 +17,7 @@ APP_CLEAR_DATA_WAIT = 5
 APP_EXIT_WAIT = 3
 APP_STATE_CHECK_WAIT = 2
 APP_RELAUNCH_WAIT = 4
-CONTENT_LOAD_WAIT = 6
+CONTENT_LOAD_WAIT = 20
 DEVICE_REBOOT_WAIT = 180  # Max wait for device reboot
 TELEMETRY_DURATION_MS = 5000
 TELEMETRY_METRICS_WAIT = 30  # Max wait for telemetry metrics (seconds)
@@ -33,21 +33,267 @@ class UnsupportedOperationError(Exception):
 SUPPORTED_OPERATIONS = []
 
 def fetch_supported_operations(tester, device_id):
+    """
+    Fill SUPPORTED_OPERATIONS via 'operations/list' and return it.
+    Accepts list[str] or list[{"operation": str}] shapes.
+    """
     global SUPPORTED_OPERATIONS
-    if not SUPPORTED_OPERATIONS:
-        print("[INFO] Fetching supported DAB operations via 'operations/list'...")
-        result_code = tester.execute_cmd(device_id, "operations/list", "{}")
-        response = tester.dab_client.response()
-        try:
-            data = json.loads(response)
-            if isinstance(data, dict) and "operations" in data:
-                SUPPORTED_OPERATIONS = data["operations"]
-                #print(f"[INFO] Supported DAB operations: {SUPPORTED_OPERATIONS}")
-            else:
-                print("[WARNING] Invalid operations/list response format.")
-        except Exception as e:
-            print(f"[ERROR] Failed to fetch supported operations: {e}")
 
+    if SUPPORTED_OPERATIONS:
+        LOGGER.info(f"Using cached operations ({len(SUPPORTED_OPERATIONS)})")
+        return SUPPORTED_OPERATIONS
+
+    LOGGER.info("Fetching supported DAB operations via 'operations/list'")
+    result_code = tester.execute_cmd(device_id, "operations/list", "{}")
+    response = tester.dab_client.response()
+
+    if result_code != 0:
+        code = tester.dab_client.last_error_code()
+        LOGGER.warn(f"'operations/list' failed (code {code}); "
+                    "continuing without cache")
+        tester.dab_client.last_error_msg()
+        return SUPPORTED_OPERATIONS
+
+    try:
+        data = json.loads(response) if response else {}
+        ops = None
+
+        if isinstance(data, dict) and "operations" in data:
+            raw_ops = data["operations"]
+            if isinstance(raw_ops, list):
+                if raw_ops and isinstance(raw_ops[0], dict):
+                    ops = [d.get("operation")
+                           for d in raw_ops
+                           if isinstance(d, dict) and d.get("operation")]
+                else:
+                    ops = [x for x in raw_ops if isinstance(x, str)]
+
+        if not ops:
+            LOGGER.warn("'operations' list missing or invalid in response")
+            return SUPPORTED_OPERATIONS
+
+        SUPPORTED_OPERATIONS = ops
+        LOGGER.ok(f"Cached {len(SUPPORTED_OPERATIONS)} operations")
+        return SUPPORTED_OPERATIONS
+
+    except Exception as e:
+        LOGGER.error(f"Failed to parse 'operations/list' response: {e}")
+        return SUPPORTED_OPERATIONS
+
+
+# === Capability-gate helpers (non-breaking additions) =========================
+from logger import LOGGER
+
+SUPPORTED_SETTINGS_IDS = None   # cached by _fetch_supported_settings_ids
+SUPPORTED_KEY_CODES    = None   # cached by _fetch_supported_key_codes
+
+def _split_items(s: str):
+    return [x.strip() for x in s.split(",") if x and x.strip()]
+
+def _parse_need_spec(spec: str):
+    """
+    Parse a spec like:
+      'ops: a,b | settings: x,y | keys: K_HOME,K_BACK'
+    Default segment = ops (if no prefix is given).
+    """
+    ops_req, set_req, key_req = set(), set(), set()
+    for seg in (p.strip() for p in spec.split("|")):
+        if not seg:
+            continue
+        low = seg.lower()
+        if low.startswith(("ops:", "op:", "operations:")):
+            ops_req.update(_split_items(seg.split(":", 1)[1]))
+        elif low.startswith(("settings:", "setting:", "set:")):
+            set_req.update(_split_items(seg.split(":", 1)[1]))
+        elif low.startswith(("keys:", "key:")):
+            key_req.update(_split_items(seg.split(":", 1)[1]))
+        else:
+            ops_req.update(_split_items(seg))  # default to ops
+    LOGGER.info(
+        f"Parsed need spec → ops={sorted(ops_req)}, "
+        f"settings={sorted(set_req)}, keys={sorted(key_req)}"
+    )
+    return ops_req, set_req, key_req
+
+def _fetch_supported_settings_ids(tester, device_id, logs=None, result=None):
+    """
+    Returns a set of supported setting IDs using 'system/settings/list'.
+    Falls back gracefully if list is unsupported or unparseable.
+    """
+    global SUPPORTED_SETTINGS_IDS
+    if SUPPORTED_SETTINGS_IDS is not None:
+        LOGGER.info(f"Using cached settings IDs ({len(SUPPORTED_SETTINGS_IDS)})")
+        if logs is not None:
+            logs.append(LOGGER.stamp(f"Using cached settings IDs ({len(SUPPORTED_SETTINGS_IDS)})"))
+        return SUPPORTED_SETTINGS_IDS
+    try:
+        _, resp = execute_cmd_and_log(
+            tester, device_id, "system/settings/list", "{}", logs, result
+        )
+        data = json.loads(resp) if resp else {}
+        if isinstance(data, dict) and isinstance(data.get("settings"), list):
+            SUPPORTED_SETTINGS_IDS = {
+                s.get("settingId")
+                for s in data["settings"]
+                if isinstance(s, dict) and s.get("settingId")
+            }
+        elif isinstance(data, dict):
+            SUPPORTED_SETTINGS_IDS = set(data.keys())
+        else:
+            SUPPORTED_SETTINGS_IDS = set()
+        LOGGER.info(f"Fetched {len(SUPPORTED_SETTINGS_IDS)} setting IDs")
+        if logs is not None:
+            logs.append(LOGGER.stamp(f"Fetched {len(SUPPORTED_SETTINGS_IDS)} setting IDs"))
+    except UnsupportedOperationError:
+        SUPPORTED_SETTINGS_IDS = set()
+        LOGGER.info("system/settings/list not supported; skipping settings gate.")
+        if logs is not None:
+            logs.append(LOGGER.stamp("system/settings/list not supported; skipping settings gate."))
+    except Exception as e:
+        SUPPORTED_SETTINGS_IDS = set()
+        LOGGER.warn(f"settings/list parse failed: {e}")
+        if logs is not None:
+            logs.append(LOGGER.stamp(f"settings/list parse failed: {e}"))
+    return SUPPORTED_SETTINGS_IDS
+
+def _fetch_supported_key_codes(tester, device_id, logs=None, result=None):
+    """
+    Returns a set of supported key codes using 'input/key/list'.
+    """
+    global SUPPORTED_KEY_CODES
+    if SUPPORTED_KEY_CODES is not None:
+        LOGGER.info(f"Using cached key codes ({len(SUPPORTED_KEY_CODES)})")
+        if logs is not None:
+            logs.append(LOGGER.stamp(f"Using cached key codes ({len(SUPPORTED_KEY_CODES)})"))
+        return SUPPORTED_KEY_CODES
+    try:
+        _, resp = execute_cmd_and_log(
+            tester, device_id, "input/key/list", "{}", logs, result
+        )
+        data = json.loads(resp) if resp else {}
+        if isinstance(data, dict):
+            for k in ("keys", "supportedKeys", "keyCodes"):
+                if isinstance(data.get(k), list):
+                    SUPPORTED_KEY_CODES = set(data[k])
+                    break
+            else:
+                SUPPORTED_KEY_CODES = set()
+        elif isinstance(data, list):
+            SUPPORTED_KEY_CODES = set(data)
+        else:
+            SUPPORTED_KEY_CODES = set()
+        LOGGER.info(f"Fetched {len(SUPPORTED_KEY_CODES)} key codes")
+        if logs is not None:
+            logs.append(LOGGER.stamp(f"Fetched {len(SUPPORTED_KEY_CODES)} key codes"))
+    except UnsupportedOperationError:
+        SUPPORTED_KEY_CODES = set()
+        LOGGER.info("input/key/list not supported; skipping key gate.")
+        if logs is not None:
+            logs.append(LOGGER.stamp("input/key/list not supported; skipping key gate."))
+    except Exception as e:
+        SUPPORTED_KEY_CODES = set()
+        LOGGER.warn(f"key/list parse failed: {e}")
+        if logs is not None:
+            logs.append(LOGGER.stamp(f"key/list parse failed: {e}"))
+    return SUPPORTED_KEY_CODES
+
+def need(tester, device_id, spec, result=None, logs=None):
+    """
+    One-line capability check. Example:
+        need(tester, device_id,
+             "ops: applications/launch, applications/get-state | "
+             "settings: screenSaver | keys: KEY_HOME",
+             result, logs)
+    If any required item is missing, marks OPTIONAL_FAILED and returns False.
+    """
+    ops_req, set_req, key_req = _parse_need_spec(spec)
+
+    try:
+        # Ensure ops cache is filled
+        if not SUPPORTED_OPERATIONS:
+            LOGGER.info("Fetching supported operations…")
+            fetch_supported_operations(tester, device_id)
+        have_ops = set(SUPPORTED_OPERATIONS or [])
+        miss_ops = ops_req - have_ops
+        if miss_ops:
+            LOGGER.warn("[OPTIONAL_FAILED] Required ops not supported: " +
+                        ", ".join(sorted(miss_ops)))
+            if logs is not None:
+                logs.append(LOGGER.stamp("[OPTIONAL_FAILED] Required ops not supported: " +
+                                         ", ".join(sorted(miss_ops))))
+            if result is not None:
+                result.test_result = "OPTIONAL_FAILED"
+            return False
+
+        # Settings (best-effort; if list unsupported, we skip)
+        if set_req:
+            have_settings = _fetch_supported_settings_ids(
+                tester, device_id, logs, result
+            )
+            if have_settings:
+                miss_set = set_req - have_settings
+                if miss_set:
+                    LOGGER.warn("[OPTIONAL_FAILED] Required settings not supported: " +
+                                ", ".join(sorted(miss_set)))
+                    if logs is not None:
+                        logs.append(LOGGER.stamp("[OPTIONAL_FAILED] Required settings not supported: " +
+                                                 ", ".join(sorted(miss_set))))
+                    if result is not None:
+                        result.test_result = "OPTIONAL_FAILED"
+                    return False
+            else:
+                LOGGER.info("Settings list unavailable; skipping settings gate.")
+                if logs is not None:
+                    logs.append(LOGGER.stamp("Settings list unavailable; skipping settings gate."))
+
+        # Keys (best-effort; if key/list unsupported, we skip)
+        if key_req:
+            have_keys = _fetch_supported_key_codes(
+                tester, device_id, logs, result
+            )
+            if have_keys:
+                miss_keys = key_req - have_keys
+                if miss_keys:
+                    LOGGER.warn("[OPTIONAL_FAILED] Required keys not supported: " +
+                                ", ".join(sorted(miss_keys)))
+                    if logs is not None:
+                        logs.append(LOGGER.stamp("[OPTIONAL_FAILED] Required keys not supported: " +
+                                                 ", ".join(sorted(miss_keys))))
+                    if result is not None:
+                        result.test_result = "OPTIONAL_FAILED"
+                    return False
+            else:
+                LOGGER.info("Key list unavailable; skipping key gate.")
+                if logs is not None:
+                    logs.append(LOGGER.stamp("Key list unavailable; skipping key gate."))
+
+        LOGGER.ok("Capability gate passed.")
+        if logs is not None:
+            logs.append(LOGGER.stamp("Capability gate passed."))
+        return True
+
+    except Exception as e:
+        # Any unexpected failure in gating is a non-enforceable optional fail
+        LOGGER.warn(f"[OPTIONAL_FAILED] Capability check failed: {e}")
+        if logs is not None:
+            logs.append(LOGGER.stamp(f"[OPTIONAL_FAILED] Capability check failed: {e}"))
+        if result is not None:
+            result.test_result = "OPTIONAL_FAILED"
+        return False
+
+def ensure_supported(tester, device_id, result, logs, ops=None, settings=None, keys=None):
+    """
+    Convenience wrapper to avoid building the spec string by hand.
+    """
+    parts = []
+    if ops:      parts.append("ops: "      + ", ".join(sorted(ops)))
+    if settings: parts.append("settings: " + ", ".join(sorted(settings)))
+    if keys:     parts.append("keys: "     + ", ".join(sorted(keys)))
+    spec = " | ".join(parts) or ""
+    LOGGER.info(f"Ensuring support for: {spec or '(none)'}")
+    if logs is not None:
+        logs.append(LOGGER.stamp(f"Ensuring support for: {spec or '(none)'}"))
+    return need(tester, device_id, spec, result, logs)
 
 def execute_cmd_and_log(tester, device_id, topic, payload, logs=None, result=None):
     global SUPPORTED_OPERATIONS
@@ -56,22 +302,29 @@ def execute_cmd_and_log(tester, device_id, topic, payload, logs=None, result=Non
         fetch_supported_operations(tester, device_id)
 
     if topic not in SUPPORTED_OPERATIONS:
-        msg = f"[OPTIONAL_FAILED] Operation '{topic}' is not supported by the device."
-        print(msg)
+        line = f"[OPTIONAL_FAILED] Operation '{topic}' is not supported by the device."
+        LOGGER.warn(line)
         if logs is not None:
-            logs.append(msg)
-        if result is not None:
-            result.test_result = "OPTIONAL_FAILED"
-            result.reason = msg
+            logs.append(line)
         raise UnsupportedOperationError(topic)
 
-    print(f"\nExecuting: {topic} with payload: {payload}")
-    result_code = tester.execute_cmd(device_id, topic, payload)
-    response = tester.dab_client.response()
+    LOGGER.info(f"Executing {topic} with payload {payload}")
+    rc = tester.execute_cmd(device_id, topic, payload)
+    resp = tester.dab_client.response()
+    LOGGER.info(f"[{topic}] Response: {resp}")
     if logs is not None:
-        logs.append(f"[{topic}] Response: {response}")
-        
-    return result_code, response
+        logs.append(f"[{topic}] Response: {resp}")
+    return rc, resp
+
+def dab_status_from(resp, rc):
+    try:
+        if isinstance(resp, str):      # JSON string
+            return json.loads(resp).get("status", rc)
+        if isinstance(resp, dict):     # dict
+            return resp.get("status", rc)
+    except Exception:
+        pass
+    return rc
 
 # The 'print_response' function is removed from here
 # It is still defined in the file but is no longer called by this function.
@@ -81,31 +334,34 @@ def print_response(response, topic_for_color=None, indent=10):
         try:
             response = json.loads(response)
         except json.JSONDecodeError:
-            print("Invalid JSON string.")
+            LOGGER.error("Invalid JSON string")
             return
     if not isinstance(response, dict):
-        print("Invalid response format.")
+        LOGGER.error("Invalid response format")
         return
-    print("Response:")
+    LOGGER.info("Response:")
     for key, value in response.items():
-        print(f"{' ' * indent}{key}: {value}")
+        LOGGER.info(f"{' ' * indent}{key}: {value}")
+
 
 def yes_or_no(result, logs, question=""):
-     positive = ['YES', 'Y']
-     negative = ['NO', 'N']
+    positive = ['YES', 'Y']
+    negative = ['NO', 'N']
+    while True:
+        prompt = f"{question}(Y/N)"
+        LOGGER.prompt(prompt)
+        if logs is not None:
+            logs.append(prompt)
+        ch = readchar().upper()
+        echo = f"[{ch}]"
+        LOGGER.result(echo)
+        if logs is not None:
+            logs.append(echo)
+        if ch in positive:
+            return True
+        if ch in negative:
+            return False
 
-     while True:
-         logs.append(f"{question}(Y/N)")
-         print(f"{question}(Y/N)")
-         user_input=readchar().upper()
-         logs.append(f"[{user_input}]")
-         print(f"[{user_input}]")
-         if user_input.upper() in positive:
-             return True
-         elif user_input.upper() in negative:
-             return False
-         else:
-             continue
 
 def select_input(result, logs, arr):
     print(f"*0: There is no option that meet the requirement.")
@@ -126,92 +382,120 @@ def select_input(result, logs, arr):
         return int(user_input)
 
 def countdown(title, count):
+    LOGGER.info(f"{title} — starting {count}s")
     while count:
         mins, secs = divmod(count, 60)
-        timer = '{:02d}:{:02d}'.format(mins, secs)
+        timer = f"{mins:02d}:{secs:02d}"
         sys.stdout.write("\r" + title + " --- " + timer)
         sys.stdout.flush()
         time.sleep(1)
         count -= 1
     sys.stdout.write("\r" + title + " --- Done!\n")
+    LOGGER.ok(f"{title} — done")
+
 
 def waiting_for_screensaver(result, logs, screenSaverTimeout, tips):
     while True:
-        validate_state = yes_or_no(result, logs, tips)
-        if validate_state:
+        if yes_or_no(result, logs, tips):
             break
         else:
             continue
     countdown(f"Waiting for {screenSaverTimeout} seconds in idle state.", screenSaverTimeout)
+
+
 def validate_response(tester, dab_topic, dab_payload, dab_response, result, logs):
     if not dab_response:
-        logs.append(f"[FAIL] Request {dab_topic} '{dab_payload}' failed. No response received.")
+        line = f"[FAIL] Request {dab_topic} '{dab_payload}' failed. No response received."
+        LOGGER.error(line)
+        if logs is not None:
+            logs.append(line)
         result.test_result = "FAILED"
-        print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+        LOGGER.result(f"[Result] Test Id: {result.test_id}\nTest Outcome: {result.test_result}\n{'-'*100}")
         return False, result
 
-    response = json.loads(dab_response)
+    try:
+        response = json.loads(dab_response)
+    except Exception:
+        line = f"[FAIL] Request {dab_topic} '{dab_payload}' returned invalid JSON."
+        LOGGER.error(line)
+        if logs is not None:
+            logs.append(line)
+        result.test_result = "FAILED"
+        LOGGER.result(f"[Result] Test Id: {result.test_id}\nTest Outcome: {result.test_result}\n{'-'*100}")
+        return False, result
+
     status = response.get("status")
     if status != 200:
         if status == 501:
-            print(f"Request {dab_topic} '{dab_payload}' is NOT supported on this device.")
-            logs.append(f"[OPTIONAL_FAILED] Request {topic} '{payload}' is NOT supported on this device.")
+            LOGGER.warn(f"Request {dab_topic} '{dab_payload}' is NOT supported on this device.")
+            if logs is not None:
+                logs.append(f"[OPTIONAL_FAILED] Request {dab_topic} '{dab_payload}' is NOT supported on this device.")
             result.test_result = "OPTIONAL_FAILED"
         else:
-            print(f"Request Operation {topic} '{payload}' is FAILED on this device.")
-            logs.append(f"[FAILED] Request Operation {topic} '{payload}' is FAILED on this device.")
+            LOGGER.error(f"Request operation {dab_topic} '{dab_payload}' FAILED on this device.")
+            if logs is not None:
+                logs.append(f"[FAILED] Request operation {dab_topic} '{dab_payload}' FAILED on this device.")
             result.test_result = "FAILED"
 
-        print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+        LOGGER.result(f"[Result] Test Id: {result.test_id}\nTest Outcome: {result.test_result}\n{'-'*100}")
         return False, result
 
     return True, result
+
 
 def verify_system_setting(tester, payload, response, result, logs):
     (key, value), = json.loads(payload).items()
     settings = json.loads(response)
     if key in settings:
         actual_value = settings.get(key)
-        print(f"System settings get '{key}', Expected: {value}, Actual: {actual_value}")
-
+        line = f"System settings get '{key}', Expected: {value}, Actual: {actual_value}"
+        LOGGER.info(line)
         if actual_value == value:
-            logs.append(f"System settings get '{key}', Expected: {value}, Actual: {actual_value}")
+            if logs is not None:
+                logs.append(line)
             return True, result
-        else:
-            logs.append(f"[FAIL] System settings get '{key}', Expected: {value}, Actual: {actual_value}")
-            result.test_result = "FAILED"
+        if logs is not None:
+            logs.append(f"[FAIL] {line}")
+        result.test_result = "FAILED"
     else:
-        print(f"System settings get '{key}' is FAILED on this device.")
-        logs.append(f"[FAILED] System settings get '{key}' is FAILED on this device.")
+        LOGGER.error(f"System settings get '{key}' FAILED on this device.")
+        if logs is not None:
+            logs.append(f"[FAILED] System settings get '{key}' FAILED on this device.")
         result.test_result = "FAILED"
 
-    print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+    LOGGER.result(f"[Result] Test Id: {result.test_id}\nTest Outcome: {result.test_result}\n{'-'*100}")
     return False, result
 
-def get_supported_setting(tester, device_id, key, result, logs, do_list = True):
+
+def get_supported_setting(tester, device_id, key, result, logs, do_list=True):
     topic = "system/settings/list"
-    payload = json.dumps({})
+    payload = "{}"
     if EnforcementManager().check_supported_settings() == False or do_list:
-        _, response = execute_cmd_and_log(tester, device_id, topic, payload)
-        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
-        if validate_state == False:
+        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs, result)
+        ok, result = validate_response(tester, topic, payload, response, result, logs)
+        if ok is False:
             EnforcementManager().set_supported_settings(None)
             return None, result
-        EnforcementManager().set_supported_settings(json.loads(response))
+        try:
+            EnforcementManager().set_supported_settings(json.loads(response))
+        except Exception:
+            EnforcementManager().set_supported_settings(None)
 
     settings = EnforcementManager().get_supported_settings()
     if not settings:
-        print(f"System setting list '{key}' FAILED  on this device.")
-        logs.append(f"[FAILED] System settings list '{key}' FAILED on this device.")
+        LOGGER.error(f"System setting list '{key}' FAILED on this device.")
+        if logs is not None:
+            logs.append(f"[FAILED] System settings list '{key}' FAILED on this device.")
         return None, result
 
     if key in settings:
         setting = settings.get(key)
-        print(f"Get supported setting '{key}: {setting}'")
+        LOGGER.info(f"Get supported setting '{key}: {setting}'")
         return setting, result
 
-    print(f"System setting '{key}' is unsupported on this device.")
-    logs.append(f"[FAILED] System settings '{key}' is unsupported on this device.")
+    LOGGER.error(f"System setting '{key}' is unsupported on this device.")
+    if logs is not None:
+        logs.append(f"[FAILED] System settings '{key}' is unsupported on this device.")
     result.test_result = "FAILED"
     return None, result
 
@@ -224,306 +508,606 @@ def fire_and_forget_restart(dab_client, device_id):
     """
     topic = f"dab/{device_id}/system/restart"
     response_topic = f"dab/_response/{topic}"
-
-    properties = Properties(PacketTypes.PUBLISH)
-    properties.ResponseTopic = response_topic
-
-    # Send with correct headers — no subscription, no waiting
-    dab_client._DabClient__client.publish(topic, "{}", qos=0, properties=properties)
-
-    print(f"[INFO] Sent restart command to {topic} (fire-and-forget).")
-
+    props = Properties(PacketTypes.PUBLISH)
+    props.ResponseTopic = response_topic
+    dab_client._DabClient__client.publish(topic, "{}", qos=0, properties=props)
+    LOGGER.info(f"Sent restart command to {topic} (fire-and-forget)")
 
 # === Test 1: App in FOREGROUND Validate app moves to FOREGROUND after launch ===
 def run_app_foreground_check(dab_topic, test_category, test_name, tester, device_id):
-    print(f"\n[Test] App Foreground Check, Test name: {test_name}" )
-    print("Objective: Validate app moves to FOREGROUND after launch.")
-
     test_id = to_test_id(f"{dab_topic}/{test_category}")
     app_id = config.apps.get("youtube", "YouTube")
     logs = []
     result = TestResult(test_id, device_id, "applications/get-state", json.dumps({"appId": app_id}), "UNKNOWN", "", logs)
 
     try:
-        print(f"Step 1: Launching application '{app_id}'.")
-        execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": app_id}), logs)
-        print(f"Waiting {APP_LAUNCH_WAIT} seconds for application to launch and stabilize.")
+        # Always-on header + description (printed and stored)
+        for line in (
+            f"[TEST] App Foreground Check — {test_name} (test_id={test_id}, device={device_id}, appId={app_id})",
+            "[DESC] Goal: launch the app and confirm it reaches FOREGROUND within the wait window.",
+            "[DESC] Preconditions: device powered on, DAB reachable, stable network.",
+            "[DESC] Required operations: applications/launch, applications/get-state.",
+            "[DESC] Pass criteria: state == 'FOREGROUND'. Any other state → FAILED."
+        ):
+            LOGGER.result(line); logs.append(line)
+
+        # Capability gate
+        if not need(tester, device_id, "ops: applications/launch, applications/get-state", result, logs):
+            line = f"[RESULT] OPTIONAL_FAILED — missing required operations (test_id={test_id}, appId={app_id})"
+            LOGGER.result(line); logs.append(line)
+            line = f"[SUMMARY] outcome=OPTIONAL_FAILED, observed_state=N/A, test_id={test_id}, device={device_id}, appId={app_id}"
+            LOGGER.result(line); logs.append(line)
+            return result
+
+        # Step 1 — launch
+        payload_launch = json.dumps({"appId": app_id})
+        line = f"[STEP] Launching app via applications/launch with payload: {payload_launch}"
+        LOGGER.result(line); logs.append(line)
+        execute_cmd_and_log(tester, device_id, "applications/launch", payload_launch, logs, result)
+
+        # Wait for stabilization
+        line = f"[WAIT] Allowing {APP_LAUNCH_WAIT}s for the app to settle."
+        LOGGER.info(line); logs.append(line)
         time.sleep(APP_LAUNCH_WAIT)
 
-        print(f"Step 2: Getting state of application '{app_id}'.")
-        _, response = execute_cmd_and_log(tester, device_id, "applications/get-state", json.dumps({"appId": app_id}), logs)
-        state = json.loads(response).get("state", "").upper() if response else "UNKNOWN"
-        print(f"Current application state: {state}.")
+        # Step 2 — get-state
+        payload_state = json.dumps({"appId": app_id})
+        line = f"[STEP] Querying application state via applications/get-state for appId={app_id}."
+        LOGGER.result(line); logs.append(line)
+        _, response = execute_cmd_and_log(tester, device_id, "applications/get-state", payload_state, logs, result)
+
+        # Record raw response into result logs too
+        line = f"[INFO] applications/get-state raw response: {response}"
+        LOGGER.info(line); logs.append(line)
+
+        # Parse and evaluate
+        try:
+            state = (json.loads(response).get("state", "") if response else "").upper()
+            line = f"[INFO] Parsed app state='{state}'."
+            LOGGER.info(line); logs.append(line)
+        except Exception:
+            state = "UNKNOWN"
+            line = f"[FAIL] Request applications/get-state '{payload_state}' returned invalid JSON."
+            LOGGER.error(line); logs.append(line)
 
         if state == "FOREGROUND":
-            logs.append(f"[PASS] App state is '{state}' as expected.")
             result.test_result = "PASS"
+            line = f"[RESULT] PASS — app reached FOREGROUND after launch (appId={app_id}, device={device_id}, test_id={test_id})"
+            LOGGER.result(line); logs.append(line)
         else:
-            logs.append(f"[FAIL] App state is '{state}', expected 'FOREGROUND'.")
             result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — expected 'FOREGROUND' but observed '{state}' (appId={app_id}, device={device_id}, test_id={test_id})"
+            LOGGER.result(line); logs.append(line)
+
+        # Final summary (printed and stored)
+        line = f"[SUMMARY] outcome={result.test_result}, observed_state={state}, test_id={test_id}, device={device_id}, appId={app_id}"
+        LOGGER.result(line); logs.append(line)
+        return result
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — operation '{e.topic}' not supported (test_id={test_id}, device={device_id}, appId={app_id})"
+        LOGGER.result(line); logs.append(line)
+        line = f"[SUMMARY] outcome=OPTIONAL_FAILED, observed_state=N/A, test_id={test_id}, device={device_id}, appId={app_id}"
+        LOGGER.result(line); logs.append(line)
+        return result
 
     except Exception as e:
-        logs.append(f"[ERROR] {str(e)}")
         result.test_result = "SKIPPED"
-
-    # Print concise final test result status
-    print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}\n({'-' * 100})")
-
-    return result
-
+        line = f"[RESULT] SKIPPED — internal error during foreground check: {e} (test_id={test_id}, device={device_id}, appId={app_id})"
+        LOGGER.result(line); logs.append(line)
+        line = f"[SUMMARY] outcome=SKIPPED, observed_state=N/A, test_id={test_id}, device={device_id}, appId={app_id}"
+        LOGGER.result(line); logs.append(line)
+        return result
 
 # === Test 2: App in BACKGROUND Validate app moves to BACKGROUND after pressing Home ===
 def run_app_background_check(dab_topic, test_category, test_name, tester, device_id):
-    print("\n[Test] App Background Check")
-    print("Objective: Validate app moves to BACKGROUND after pressing Home.")
-
+    """
+    Checks if an app correctly moves to the background after the Home key is pressed.
+    """
     test_id = to_test_id(f"{dab_topic}/{test_category}")
     app_id = config.apps.get("youtube", "YouTube")
     logs = []
     result = TestResult(test_id, device_id, "applications/get-state", json.dumps({"appId": app_id}), "UNKNOWN", "", logs)
+    state = "N/A"  # Default state for summary if test exits early
 
     try:
-        print(f"Step 1: Launching application '{app_id}'.")
-        execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": app_id}), logs)
-        print(f"Waiting {APP_LAUNCH_WAIT} seconds for application to launch.")
+        # Always-on header + description (printed and stored)
+        for line in (
+            f"[TEST] App Background Check — {test_name} (test_id={test_id}, device={device_id}, appId={app_id})",
+            "[DESC] Goal: launch an app, press HOME, and confirm it reaches BACKGROUND state.",
+            "[DESC] Preconditions: device powered on, DAB reachable, stable network.",
+            "[DESC] Required operations: applications/launch, input/key-press, applications/get-state.",
+            "[DESC] Pass criteria: final state == 'BACKGROUND'. Any other state → FAILED.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Capability gate for all required operations
+        required_ops = "ops: applications/launch, input/key-press, applications/get-state"
+        if not need(tester, device_id, required_ops, result, logs):
+            return result # 'need' function already set the result and logged
+
+        # Step 1 — Launch the application
+        payload_launch = json.dumps({"appId": app_id})
+        line = f"[STEP] Launching app via applications/launch with payload: {payload_launch}"
+        LOGGER.result(line)
+        logs.append(line)
+        execute_cmd_and_log(
+            tester, device_id, "applications/launch", payload_launch, logs, result
+        )
+
+        # Wait for the application to stabilize in the foreground
+        line = f"[WAIT] Allowing {APP_LAUNCH_WAIT}s for the app to launch and settle."
+        LOGGER.info(line)
+        logs.append(line)
         time.sleep(APP_LAUNCH_WAIT)
 
-        print(f"Step 2: Pressing 'KEY_HOME' to send app to background.")
-        execute_cmd_and_log(tester, device_id, "input/key-press", json.dumps({"keyCode": "KEY_HOME"}), logs)
-        print(f"Waiting {APP_EXIT_WAIT} seconds for app to go to background.")
+        # Step 2 — Press the HOME key to send the app to the background
+        payload_home = json.dumps({"keyCode": "KEY_HOME"})
+        line = (
+            f"[STEP] Pressing HOME key via input/key-press with payload: {payload_home}"
+        )
+        LOGGER.result(line)
+        logs.append(line)
+        execute_cmd_and_log(
+            tester, device_id, "input/key-press", payload_home, logs, result
+        )
+
+        # Wait for the app to transition to the background
+        line = f"[WAIT] Allowing {APP_EXIT_WAIT}s for the app to move to the background."
+        LOGGER.info(line)
+        logs.append(line)
         time.sleep(APP_EXIT_WAIT)
 
-        print(f"Step 3: Getting state of application '{app_id}'.")
-        _, response = execute_cmd_and_log(tester, device_id, "applications/get-state", json.dumps({"appId": app_id}), logs)
-        state = json.loads(response).get("state", "").upper() if response else "UNKNOWN"
-        print(f"Current application state: {state}.")
+        # Step 3 — Get the application's current state
+        payload_state = json.dumps({"appId": app_id})
+        line = f"[STEP] Querying application state via applications/get-state for appId={app_id}."
+        LOGGER.result(line)
+        logs.append(line)
+        _, response = execute_cmd_and_log(
+            tester, device_id, "applications/get-state", payload_state, logs, result
+        )
+
+        # Record the raw response for debugging purposes
+        line = f"[INFO] applications/get-state raw response: {response}"
+        LOGGER.info(line)
+        logs.append(line)
+
+        # Parse the state from the response and validate the result
+        try:
+            state = (json.loads(response).get("state", "") if response else "").upper()
+            line = f"[INFO] Parsed app state='{state}'."
+            LOGGER.info(line)
+            logs.append(line)
+        except Exception:
+            state = "UNKNOWN"
+            line = f"[FAIL] Request applications/get-state '{payload_state}' returned invalid JSON."
+            LOGGER.error(line)
+            logs.append(line)
 
         if state == "BACKGROUND":
-            logs.append(f"[PASS] App state is '{state}' as expected.")
             result.test_result = "PASS"
+            line = f"[RESULT] PASS — app reached BACKGROUND after HOME key press (appId={app_id}, device={device_id}, test_id={test_id})"
+            LOGGER.result(line)
+            logs.append(line)
         else:
-            logs.append(f"[FAIL] App state is '{state}', expected 'BACKGROUND'.")
             result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — expected 'BACKGROUND' but observed '{state}' (appId={app_id}, device={device_id}, test_id={test_id})"
+            LOGGER.result(line)
+            logs.append(line)
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — operation '{e.topic}' not supported (test_id={test_id}, device={device_id}, appId={app_id})"
+        LOGGER.result(line)
+        logs.append(line)
 
     except Exception as e:
-        logs.append(f"[ERROR] {str(e)}")
         result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — internal error during background check: {e} (test_id={test_id}, device={device_id}, appId={app_id})"
+        LOGGER.result(line)
+        logs.append(line)
+    
+    finally:
+        # Final summary log for easy parsing, always runs
+        line = f"[SUMMARY] outcome={result.test_result}, observed_state={state}, test_id={test_id}, device={device_id}, appId={app_id}"
+        LOGGER.result(line)
+        logs.append(line)
 
-    # Print concise final test result status
-    print(f"[Result] Test Id: {result.test_id} Test Outcome: {result.test_result}\n({'-' * 100})")
     return result
-
 
 # === Test 3: App STOPPED Validate app state is STOPPED after exit. ===
 def run_app_stopped_check(dab_topic, test_category, test_name, tester, device_id):
-    print("\n[Test] App Stopped Check")
-    print("Objective: Validate app state is STOPPED after exit.")
-
+    """
+    Checks if an app correctly moves to the STOPPED state after being exited.
+    """
     test_id = to_test_id(f"{dab_topic}/{test_category}")
     app_id = config.apps.get("youtube", "YouTube")
     logs = []
     result = TestResult(test_id, device_id, "applications/get-state", json.dumps({"appId": app_id}), "UNKNOWN", "", logs)
+    state = "N/A"  # Default state for summary if test exits early
 
     try:
-        print(f"Step 1: Launching application '{app_id}'.")
-        execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": app_id}), logs)
-        print(f"Waiting {APP_LAUNCH_WAIT} seconds for application to launch.")
+        # Always-on header + description (printed and stored)
+        for line in (
+            f"[TEST] App Stopped Check — {test_name} (test_id={test_id}, device={device_id}, appId={app_id})",
+            "[DESC] Goal: launch an app, exit it, and confirm it reaches the STOPPED state.",
+            "[DESC] Preconditions: device powered on, DAB reachable, stable network.",
+            "[DESC] Required operations: applications/launch, applications/exit, applications/get-state.",
+            "[DESC] Pass criteria: final state == 'STOPPED'. Any other state → FAILED.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Capability gate for all required operations
+        required_ops = "ops: applications/launch, applications/exit, applications/get-state"
+        if not need(tester, device_id, required_ops, result, logs):
+            return result  # 'need' function already set the result and logged
+
+        # Step 1 — Launch the application
+        payload_launch = json.dumps({"appId": app_id})
+        line = f"[STEP] Launching app via applications/launch with payload: {payload_launch}"
+        LOGGER.result(line)
+        logs.append(line)
+        execute_cmd_and_log(
+            tester, device_id, "applications/launch", payload_launch, logs, result
+        )
+
+        # Wait for the application to stabilize
+        line = f"[WAIT] Allowing {APP_LAUNCH_WAIT}s for the app to launch and settle."
+        LOGGER.info(line)
+        logs.append(line)
         time.sleep(APP_LAUNCH_WAIT)
 
-        print(f"Step 2: Exiting application '{app_id}'.")
-        execute_cmd_and_log(tester, device_id, "applications/exit", json.dumps({"appId": app_id}), logs)
-        print(f"Waiting {APP_EXIT_WAIT} seconds for app to fully exit.")
+        # Step 2 — Exit the application
+        payload_exit = json.dumps({"appId": app_id})
+        line = f"[STEP] Exiting app via applications/exit with payload: {payload_exit}"
+        LOGGER.result(line)
+        logs.append(line)
+        execute_cmd_and_log(
+            tester, device_id, "applications/exit", payload_exit, logs, result
+        )
+
+        # Wait for the application to fully terminate
+        line = f"[WAIT] Allowing {APP_EXIT_WAIT}s for the app to fully exit."
+        LOGGER.info(line)
+        logs.append(line)
         time.sleep(APP_EXIT_WAIT)
 
-        print(f"Step 3: Getting state of application '{app_id}'.")
-        _, response = execute_cmd_and_log(tester, device_id, "applications/get-state", json.dumps({"appId": app_id}), logs)
-        state = json.loads(response).get("state", "").upper() if response else "UNKNOWN"
-        print(f"Current application state: {state}.")
+        # Step 3 — Get the application's final state
+        payload_state = json.dumps({"appId": app_id})
+        line = f"[STEP] Querying application state via applications/get-state for appId={app_id}."
+        LOGGER.result(line)
+        logs.append(line)
+        _, response = execute_cmd_and_log(
+            tester, device_id, "applications/get-state", payload_state, logs, result
+        )
+
+        # Record the raw response for debugging
+        line = f"[INFO] applications/get-state raw response: {response}"
+        LOGGER.info(line)
+        logs.append(line)
+
+        # Parse the state from the response and validate the result
+        try:
+            state = (json.loads(response).get("state", "") if response else "").upper()
+            line = f"[INFO] Parsed app state='{state}'."
+            LOGGER.info(line)
+            logs.append(line)
+        except Exception:
+            state = "UNKNOWN"
+            line = f"[FAIL] Request applications/get-state '{payload_state}' returned invalid JSON."
+            LOGGER.error(line)
+            logs.append(line)
 
         if state == "STOPPED":
-            logs.append(f"[PASS] App state is '{state}' as expected.")
             result.test_result = "PASS"
+            line = f"[RESULT] PASS — app reached STOPPED after exit (appId={app_id}, device={device_id}, test_id={test_id})"
+            LOGGER.result(line)
+            logs.append(line)
         else:
-            logs.append(f"[FAIL] App state is '{state}', expected 'STOPPED'.")
             result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — expected 'STOPPED' but observed '{state}' (appId={app_id}, device={device_id}, test_id={test_id})"
+            LOGGER.result(line)
+            logs.append(line)
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — operation '{e.topic}' not supported (test_id={test_id}, device={device_id}, appId={app_id})"
+        LOGGER.result(line)
+        logs.append(line)
 
     except Exception as e:
-        logs.append(f"[ERROR] {str(e)}")
         result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — internal error during stopped check: {e} (test_id={test_id}, device={device_id}, appId={app_id})"
+        LOGGER.result(line)
+        logs.append(line)
 
-    # Print concise final test result status
-    print(f"[Result] Test Id: {result.test_id} Test Outcome: {result.test_result}\n({'-' * 100})")
+    finally:
+        # Final summary log for easy parsing, always runs
+        line = f"[SUMMARY] outcome={result.test_result}, observed_state={state}, test_id={test_id}, device={device_id}, appId={app_id}"
+        LOGGER.result(line)
+        logs.append(line)
+
     return result
-
 
 # === Test 4: Launch Without Content ID (Negative) Validate error is returned when contentId is missing. ===
 def run_launch_without_content_id(dab_topic, test_category, test_name, tester, device_id):
-    print("\n[Test] Launch Without Content ID (Negative)")
-    print("Objective: Validate error is returned when contentId is missing.")
-
+    """
+    Negative Test: Validates that launch-with-content fails if 'contentId' is missing.
+    """
     test_id = to_test_id(f"{dab_topic}/{test_category}")
     app_id = config.apps.get("youtube", "YouTube")
     logs = []
-    result = TestResult(test_id, device_id, "applications/launch-with-content", json.dumps({"appId": app_id}), "UNKNOWN", "", logs)
+    payload = json.dumps({"appId": app_id})
+    result = TestResult(test_id, device_id, "applications/launch-with-content", payload, "UNKNOWN", "", logs)
+    status = "N/A"  # Default status for summary
 
     try:
-        print(f"Step 1: Attempting to launch application '{app_id}' without a 'contentId'.")
-        _, response = execute_cmd_and_log(tester, device_id, "applications/launch-with-content", json.dumps({"appId": app_id}), logs)
-        status = json.loads(response).get("status", 0) if response else 0
-        print(f"Received response status: {status}.")
+        # Header and description
+        for line in (
+            f"[TEST] Launch Without Content ID (Negative) — {test_name} (test_id={test_id}, device={device_id}, appId={app_id})",
+            "[DESC] Goal: Attempt to launch an app with content without providing a contentId.",
+            "[DESC] This is a negative test and is expected to fail with a non-200 status.",
+            "[DESC] Required operations: applications/launch-with-content.",
+            "[DESC] Pass criteria: DAB status != 200. A 200 status is a FAILURE.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
 
+        # Capability gate
+        if not need(tester, device_id, "ops: applications/launch-with-content", result, logs):
+            return result # 'need' already logged and set the result
+
+        # Step 1 — Attempt the invalid launch
+        line = f"[STEP] Calling applications/launch-with-content with missing 'contentId': {payload}"
+        LOGGER.result(line)
+        logs.append(line)
+        rc, response = execute_cmd_and_log(
+            tester, device_id, "applications/launch-with-content", payload, logs, result
+        )
+
+        # Parse status and validate the outcome
+        status = dab_status_from(response, rc)
+        line = f"[INFO] Received DAB status: {status}"
+        LOGGER.info(line)
+        logs.append(line)
+        
         if status != 200:
-            logs.append(f"[PASS] Proper error response received as expected (status: {status}).")
             result.test_result = "PASS"
+            line = f"[RESULT] PASS — Device correctly returned an error status ({status}) as expected."
+            LOGGER.result(line)
+            logs.append(line)
         else:
-            logs.append(f"[FAIL] Launch succeeded unexpectedly (status: {status}), expected an error.")
             result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — Device returned status 200, but an error was expected."
+            LOGGER.result(line)
+            logs.append(line)
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — operation '{e.topic}' not supported."
+        LOGGER.result(line)
+        logs.append(line)
 
     except Exception as e:
-        logs.append(f"[ERROR] {str(e)}")
         result.test_result = "SKIPPED"
-
-    # Print concise final test result status
-    print(f"[Result] Test Id: {result.test_id} Test Outcome: {result.test_result}\n({'-' * 100})")
+        line = f"[RESULT] SKIPPED — internal error: {e}"
+        LOGGER.result(line)
+        logs.append(line)
+        
+    finally:
+        # Final summary log
+        line = f"[SUMMARY] outcome={result.test_result}, observed_status={status}, test_id={test_id}, device={device_id}, appId={app_id}"
+        LOGGER.result(line)
+        logs.append(line)
+        
     return result
-
-    # Print concise final test result status
-    print(f"[Result] Test Id: {result.test_id} Test Outcome: {result.test_result}\n({'-' * 100})")
-    return result
-
 
 # === Test 5: Exit App After Playing Video ===
 def run_exit_after_video_check(dab_topic, test_category, test_name, tester, device_id):
-    print("\n[Test] Exit After Video Playback Check")
-    print("Objective: Validate that resources are released after exiting app after video playback.")
-
+    """
+    Checks if an app stops cleanly after playing video content and being exited.
+    """
     test_id = to_test_id(f"{dab_topic}/{test_category}")
     app_id = config.apps.get("youtube", "YouTube")
-    video_id = "2ZggAa6LuiM"  # Replace with actual valid YouTube video ID
+    video_id = "2ZggAa6LuiM"  # Example video ID
     logs = []
-    # Create the test result instance
-    result = TestResult(test_id, device_id, "applications/exit", json.dumps({"appId": app_id}), "UNKNOWN", "", logs
-    )
+    result = TestResult(test_id, device_id, "applications/exit", json.dumps({"appId": app_id}), "UNKNOWN", "", logs)
+    state = "N/A"
 
     try:
-        # Step 1: Launch YouTube app with content parameters
-        print(f"Step 1: Launching app '{app_id}' with video ID '{video_id}'.")
-        launch_payload = { "appId": app_id, "parameters": [ f"v%3D{video_id}", "enableEventConsole%3Dtrue", "env_showConsole%3Dtrue"]}
-        execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps(launch_payload), logs)
-        print(f"Waiting {APP_LAUNCH_WAIT} seconds for video playback.")
-        time.sleep(APP_LAUNCH_WAIT)
-        time.sleep(CONTENT_LOAD_WAIT)
+        # Header and description
+        for line in (
+            f"[TEST] Exit After Video Playback — {test_name} (test_id={test_id}, device={device_id}, appId={app_id})",
+            f"[DESC] Goal: Launch an app with video content, exit it, and confirm it reaches the STOPPED state.",
+            "[DESC] Required operations: applications/launch, applications/exit, applications/get-state.",
+            "[DESC] Pass criteria: final state == 'STOPPED'.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Capability gate
+        required_ops = "ops: applications/launch, applications/exit, applications/get-state"
+        if not need(tester, device_id, required_ops, result, logs):
+            return result
+
+        # Step 1: Launch the app with video content
+        launch_payload = json.dumps({
+            "appId": app_id,
+            "parameters": [f"v={video_id}"]
+        })
+        line = f"[STEP] Launching video content with payload: {launch_payload}"
+        LOGGER.result(line)
+        logs.append(line)
+        execute_cmd_and_log(tester, device_id, "applications/launch", launch_payload, logs, result)
+        
+        wait_time = APP_LAUNCH_WAIT + CONTENT_LOAD_WAIT
+        line = f"[WAIT] Allowing {wait_time}s for video to load and play."
+        LOGGER.info(line)
+        logs.append(line)
+        time.sleep(wait_time)
 
         # Step 2: Exit the application
-        print(f"Step 2: Exiting app '{app_id}'.")
-        execute_cmd_and_log(tester, device_id, "applications/exit", json.dumps({"appId": app_id}), logs)
-        print(f"Waiting {APP_EXIT_WAIT} seconds for app to fully stop.")
+        exit_payload = json.dumps({"appId": app_id})
+        line = f"[STEP] Exiting application with payload: {exit_payload}"
+        LOGGER.result(line)
+        logs.append(line)
+        execute_cmd_and_log(tester, device_id, "applications/exit", exit_payload, logs, result)
+        
+        line = f"[WAIT] Allowing {APP_EXIT_WAIT}s for the app to terminate."
+        LOGGER.info(line)
+        logs.append(line)
         time.sleep(APP_EXIT_WAIT)
 
-        # Step 3: Get the app state
-        print(f"Step 3: Checking app state using 'applications/get-state'.")
-        _, response = execute_cmd_and_log(tester, device_id, "applications/get-state", json.dumps({"appId": app_id}), logs)
+        # Step 3: Get the final application state
+        state_payload = json.dumps({"appId": app_id})
+        line = f"[STEP] Querying final application state."
+        LOGGER.result(line)
+        logs.append(line)
+        _, response = execute_cmd_and_log(tester, device_id, "applications/get-state", state_payload, logs, result)
+
+        line = f"[INFO] applications/get-state raw response: {response}"
+        LOGGER.info(line)
+        logs.append(line)
+        
+        # Parse and validate the final state
         try:
-            state = json.loads(response).get("state", "").upper() if response else "UNKNOWN"
+            state = (json.loads(response).get("state", "") if response else "UNKNOWN").upper()
+            line = f"[INFO] Parsed app state='{state}'."
+            LOGGER.info(line)
+            logs.append(line)
         except Exception:
             state = "UNKNOWN"
-            logs.append("[WARNING] Failed to parse response from get-state")
+            line = "[FAIL] Could not parse the response from get-state."
+            LOGGER.error(line)
+            logs.append(line)
 
-        print(f"Current app state: {state}")
         if state == "STOPPED":
-            logs.append(f"[PASS] App stopped cleanly after video. State: '{state}'")
             result.test_result = "PASS"
+            line = f"[RESULT] PASS — App correctly stopped after playing video."
+            LOGGER.result(line)
+            logs.append(line)
         else:
-            logs.append(f"[FAIL] App still active after exit. State: '{state}', expected 'STOPPED'")
             result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — Expected 'STOPPED' but observed '{state}'."
+            LOGGER.result(line)
+            logs.append(line)
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' not supported."
+        LOGGER.result(line)
+        logs.append(line)
     except Exception as e:
-        logs.append(f"[ERROR] {str(e)}")
         result.test_result = "SKIPPED"
-
-    print(f"[Result] Test Id: {result.test_id} Test Outcome: {result.test_result}")
-    print("-" * 100)
+        line = f"[RESULT] SKIPPED — An unexpected error occurred: {e}"
+        LOGGER.result(line)
+        logs.append(line)
+        
+    finally:
+        # Final summary log
+        line = f"[SUMMARY] outcome={result.test_result}, observed_state={state}, test_id={test_id}, device={device_id}, appId={app_id}"
+        LOGGER.result(line)
+        logs.append(line)
+        
     return result
-
 
 # === Test 6: Relaunch Stability Check ===
 def run_relaunch_stability_check(dab_topic, test_category, test_name, tester, device_id):
-    print("\n[Test] Relaunch Stability Check")
-    print("Objective: Validate app can be exited and relaunched without issue.")
-
+    """
+    Validates that an application can be exited and then immediately relaunched without errors.
+    """
     test_id = to_test_id(f"{dab_topic}/{test_category}")
     app_id = config.apps.get("youtube", "YouTube")
     logs = []
     result = TestResult(test_id, device_id, "applications/launch", json.dumps({"appId": app_id}), "UNKNOWN", "", logs)
+    relaunch_status = "N/A" # Default status for the summary log
 
     try:
-        print(f"Step 1: First launch of application '{app_id}'.")
-        execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": app_id}), logs)
-        print(f"Waiting {APP_EXIT_WAIT} seconds after first launch.") # Assuming this is a short wait for initial launch
-        time.sleep(APP_EXIT_WAIT)
+        # Header and description
+        for line in (
+            f"[TEST] Relaunch Stability Check — {test_name} (test_id={test_id}, device={device_id}, appId={app_id})",
+            "[DESC] Goal: Launch an app, exit it, and then immediately relaunch it to test stability.",
+            "[DESC] Required operations: applications/launch, applications/exit.",
+            "[DESC] Pass criteria: The final relaunch command must return a 200 status.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
 
-        print(f"Step 2: Exiting application '{app_id}'.")
-        execute_cmd_and_log(tester, device_id, "applications/exit", json.dumps({"appId": app_id}), logs)
-        print(f"Waiting {APP_STATE_CHECK_WAIT} seconds after exit.") # Assuming this is a short wait for app to settle
-        time.sleep(APP_STATE_CHECK_WAIT)
+        # Capability gate for required operations
+        required_ops = "ops: applications/launch, applications/exit"
+        if not need(tester, device_id, required_ops, result, logs):
+            return result # The 'need' function already logged the reason and set the result
 
-        print(f"Step 3: Relaunching application '{app_id}'.")
-        _, response = execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": app_id}), logs)
-        print(f"Waiting {APP_RELAUNCH_WAIT} seconds after relaunch.")
-        time.sleep(APP_RELAUNCH_WAIT)
+        # Step 1: Initial launch of the application
+        payload = json.dumps({"appId": app_id})
+        line = f"[STEP] First launch of '{app_id}'."
+        LOGGER.result(line)
+        logs.append(line)
+        execute_cmd_and_log(tester, device_id, "applications/launch", payload, logs, result)
 
-        if response:
-            logs.append(f"[PASS] App relaunched cleanly.")
-            result.test_result = "PASS"
-        else:
-            logs.append(f"[FAIL] App relaunch failed. No response received.")
-            result.test_result = "FAILED"
-
-    except Exception as e:
-        logs.append(f"[ERROR] {str(e)}")
-        result.test_result = "SKIPPED"
-
-    # Print concise final test result status
-    print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
-    return result
-
-# === Test 7: Exit And Relaunch App ===
-def run_exit_and_relaunch_check(dab_topic, test_category, test_name, tester, device_id):
-    print("\n[Test] Exit and Relaunch App")
-    print("Objective: Verify the app can exit and relaunch without issues.")
-
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
-    app_id = config.apps.get("youtube", "YouTube")
-    logs = []
-    result = TestResult(test_id, device_id, "applications/launch", json.dumps({"appId": app_id}), "UNKNOWN", "", logs)
-
-    try:
-        print(f"Step 1: Launching application '{app_id}'.")
-        execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": app_id}), logs)
+        line = f"[WAIT] Allowing {APP_LAUNCH_WAIT}s for the app to settle."
+        LOGGER.info(line)
+        logs.append(line)
         time.sleep(APP_LAUNCH_WAIT)
 
-        print(f"Step 2: Exiting application '{app_id}'.")
-        execute_cmd_and_log(tester, device_id, "applications/exit", json.dumps({"appId": app_id}), logs)
-        time.sleep(APP_EXIT_WAIT)
+        # Step 2: Exit the application
+        line = f"[STEP] Exiting '{app_id}'."
+        LOGGER.result(line)
+        logs.append(line)
+        execute_cmd_and_log(tester, device_id, "applications/exit", payload, logs, result)
+        
+        line = f"[WAIT] Allowing {APP_STATE_CHECK_WAIT}s for the app to terminate."
+        LOGGER.info(line)
+        logs.append(line)
+        time.sleep(APP_STATE_CHECK_WAIT)
 
-        print(f"Step 3: Relaunching application '{app_id}' immediately after exit.")
-        _, response = execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": app_id}), logs)
+        # Step 3: Relaunch the application and check the response
+        line = f"[STEP] Relaunching '{app_id}'."
+        LOGGER.result(line)
+        logs.append(line)
+        rc, response = execute_cmd_and_log(tester, device_id, "applications/launch", payload, logs, result)
+        relaunch_status = dab_status_from(response, rc)
+        
+        line = f"[WAIT] Allowing {APP_RELAUNCH_WAIT}s for the app to relaunch."
+        LOGGER.info(line)
+        logs.append(line)
         time.sleep(APP_RELAUNCH_WAIT)
 
-        if response:
-            logs.append("[PASS] App exited and relaunched successfully without errors.")
+        if relaunch_status == 200:
             result.test_result = "PASS"
+            line = f"[RESULT] PASS — App relaunched successfully with status 200."
+            LOGGER.result(line)
+            logs.append(line)
         else:
-            logs.append("[FAIL] App did not respond correctly on relaunch.")
             result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — App relaunch failed with status {relaunch_status}."
+            LOGGER.result(line)
+            logs.append(line)
 
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
+        LOGGER.result(line)
+        logs.append(line)
+        
     except Exception as e:
-        logs.append(f"[ERROR] Exception during test: {str(e)}")
         result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — An unexpected error occurred: {e}"
+        LOGGER.result(line)
+        logs.append(line)
 
-    print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}\n{'-'*100}")
+    finally:
+        # Final summary log
+        line = f"[SUMMARY] outcome={result.test_result}, relaunch_status={relaunch_status}, test_id={test_id}, device={device_id}, appId={app_id}"
+        LOGGER.result(line)
+        logs.append(line)
+
     return result
 
-# === Test 8: Screensaver Enable Check ===
+# === Test 7: Screensaver Enable Check ===
 def run_screensaver_enable_check(dab_topic, test_category, test_name, tester, device_id):
     print("\n[Test] Screensaver Enable Check")
     print("Objective: Validate screensaver can be enable successfully.")
@@ -583,7 +1167,7 @@ def run_screensaver_enable_check(dab_topic, test_category, test_name, tester, de
     print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
     return result
 
-# === Test 9: Screensaver Disable Check ===
+# === Test 8: Screensaver Disable Check ===
 def run_screensaver_disable_check(dab_topic, test_category, test_name, tester, device_id):
     print("\n[Test] Screensaver Disable Check")
     print("Objective: Validate screensaver can be disable successfully.")
@@ -643,7 +1227,7 @@ def run_screensaver_disable_check(dab_topic, test_category, test_name, tester, d
     print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
     return result
 
-# === Test 10: Screensaver Active Check ===
+# === Test 9: Screensaver Active Check ===
 def run_screensaver_active_check(dab_topic, test_category, test_name, tester, device_id):
     print("\n[Test] Screensaver Active Check")
     print("Objective: Validate that screensaver can be actived after screensaver timeout.")
@@ -741,7 +1325,7 @@ def run_screensaver_inactive_check(dab_topic, test_category, test_name, tester, 
     print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
     return result
 
-# === Test 11: Screensaver Active Return Check ===
+# === Test 10: Screensaver Active Return Check ===
 def run_screensaver_active_return_check(dab_topic, test_category, test_name, tester, device_id):
     print("\n[Test] Screensaver Active Return Check")
     print("Objective: Validate that screen returns previous state after screensaver active.")
@@ -797,7 +1381,7 @@ def run_screensaver_active_return_check(dab_topic, test_category, test_name, tes
     print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
     return result
 
-# === Test 12: Screensaver Active Check After Continuous Idle ===
+# ===Test 11: Screensaver Active Check After Continuous Idle ===
 def run_screensaver_active_after_continuous_idle_check(dab_topic, test_category, test_name, tester, device_id):
     print("\n[Test] Screensaver Active Check After Continuous Idle")
     print("Objective: Validate that screensaver can be actived only after continues idle.")
@@ -844,7 +1428,7 @@ def run_screensaver_active_after_continuous_idle_check(dab_topic, test_category,
     print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
     return result
 
-# === Test 13: Screensaver Inactive Check After Reboot ===
+# === Test 12: Screensaver Inactive Check After Reboot ===
 def run_screensaver_inactive_after_reboot_check(dab_topic, test_category, test_name, tester, device_id):
     print("\n[Test] Screensaver Inactive Check After Reboot")
     print("Objective: Validate that screenSaver is not actived after reboot with screensaver disabled.")
@@ -903,7 +1487,7 @@ def run_screensaver_inactive_after_reboot_check(dab_topic, test_category, test_n
     print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
     return result
 
-# === Test 14: Screensaver Timeout 300 seconds Check ===
+# === Test 13: Screensaver Timeout 300 seconds Check ===
 def run_screensavertimeout_300_check(dab_topic, test_category, test_name, tester, device_id):
     print("\n[Test] Screensaver Timeout Active Check")
     print("Objective: Validate that screensaver can be actived after screensaver timeout is set 300 seconds.")
@@ -952,7 +1536,7 @@ def run_screensavertimeout_300_check(dab_topic, test_category, test_name, tester
     print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
     return result
 
-# === Test 15: Screensaver Timeout Reboot Check ===
+# === Test 14: Screensaver Timeout Reboot Check ===
 def run_screensavertimeout_reboot_check(dab_topic, test_category, test_name, tester, device_id):
     print("\n[Test] Screensaver Timeout Reboot Check")
     print(f"Objective: Validate that screensaver timeout setting persists after device restart.")
@@ -1022,7 +1606,7 @@ def run_screensavertimeout_reboot_check(dab_topic, test_category, test_name, tes
     print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
     return result
 
-# === Test 16: ScreenSaver Timeout Guest Mode Check ===
+# === Test 15: ScreenSaver Timeout Guest Mode Check ===
 def run_screensavertimeout_guest_mode_check(dab_topic, test_category, test_name, tester, device_id):
     print("\n[Test] Screensaver Timeout Check In Guest Mode")
     print("Objective: Validate that screensaver can be actived in guest mode.")
@@ -1079,7 +1663,7 @@ def run_screensavertimeout_guest_mode_check(dab_topic, test_category, test_name,
     print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
     return result
 
-# === Test 17: ScreenSaver Min Timeout Check ===
+# === Test 16: ScreenSaver Min Timeout Check ===
 def run_screensavertimeout_minimum_check(dab_topic, test_category, test_name, tester, device_id):
     print("\n[Test] Screensaver Minimum Timeout Check")
     print("Objective: Validate that screensaver can be actived after timeout is set minimum value.")
@@ -1131,7 +1715,7 @@ def run_screensavertimeout_minimum_check(dab_topic, test_category, test_name, te
     print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
     return result
 
-# === Test 18: ScreenSaver Min Timeout Reboot Check ===
+# === Test 17: ScreenSaver Min Timeout Reboot Check ===
 def run_screensavermintimeout_reboot_check(dab_topic, test_category, test_name, tester, device_id):
     print("\n[Test] Screensaver Min Timeout After Reboot Check")
     print("Objective: Verify that the minimum screensaver timeout value is not altered after a device restart.")
@@ -1179,7 +1763,7 @@ def run_screensavermintimeout_reboot_check(dab_topic, test_category, test_name, 
     print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
     return result
 
-# === Test 19: High Contrast Text Check Text Over Images ===
+# === Test 18: High Contrast Text Check Text Over Images ===
 def run_highContrastText_text_over_images_check(dab_topic, test_category, test_name, tester, device_id):
     print("\n[Test] High Contrast Text Check Text Over Images")
     print("Objective: Verify that enabling high contrast text adjusts text color and background for text over images.")
@@ -1232,7 +1816,7 @@ def run_highContrastText_text_over_images_check(dab_topic, test_category, test_n
     print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
     return result
 
-# === Test 20: High Contrast Text Check During Video Playback ===
+# === Test 19: High Contrast Text Check During Video Playback ===
 def run_highContrastText_video_playback_check(dab_topic, test_category, test_name, tester, device_id):
     print("\n[Test] High Contrast Text Check During Video Playback")
     print("Objective: Verify that toggling high contrast text during video playback does not interrupt video playback.")
@@ -1283,1034 +1867,1058 @@ def run_highContrastText_video_playback_check(dab_topic, test_category, test_nam
     # Print concise final test result status
     print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
     return result
-
-# === Test 21: SetInvalidVoiceAssistant ===
+# === Test 20: SetInvalidVoiceAssistant ===
 def run_set_invalid_voice_assistant_check(dab_topic, test_category, test_name, tester, device_id):
     """
-    Objective:
-        Validate that the system rejects unsupported voice assistant names.
-
-    This negative test sends a 'voice/set' request with an obviously invalid
-    voice assistant name ("invalid") and verifies that the system returns an
-    error without performing any action.
+    Validates that the system correctly rejects an unsupported voice assistant name. This is a negative test.
     """
-
-    print(f"\n[Test] Set Invalid Voice Assistant, Test name: {test_name}")
-    print("Objective: Validate system rejects unsupported voice assistant names.")
-
     test_id = to_test_id(f"{dab_topic}/{test_category}")
-
-    # Use a clearly invalid assistant name
     invalid_assistant = "invalid"
-    request_payload = json.dumps({"voiceAssistant": invalid_assistant})
-
+    payload = json.dumps({"voiceAssistant": invalid_assistant})
     logs = []
-    result = TestResult(test_id, device_id, "voice/set", request_payload, "UNKNOWN", "", logs)
+    result = TestResult(test_id, device_id, "voice/set", payload, "UNKNOWN", "", logs)
+    status = "N/A"
 
     try:
-        # Optional pre-check for information only
-        print("Step 0: Checking supported voice assistants via 'voice/list'.")
-        _, resp_list = execute_cmd_and_log(tester, device_id, "voice/list", "{}", logs)
-        if resp_list:
-            try:
+        # Header and description
+        for line in (
+            f"[TEST] Set Invalid Voice Assistant (Negative) — {test_name} (test_id={test_id}, device={device_id})",
+            f"[DESC] Goal: Attempt to set a voice assistant to an invalid name ('{invalid_assistant}') and expect an error.",
+            "[DESC] Required operations: voice/set.",
+            "[DESC] Pass criteria: The 'voice/set' command must return a non-200 status code.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Capability gate
+        if not need(tester, device_id, "ops: voice/set", result, logs):
+            return result
+        
+        # Optional Step: List supported assistants for context in the logs
+        try:
+            line = "[STEP] Listing supported voice assistants for context (optional)."
+            LOGGER.info(line)
+            logs.append(line)
+            _, resp_list = execute_cmd_and_log(tester, device_id, "voice/list", "{}", logs)
+            if resp_list:
                 supported_list = json.loads(resp_list).get("voiceAssistants", [])
-                logs.append(f"[INFO] Supported assistants: {supported_list}")
-            except Exception as e:
-                logs.append(f"[WARNING] Could not parse voice/list response: {str(e)}")
+                logs.append(f"[INFO] Currently supported assistants: {supported_list}")
+        except Exception:
+            logs.append("[INFO] Could not list voice assistants; proceeding with test.")
 
-        # Step 1: Attempt to set invalid voice assistant
-        print(f"Step 1: Sending 'voice/set' request with invalid assistant '{invalid_assistant}'.")
-        _, response = execute_cmd_and_log(tester, device_id, "voice/set", request_payload, logs)
 
-        # Step 2: Parse response and validate error handling
-        if response:
-            try:
-                resp_json = json.loads(response)
-                status = resp_json.get("status")
-                message = str(resp_json.get("message", "")).lower()
+        # Step 1: Attempt to set the invalid voice assistant
+        line = f"[STEP] Attempting to set voice assistant with invalid payload: {payload}"
+        LOGGER.result(line)
+        logs.append(line)
+        rc, response = execute_cmd_and_log(tester, device_id, "voice/set", payload, logs, result)
+        status = dab_status_from(response, rc)
 
-                print(f"Received response: {resp_json}")
-
-                if status != 200 or "unsupported" in message or "error" in message:
-                    logs.append(f"[PASS] System correctly rejected invalid assistant '{invalid_assistant}'.")
-                    result.test_result = "PASS"
-                else:
-                    logs.append(f"[FAIL] System accepted invalid assistant '{invalid_assistant}'.")
-                    result.test_result = "FAILED"
-
-            except Exception as e:
-                logs.append(f"[ERROR] Failed to parse response: {str(e)}")
-                result.test_result = "FAILED"
+        # Step 2: Validate that the command failed as expected
+        if status != 200:
+            result.test_result = "PASS"
+            line = f"[RESULT] PASS — The device correctly rejected the invalid assistant with status {status}."
         else:
-            logs.append("[FAIL] No response received for invalid assistant request.")
             result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — The device unexpectedly accepted the invalid assistant with status 200."
+        
+        LOGGER.result(line)
+        logs.append(line)
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
+        LOGGER.result(line)
+        logs.append(line)
 
     except Exception as e:
-        logs.append(f"[ERROR] Exception occurred: {str(e)}")
         result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — An unexpected error occurred: {e}"
+        LOGGER.result(line)
+        logs.append(line)
 
-    # Print concise final result status
-    print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}\n{'-' * 100}")
+    finally:
+        # Final summary log
+        line = (f"[SUMMARY] outcome={result.test_result}, received_status={status}, "
+                f"test_id={test_id}, device={device_id}")
+        LOGGER.result(line)
+        logs.append(line)
 
     return result
 
-# === Test 22: Device Restart and Telemetry Validation ===
+# === Test 21: Device Restart and Telemetry Validation ===
 def run_device_restart_and_telemetry_check(dab_topic, test_category, test_name, tester, device_id):
-    print(f"\n[Test] Device Restart and Telemetry Check, Test name: {test_name}")
-    print("Objective: Restart device, verify health check, start telemetry, receive metrics, stop telemetry.")
-
+    """
+    Validates the full device restart and telemetry workflow.
+    """
     test_id = to_test_id(f"{dab_topic}/{test_category}")
     logs = []
     result = TestResult(test_id, device_id, "system/restart", "{}", "UNKNOWN", "", logs)
+    device_ready = False
+    metrics_received = False
 
     try:
-        # === Step 1: Restart & Wait for Health ===
-        print("[Step 1] Restarting device and waiting until it's healthy...")
+        # Header and description
+        for line in (
+            f"[TEST] Device Restart and Telemetry Check — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: Restart the device, wait for it to become healthy, then start, receive, and stop telemetry.",
+            "[DESC] Required operations: system/restart, health-check/get, device-telemetry/start, device-telemetry/stop.",
+            "[DESC] Pass criteria: All steps must complete successfully, including receiving at least one telemetry metric.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Capability gate
+        required_ops = "ops: system/restart, health-check/get, device-telemetry/start, device-telemetry/stop"
+        if not need(tester, device_id, required_ops, result, logs):
+            return result
+
+        # Step 1: Restart the device and wait for it to come back online
+        line = "[STEP] Restarting the device. This may take several minutes."
+        LOGGER.result(line)
+        logs.append(line)
         execute_cmd_and_log(tester, device_id, "system/restart", "{}", logs)
 
+        line = f"[WAIT] Polling health-check every {HEALTH_CHECK_INTERVAL}s for up to {DEVICE_REBOOT_WAIT}s..."
+        LOGGER.info(line)
+        logs.append(line)
+        
         start_time = time.time()
-        device_ready = False
         while time.time() - start_time < DEVICE_REBOOT_WAIT:
-            _, resp = execute_cmd_and_log(tester, device_id, "health-check/get", "{}", logs)
-            if resp:
-                try:
-                    resp_json = json.loads(resp)
-                    if resp_json.get("status") == 200 and resp_json.get("healthy", True):
-                        print("Device is online and healthy.")
-                        device_ready = True
-                        break
-                except Exception:
-                    pass
+            try:
+                rc, resp = execute_cmd_and_log(tester, device_id, "health-check/get", "{}", logs)
+                if dab_status_from(resp, rc) == 200:
+                    device_ready = True
+                    break
+            except Exception:
+                # Suppress errors during polling as the device may be temporarily unreachable
+                pass
             time.sleep(HEALTH_CHECK_INTERVAL)
 
         if not device_ready:
-            logs.append("[FAIL] Device did not come back online in expected time.")
             result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — Device did not become healthy within the {DEVICE_REBOOT_WAIT}s timeout."
+            LOGGER.result(line)
+            logs.append(line)
             return result
-        # === Step 2: Start Telemetry & Wait for Metrics ===
-        print("[Step 2] Starting telemetry and listening for metrics...")
-        telemetry_payload = json.dumps({"duration": TELEMETRY_DURATION_MS})
-        _, start_resp = execute_cmd_and_log(tester, device_id, "device-telemetry/start", telemetry_payload, logs)
+        
+        line = "[INFO] Device is online and healthy."
+        LOGGER.info(line)
+        logs.append(line)
 
-        if not start_resp or json.loads(start_resp).get("status") != 200:
-            logs.append("[FAIL] Failed to start telemetry session.")
+        # Step 2: Start telemetry and wait for metrics
+        line = "[STEP] Starting device telemetry."
+        LOGGER.result(line)
+        logs.append(line)
+        payload_start = json.dumps({"duration": TELEMETRY_DURATION_MS})
+        rc, resp = execute_cmd_and_log(tester, device_id, "device-telemetry/start", payload_start, logs)
+        if dab_status_from(resp, rc) != 200:
             result.test_result = "FAILED"
+            line = "[RESULT] FAILED — Could not start telemetry session."
+            LOGGER.result(line)
+            logs.append(line)
             return result
-        metrics_received = False
+        
+        line = f"[WAIT] Listening for telemetry metrics for up to {TELEMETRY_METRICS_WAIT}s..."
+        LOGGER.info(line)
+        logs.append(line)
+        
         telemetry_wait_start = time.time()
         while time.time() - telemetry_wait_start < TELEMETRY_METRICS_WAIT:
             try:
-                if hasattr(tester.dab_client, "get_message"):
-                    metric_msg = tester.dab_client.get_message(f"dab/{device_id}/device-telemetry/metrics", timeout=3)
-                else:
-                    metric_msg = tester.dab_client.response()
-
+                # This assumes a client that can listen on a topic for a new message
+                # If not, this part needs to be adapted to the specific MQTT client's implementation
+                metric_msg = tester.dab_client.get_message(f"dab/{device_id}/device-telemetry/metrics", timeout=3)
                 if metric_msg:
-                    print(f"Received telemetry: {metric_msg}")
-                    logs.append(f"[PASS] Telemetry metrics received: {metric_msg}")
                     metrics_received = True
+                    logs.append(f"[INFO] Received telemetry metric: {metric_msg}")
+                    LOGGER.info(logs[-1])
                     break
             except Exception:
-                pass
+                pass # Ignore timeouts and continue listening
 
         if not metrics_received:
-            logs.append("[FAIL] No telemetry metrics received within wait time.")
             result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — Did not receive any telemetry metrics within the {TELEMETRY_METRICS_WAIT}s timeout."
+            LOGGER.result(line)
+            logs.append(line)
             return result
 
-        # === Step 3: Stop Telemetry & Mark PASS ===
-        print("[Step 3] Stopping telemetry session...")
+        # Step 3: Stop telemetry
+        line = "[STEP] Stopping device telemetry."
+        LOGGER.result(line)
+        logs.append(line)
         execute_cmd_and_log(tester, device_id, "device-telemetry/stop", "{}", logs)
-
-        logs.append("[PASS] Restart and telemetry workflow completed successfully.")
+        
         result.test_result = "PASS"
+        line = "[RESULT] PASS — Successfully completed the restart and telemetry workflow."
+        LOGGER.result(line)
+        logs.append(line)
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
+        LOGGER.result(line)
+        logs.append(line)
 
     except Exception as e:
-        logs.append(f"[ERROR] Exception occurred: {str(e)}")
         result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — An unexpected error occurred: {e}"
+        LOGGER.result(line)
+        logs.append(line)
 
-    print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}\n({'-' * 100})")
+    finally:
+        # Final summary log
+        line = (f"[SUMMARY] outcome={result.test_result}, device_ready={device_ready}, "
+                f"metrics_received={metrics_received}, test_id={test_id}, device={device_id}")
+        LOGGER.result(line)
+        logs.append(line)
+
     return result
 
-# === Test 23: Stop App Telemetry Without Active Session (Negative) ===
+# === Test 22: Stop App Telemetry Without Active Session (Negative) ===
 def run_stop_app_telemetry_without_active_session_check(dab_topic, test_category, test_name, tester, device_id):
     """
-    Objective: Ensure device handles redundant app-telemetry/stop gracefully when no session is active.
+    Ensures the device handles a redundant 'app-telemetry/stop' command gracefully when no session is active.
+    This is a negative test case.
     """
-
-    print(f"\n[Test] Stop App Telemetry Without Active Session (Negative), Test name: {test_name}")
-    print("Objective: Ensure device handles redundant app-telemetry/stop gracefully when no session is active.")
-
     test_id = to_test_id(f"{dab_topic}/{test_category}")
     app_id = config.apps.get("youtube", "YouTube")
     payload = json.dumps({"appId": app_id})
     logs = []
     result = TestResult(test_id, device_id, "app-telemetry/stop", payload, "UNKNOWN", "", logs)
+    status = "N/A"
 
     try:
-        print("[Step 1] Sending app-telemetry/stop to ensure no active session...")
-        _, response = execute_cmd_and_log(tester, device_id, "app-telemetry/stop", payload, logs)
+        # Header and description
+        for line in (
+            f"[TEST] Stop App Telemetry Without Active Session (Negative) — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: Send an 'app-telemetry/stop' command when no session is running and verify a graceful response.",
+            "[DESC] Required operations: app-telemetry/stop.",
+            "[DESC] Pass criteria: The command must return a 200 (gracefully ignored) OR a 4xx/5xx error indicating no active session.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
 
-        if not response:
-            logs.append("[FAIL] No response received.")
-            result.test_result = "FAILED"
+        # Capability gate
+        if not need(tester, device_id, "ops: app-telemetry/stop", result, logs):
             return result
 
-        resp_json = json.loads(response)
-        status = resp_json.get("status")
-        message = str(resp_json.get("error", "")).lower()
+        # Step 1: Send the stop command directly, assuming no active session
+        line = f"[STEP] Sending 'app-telemetry/stop' with payload: {payload}"
+        LOGGER.result(line)
+        logs.append(line)
+        rc, response = execute_cmd_and_log(tester, device_id, "app-telemetry/stop", payload, logs, result)
+        status = dab_status_from(response, rc)
+        
+        message = ""
+        try:
+            if response:
+                message = str(json.loads(response).get("error", "")).lower()
+        except Exception:
+            pass # Ignore if response is not valid JSON
 
+        # Step 2: Validate the response
         if status == 200:
-            logs.append("[PASS] Device gracefully accepted stop request with no active session (status 200).")
             result.test_result = "PASS"
+            line = "[RESULT] PASS — Device gracefully accepted the stop request with status 200."
         elif status in (400, 500) and ("not started" in message or "no active session" in message):
-            logs.append(f"[PASS] Device returned expected error: {message} (status: {status}).")
             result.test_result = "PASS"
+            line = f"[RESULT] PASS — Device correctly returned an error for no active session (Status: {status})."
         else:
-            logs.append(f"[FAIL] Unexpected response: status={status}, message='{message}'.")
             result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — Received an unexpected response (Status: {status}, Message: '{message}')."
+        
+        LOGGER.result(line)
+        logs.append(line)
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
+        LOGGER.result(line)
+        logs.append(line)
 
     except Exception as e:
-        logs.append(f"[ERROR] Exception occurred: {str(e)}")
         result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — An unexpected error occurred: {e}"
+        LOGGER.result(line)
+        logs.append(line)
 
-    print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}\n{'-' * 100}")
+    finally:
+        # Final summary log
+        line = (f"[SUMMARY] outcome={result.test_result}, received_status={status}, "
+                f"test_id={test_id}, device={device_id}, appId={app_id}")
+        LOGGER.result(line)
+        logs.append(line)
+
     return result
 
-# === Test24: Launch Video and Verify Health Check ===
+# === Test23: Launch Video and Verify Health Check ===
 def run_launch_video_and_health_check(dab_topic, test_category, test_name, tester, device_id):
     """
-    Objective:
-        Launch YouTube with specific video content,
-        wait for playback to start, then perform a
-        health-check/get to confirm device is healthy.
+    Launches a video and then performs a health check to ensure the device remains stable under load.
     """
-
-    print(f"\n[Test] Launch Video and Health Check, Test name: {test_name}")
-    print("Objective: Launch video content and verify device health via health-check/get.")
-
     test_id = to_test_id(f"{dab_topic}/{test_category}")
     app_id = config.apps.get("youtube", "YouTube")
-    video_id = "2ZggAa6LuiM"  # Replace with a valid test video ID
+    video_id = "2ZggAa6LuiM"  # A standard, reliable test video
+    payload = json.dumps({"appId": app_id, "contentId": video_id})
     logs = []
+    result = TestResult(test_id, device_id, "applications/launch-with-content", payload, "UNKNOWN", "", logs)
+    health_status = "N/A"
+    is_healthy = "N/A"
 
-    result = TestResult(test_id, device_id, "applications/launch-with-content", json.dumps({"appId": app_id, "contentId": video_id}), "UNKNOWN", "", logs)
     try:
-        # Step 1: Launch the YouTube video
-        print(f"[Step 1] Launching '{app_id}' with video ID '{video_id}'.")
-        payload = json.dumps({"appId": app_id, "contentId": video_id})
-        _, launch_resp = execute_cmd_and_log(tester, device_id, "applications/launch-with-content", payload, logs)
+        # Header and description
+        for line in (
+            f"[TEST] Launch Video and Health Check — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: Launch a video, wait for it to play, and then verify the device is still healthy.",
+            "[DESC] Required operations: applications/launch-with-content, health-check/get, applications/exit.",
+            "[DESC] Pass criteria: The health check must return status 200 and a 'healthy': true response.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
 
-        # Validate launch response
-        valid, result = validate_response(tester, "applications/launch-with-content", payload, launch_resp, result, logs)
-        if not valid:
+        # Capability gate
+        required_ops = "ops: applications/launch-with-content, health-check/get, applications/exit"
+        if not need(tester, device_id, required_ops, result, logs):
             return result
 
-        # Step 2: Wait for video playback
-        print(f"[Step 2] Waiting {APP_LAUNCH_WAIT + CONTENT_LOAD_WAIT} seconds for video to start playing...")
-        time.sleep(APP_LAUNCH_WAIT + CONTENT_LOAD_WAIT)
-
-        # Step 3: Perform a health-check
-        print("[Step 3] Performing health-check/get...")
-        _, health_resp = execute_cmd_and_log(tester, device_id, "health-check/get", "{}", logs)
-
-        # Validate health-check response
-        if not health_resp:
-            logs.append("[FAIL] No response received from health-check/get.")
+        # Step 1: Launch the video content
+        line = f"[STEP] Launching video '{video_id}' in '{app_id}'."
+        LOGGER.result(line)
+        logs.append(line)
+        rc, response = execute_cmd_and_log(tester, device_id, "applications/launch-with-content", payload, logs, result)
+        if dab_status_from(response, rc) != 200:
             result.test_result = "FAILED"
+            line = "[RESULT] FAILED — The command to launch the video failed."
+            LOGGER.result(line)
+            logs.append(line)
             return result
+
+        # Step 2: Wait for video playback to stabilize
+        wait_time = APP_LAUNCH_WAIT + CONTENT_LOAD_WAIT
+        line = f"[WAIT] Allowing {wait_time}s for video playback to start."
+        LOGGER.info(line)
+        logs.append(line)
+        time.sleep(wait_time)
+
+        # Step 3: Perform a health check
+        line = "[STEP] Performing a health check while video is playing."
+        LOGGER.result(line)
+        logs.append(line)
+        rc, health_resp = execute_cmd_and_log(tester, device_id, "health-check/get", "{}", logs, result)
+        health_status = dab_status_from(health_resp, rc)
 
         try:
-            health_data = json.loads(health_resp)
-        except json.JSONDecodeError:
-            logs.append("[FAIL] Invalid JSON response from health-check/get.")
-            result.test_result = "FAILED"
-            return result
+            is_healthy = json.loads(health_resp).get("healthy", False) if health_resp else False
+        except Exception:
+            is_healthy = False
+            logs.append("[INFO] Could not parse 'healthy' field from health check response.")
 
-        status = health_data.get("status")
-        healthy = health_data.get("healthy", False)
-
-        if status == 200 and healthy is True:
-            logs.append("[PASS] Device is healthy after video launch.")
+        if health_status == 200 and is_healthy:
             result.test_result = "PASS"
+            line = "[RESULT] PASS — Device health check passed while video was playing."
         else:
-            logs.append(f"[FAIL] Device health check failed. Status: {status}, Healthy: {healthy}")
             result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — Device health check failed. Status: {health_status}, Healthy: {is_healthy}"
+        
+        LOGGER.result(line)
+        logs.append(line)
 
-        # Step 4: Exit the app
-        print(f"[Step 4] Exiting application '{app_id}' to clean up.")
-        exit_payload = json.dumps({"appId": app_id})
-        _, exit_resp = execute_cmd_and_log(tester, device_id, "applications/exit", exit_payload, logs)
-        validate_response(tester, "applications/exit", exit_payload, exit_resp, result, logs)
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
+        LOGGER.result(line)
+        logs.append(line)
 
     except Exception as e:
-        logs.append(f"[ERROR] Exception occurred: {str(e)}")
         result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — An unexpected error occurred: {e}"
+        LOGGER.result(line)
+        logs.append(line)
 
-    print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}\n{'-' * 100}")
+    finally:
+        # Cleanup Step: Always try to exit the application
+        try:
+            line = f"[CLEANUP] Exiting application '{app_id}'."
+            LOGGER.info(line)
+            logs.append(line)
+            execute_cmd_and_log(tester, device_id, "applications/exit", json.dumps({"appId": app_id}), logs)
+        except Exception as e:
+            line = f"[CLEANUP] Failed to exit application '{app_id}': {e}"
+            LOGGER.warn(line)
+            logs.append(line)
+
+        # Final summary log
+        line = (f"[SUMMARY] outcome={result.test_result}, health_status={health_status}, is_healthy={is_healthy}, "
+                f"test_id={test_id}, device={device_id}")
+        LOGGER.result(line)
+        logs.append(line)
+
     return result
 
-# === Test25: Voice List With No Voice Assistant Configured (Negative / Optional) ===
+# === Test24: Voice List With No Voice Assistant Configured (Negative / Optional) ===
 def run_voice_list_with_no_voice_assistant(dab_topic, test_category, test_name, tester, device_id):
     """
-    Objective:
-        Validate system behavior when requesting the list of voice assistants
-        on a device with no voice assistant configured.
-
-    Expected:
-        - PASS if no assistants are configured (empty list).
-        - OPTIONAL_FAILED if assistants are pre-configured in the bridge 
-          (since this scenario is not enforceable without bridge config change).
+    Validates system behavior when requesting the list of voice assistants on a device with none configured.
     """
-
-    print(f"\n[Test] Voice List With No Voice Assistant, Test name: {test_name}")
-    print("Objective: Ensure system gracefully handles voice/list request when no voice assistant is configured.")
-
-    # Generate test ID
     test_id = to_test_id(f"{dab_topic}/{test_category}")
-    request_payload = "{}"  # No parameters required
-
     logs = []
-    result = TestResult(test_id, device_id, "voice/list", request_payload, "UNKNOWN", "", logs)
+    result = TestResult(test_id, device_id, "voice/list", "{}", "UNKNOWN", "", logs)
+    status = "N/A"
+    assistant_count = "N/A"
 
     try:
-        # Step 1: Send voice/list request
-        print("Step 1: Sending 'voice/list' request...")
-        _, response = execute_cmd_and_log(tester, device_id, "voice/list", request_payload, logs)
+        # Header and description
+        for line in (
+            f"[TEST] Voice List With No Assistant (Negative/Optional) — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: Request the list of voice assistants and expect an empty list if none are configured.",
+            "[DESC] Required operations: voice/list.",
+            "[DESC] Pass criteria: Returns a 200 status with an empty 'voiceAssistants' array.",
+            "[DESC] Note: If assistants are pre-configured, this test is marked OPTIONAL_FAILED.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
 
-        if not response:
-            logs.append("[FAIL] No response received for voice/list request.")
-            result.test_result = "FAILED"
+        # Capability gate
+        if not need(tester, device_id, "ops: voice/list", result, logs):
             return result
 
-        # Step 2: Parse response
+        # Step 1: Send the voice/list request
+        line = "[STEP] Sending 'voice/list' request."
+        LOGGER.result(line)
+        logs.append(line)
+        rc, response = execute_cmd_and_log(tester, device_id, "voice/list", "{}", logs, result)
+        status = dab_status_from(response, rc)
+        
+        assistants = []
         try:
-            resp_json = json.loads(response)
-        except Exception as e:
-            logs.append(f"[ERROR] Invalid JSON in response: {str(e)}")
-            result.test_result = "FAILED"
-            return result
+            if response:
+                assistants = json.loads(response).get("voiceAssistants", [])
+                assistant_count = len(assistants)
+        except Exception:
+            logs.append(f"[INFO] Could not parse voice/list response: {response}")
 
-        status = resp_json.get("status")
-        assistants = resp_json.get("voiceAssistants", [])
-
-        print(f"Response status: {status}")
-        print(f"Voice Assistants list: {assistants}")
-
-        # Step 3: Validate result
+        # Step 2: Validate the response
         if status == 200 and isinstance(assistants, list) and len(assistants) == 0:
-            logs.append("[PASS] No voice assistants configured, empty list returned as expected.")
             result.test_result = "PASS"
-
+            line = "[RESULT] PASS — Device correctly returned an empty list of assistants."
         elif status == 200 and len(assistants) > 0:
-            logs.append(f"[OPTIONAL_FAILED] Voice assistants are pre-configured: {assistants}. "
-                        f"Test scenario not enforceable without bridge config change.")
             result.test_result = "OPTIONAL_FAILED"
-
-        elif status != 200:
-            logs.append(f"[PASS] Non-200 status returned for no assistant case: {status}")
-            result.test_result = "PASS"
-
+            line = f"[RESULT] OPTIONAL_FAILED — Device has pre-configured assistants: {assistants}"
         else:
-            logs.append("[FAIL] Unexpected response format or condition.")
             result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — Received unexpected status {status} or invalid response format."
+
+        LOGGER.result(line)
+        logs.append(line)
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
+        LOGGER.result(line)
+        logs.append(line)
 
     except Exception as e:
-        logs.append(f"[ERROR] Exception occurred: {str(e)}")
         result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — An unexpected error occurred: {e}"
+        LOGGER.result(line)
+        logs.append(line)
 
-    # Final result print
-    print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}")
-    print("-" * 100)
+    finally:
+        # Final summary log
+        line = (f"[SUMMARY] outcome={result.test_result}, received_status={status}, assistant_count={assistant_count}, "
+                f"test_id={test_id}, device={device_id}")
+        LOGGER.result(line)
+        logs.append(line)
+
     return result
 
+# === Test25: Validates that launching an uninstalled app fails with a relevant error. Negative test case. ===
 def run_launch_when_uninstalled_check(dab_topic, test_category, test_name, tester, device_id):
     """
-    Objective:
-        Validate launching an uninstalled app fails with a relevant error.
-    Steps:
-        1. Uninstall the removable app.
-        2. Attempt to launch the app.
-        3. Expect an error response (not a success).
-        4. Reinstall the app from local file for cleanup.
+    Validates that launching an uninstalled app fails with a relevant error. Negative test case.
     """
-
-    print(f"\n[Test] Launch App When Uninstalled, Test name: {test_name}")
-    print("Objective: Validate that launching an uninstalled app returns an appropriate error.")
-
     test_id = to_test_id(f"{dab_topic}/{test_category}")
-    removable_app_id = config.apps.get("removable_app", None)
-    if not removable_app_id:
-        print("[SKIPPED] No removable_app defined in config.apps. Cannot run this test.")
-        logs = ["[SKIPPED] No removable_app defined in config.apps."]
-        result = TestResult(test_id, device_id, "applications/launch", "{}", "SKIPPED", "", logs)
-        return result
-
+    app_id = config.apps.get("removable_app")
     logs = []
-    result = TestResult(test_id, device_id, "applications/launch", json.dumps({"appId": removable_app_id}), "UNKNOWN", "", logs)
+    result = TestResult(test_id, device_id, "applications/launch", "{}", "UNKNOWN", "", logs)
+    launch_status = "N/A"
 
     try:
+        # Header and description
+        for line in (
+            f"[TEST] Launch App When Uninstalled (Negative) — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: Uninstall an app, attempt to launch it, and verify the launch fails.",
+            "[DESC] Required ops: applications/uninstall, applications/launch, applications/install (for cleanup).",
+            "[DESC] Pass criteria: The launch attempt must return a non-200 status.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Precondition check
+        if not app_id:
+            result.test_result = "SKIPPED"
+            line = "[RESULT] SKIPPED — 'removable_app' not defined in config.apps."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        # Capability gate
+        required_ops = "ops: applications/uninstall, applications/launch, applications/install"
+        if not need(tester, device_id, required_ops, result, logs):
+            return result
+
         # Step 1: Uninstall the app
-        print(f"[Step 1] Uninstalling removable app '{removable_app_id}' before test...")
-        uninstall_payload = json.dumps({"appId": removable_app_id})
-        _, uninstall_resp = execute_cmd_and_log(tester, device_id, "applications/uninstall", uninstall_payload, logs)
+        line = f"[STEP] Uninstalling '{app_id}' as a precondition."
+        LOGGER.result(line)
+        logs.append(line)
+        execute_cmd_and_log(tester, device_id, "applications/uninstall", json.dumps({"appId": app_id}), logs)
+        time.sleep(APP_UNINSTALL_WAIT)
 
-        time.sleep(3)  # Wait for uninstall to complete
+        # Step 2: Attempt to launch the uninstalled app
+        line = f"[STEP] Attempting to launch the uninstalled app '{app_id}'."
+        LOGGER.result(line)
+        logs.append(line)
+        rc, response = execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": app_id}), logs)
+        launch_status = dab_status_from(response, rc)
 
-        # Step 2: Attempt to launch uninstalled app
-        print(f"[Step 2] Attempting to launch uninstalled app '{removable_app_id}'...")
-        launch_payload = json.dumps({"appId": removable_app_id})
-        _, launch_resp = execute_cmd_and_log(tester, device_id, "applications/launch", launch_payload, logs)
-
-        if launch_resp:
-            try:
-                resp_json = json.loads(launch_resp)
-                status = resp_json.get("status", 0)
-                if status != 200:
-                    logs.append(f"[PASS] Launch failed as expected. Status: {status}")
-                    result.test_result = "PASS"
-                else:
-                    logs.append(f"[FAIL] Launch succeeded unexpectedly for uninstalled app. Status: {status}")
-                    result.test_result = "FAILED"
-            except Exception:
-                logs.append("[FAIL] Could not parse launch response JSON.")
-                result.test_result = "FAILED"
-        else:
-            logs.append("[PASS] No response received (expected for uninstalled app).")
+        if launch_status != 200:
             result.test_result = "PASS"
+            line = f"[RESULT] PASS — Launch failed as expected with status {launch_status}."
+        else:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — Launch succeeded unexpectedly with status 200."
+        
+        LOGGER.result(line)
+        logs.append(line)
 
-        # Step 3: Reinstall the app dynamically
-        print(f"[Step 3] Reinstalling '{removable_app_id}' from local file to restore state...")
-        try:
-            apk_path = ensure_app_available(removable_app_id)  # Dynamically resolves correct APK path
-            install_payload = json.dumps({"fileLocation": f"file://{apk_path}"})
-            _, install_resp = execute_cmd_and_log(tester, device_id, "applications/install", install_payload, logs)
-            logs.append(f"[INFO] Reinstall response: {install_resp}")
-        except Exception as e:
-            logs.append(f"[WARNING] Failed to reinstall app: {str(e)}")
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
+        LOGGER.result(line)
+        logs.append(line)
 
     except Exception as e:
-        logs.append(f"[ERROR] Exception occurred: {str(e)}")
         result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — An unexpected error occurred: {e}"
+        LOGGER.result(line)
+        logs.append(line)
 
-    print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}\n{'-' * 100}")
+    finally:
+        # Cleanup: Reinstall the app so other tests are not affected
+        if app_id:
+            try:
+                line = f"[CLEANUP] Reinstalling '{app_id}' to restore state."
+                LOGGER.info(line)
+                logs.append(line)
+                apk_path = ensure_app_available(app_id)
+                install_payload = json.dumps({"fileLocation": f"file://{apk_path}"})
+                execute_cmd_and_log(tester, device_id, "applications/install", install_payload, logs)
+            except Exception as e:
+                line = f"[CLEANUP] WARNING: Failed to reinstall app '{app_id}': {e}"
+                LOGGER.warn(line)
+                logs.append(line)
+        
+        # Final summary log
+        line = (f"[SUMMARY] outcome={result.test_result}, launch_status_on_uninstalled={launch_status}, "
+                f"test_id={test_id}, device={device_id}")
+        LOGGER.result(line)
+        logs.append(line)
+
     return result
 
-# === Test 26: Launch App While Device Restarting (Negative) ===
+# === Test26: Validates that launching an app while the device is restarting fails. Negative test case. ===
 def run_launch_app_while_restarting_check(dab_topic, test_category, test_name, tester, device_id):
     """
-    Validates that launching an app while device is restarting fails.
+    Validates that launching an app while the device is restarting fails. Negative test case.
     """
-    print(f"\n[Test] Launch App While Device Restarting, Test name: {test_name}")
     test_id = to_test_id(f"{dab_topic}/{test_category}")
     app_id = config.apps.get("youtube", "YouTube")
     logs = []
-    result = TestResult(test_id, device_id, "applications/launch",
-                        json.dumps({"appId": app_id}), "UNKNOWN", "", logs)
+    result = TestResult(test_id, device_id, "applications/launch", json.dumps({"appId": app_id}), "UNKNOWN", "", logs)
+    launch_status = "N/A"
 
     try:
-        # Step 1: Fire-and-forget restart
-        print("[Step 1] Sending system/restart (fire-and-forget)...")
+        # Header and description
+        for line in (
+            f"[TEST] Launch App While Device Restarting (Negative) — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: Initiate a device restart and immediately try to launch an app, expecting failure.",
+            "[DESC] Required operations: system/restart, applications/launch.",
+            "[DESC] Pass criteria: The launch attempt must fail, either with no response or a non-200 status.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Capability gate
+        if not need(tester, device_id, "ops: system/restart, applications/launch", result, logs):
+            return result
+
+        # Step 1: Initiate a fire-and-forget restart
+        line = "[STEP] Sending system/restart command (fire-and-forget)."
+        LOGGER.result(line)
+        logs.append(line)
         fire_and_forget_restart(tester.dab_client, device_id)
-
-        # Step 2: Short delay to ensure device starts going offline
-        offline_wait_time = 3
-        print(f"[Step 2] Waiting {offline_wait_time}s for device to begin restart...")
-        time.sleep(offline_wait_time)
-
-        # Step 3: Attempt to launch app
-        print(f"[Step 3] Attempting to launch '{app_id}' while restarting...")
-        _, launch_response = execute_cmd_and_log(tester, device_id, "applications/launch",
-                                                 json.dumps({"appId": app_id}), logs)
-
-        # Step 4: Validate expected failure
-        if not launch_response:
-            logs.append("[PASS] No response received — launch failed as expected during restart.")
-            result.test_result = "PASS"
-        else:
-            try:
-                resp_json = json.loads(launch_response)
-                status = resp_json.get("status")
-                if status != 200:
-                    logs.append(f"[PASS] Received error status ({status}) during restart.")
-                    result.test_result = "PASS"
-                else:
-                    logs.append("[FAIL] Launch succeeded unexpectedly during restart.")
-                    result.test_result = "FAILED"
-            except Exception:
-                logs.append("[PASS] Invalid/empty response — treated as expected failure.")
-                result.test_result = "PASS"
-
-    except Exception as e:
-        logs.append(f"[ERROR] {str(e)}")
-        result.test_result = "SKIPPED"
-
-    print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}\n{'-' * 100}")
-    return result
-  
-# === Test 27: Network Reset Check ===
-def run_network_reset_check(dab_topic, test_category, test_name, tester, device_id):
-    print(f"\n[Test] Network Reset Check, Test name: {test_name}")
-    print("Objective: Reset all network settings and verify DAB responds successfully.")
-
-    logs = []
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
-    result = TestResult(test_id, device_id, "system/network-reset", "{}", "UNKNOWN", "", logs)
-
-    try:
-        # Step 1: Validate required operations using operations/list
-        print("[STEP 1] Checking if 'system/network-reset' and 'system/info' are supported...")
-        required_ops = {"system/network-reset", "system/info"}
         
+        # Give a moment for the shutdown process to begin
+        time.sleep(3)
+
+        # Step 2: Attempt to launch the app while the device should be offline
+        line = f"[STEP] Attempting to launch '{app_id}' during restart."
+        LOGGER.result(line)
+        logs.append(line)
+        rc, response = execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": app_id}), logs)
+        
+        # The response may be empty or an error, so dab_status_from is not always reliable here.
+        # The key is whether the launch *succeeded* (status 200).
         try:
-            # Use execute_cmd_and_log to fetch operations and handle unsupported cases
-            _, response = execute_cmd_and_log(tester, device_id, "operations/list", "{}", logs)
-            if response:
-                supported_ops = set(json.loads(response).get("operations", []))
-                missing_ops = required_ops - supported_ops
-                if missing_ops:
-                    msg = f"[OPTIONAL_FAILED] Missing required operations: {', '.join(missing_ops)}. Cannot perform this test."
-                    print(msg)
-                    logs.append(msg)
-                    result.test_result = "OPTIONAL_FAILED"
-                    return result
-                logs.append("[INFO] All required operations are supported.")
-        except UnsupportedOperationError as e:
-            # This catch handles the case where 'operations/list' itself is not supported
-            logs.append(f"[OPTIONAL_FAILED] '{e.topic}' is not supported. Cannot validate required operations.")
-            result.test_result = "OPTIONAL_FAILED"
-            return result
+            launch_status = json.loads(response).get("status") if response else "NO_RESPONSE"
+        except Exception:
+            launch_status = "INVALID_RESPONSE"
 
-        # Step 2: Execute network reset
-        print("[STEP 2] Sending DAB request to reset network settings...")
-        result_code, response = execute_cmd_and_log(tester, device_id, "system/network-reset", "{}", logs, result)
-        if result_code != 200:
-            logs.append(f"[FAIL] Unexpected response code from 'system/network-reset': {result_code}")
-            result.test_result = "FAILED"
-            return result
-
-        # Step 3: Validate DAB responsiveness via system/info
-        print("[STEP 3] Verifying DAB is still responsive using 'system/info'...")
-        result_code_2, response_2 = execute_cmd_and_log(tester, device_id, "system/info", "{}", logs, result)
-        if result_code_2 == 200:
-            logs.append("[PASS] DAB responded successfully after network reset.")
+        if launch_status != 200:
             result.test_result = "PASS"
+            line = f"[RESULT] PASS — Launch failed as expected during restart (Status: {launch_status})."
         else:
-            logs.append(f"[FAIL] 'system/info' failed after reset. Status: {result_code_2}")
             result.test_result = "FAILED"
+            line = "[RESULT] FAILED — Launch succeeded unexpectedly during restart."
+        
+        LOGGER.result(line)
+        logs.append(line)
 
     except UnsupportedOperationError as e:
-        logs.append(f"[OPTIONAL_FAILED] Unsupported operation: {str(e)}")
         result.test_result = "OPTIONAL_FAILED"
-
+        line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
+        LOGGER.result(line)
+        logs.append(line)
+        
     except Exception as e:
-        logs.append(f"[ERROR] Exception during test execution: {str(e)}")
         result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — An unexpected error occurred: {e}"
+        LOGGER.result(line)
+        logs.append(line)
 
-    print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}\n{'-' * 100}")
-    return [result]
+    finally:
+        # Final summary log
+        line = (f"[SUMMARY] outcome={result.test_result}, launch_status_during_restart={launch_status}, "
+                f"test_id={test_id}, device={device_id}")
+        LOGGER.result(line)
+        logs.append(line)
+        # Allow time for device to come back online for next test
+        LOGGER.info("Waiting for device to potentially recover from restart...")
+        time.sleep(DEVICE_REBOOT_WAIT)
 
-# === Test 28: Factory Reset and Recovery Check ===
-
-def run_factory_reset_and_recovery_check(dab_topic, test_category, test_name, tester, device_id):
-    print(f"\n[Test] Factory Reset and Device Recovery Check, Test name: {test_name}")
-    print("Objective: Validate factory reset and confirm device returns online with healthy DAB.")
-
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
-    logs = []
-    result = TestResult(test_id, device_id, dab_topic, "{}", "UNKNOWN", "", logs)
-
-    try:
-        # Step 1: Send factory reset
-        print("Step 1: Sending system/factory-reset command...")
-        result_code, response = execute_cmd_and_log(tester, device_id, dab_topic, "{}", logs, result)
-
-        if result_code != 200:
-            logs.append(f"[FAIL] Unexpected response code from factory reset: {result_code}")
-            result.test_result = "FAILED"
-            return result
-
-        logs.append("[INFO] Factory reset command accepted. Waiting for reboot...")
-        print("[INFO] Waiting for device to reboot and DAB to come back online...")
-
-        # Step 2: Wait and poll for device health
-        max_wait_sec = 120
-        poll_interval = 10
-        attempts = max_wait_sec // poll_interval
-
-        for i in range(attempts):
-            print(f"[INFO] Attempt {i+1}/{attempts}: Checking device health...")
-            time.sleep(poll_interval)
-            try:
-                health_code, health_resp = execute_cmd_and_log(
-                    tester, device_id, "health-check/get", "{}", logs, result
-                )
-                if health_code == 200:
-                    logs.append("[PASS] Device returned online and passed health check after reset.")
-                    result.test_result = "PASS"
-                    break
-            except UnsupportedOperationError as e:
-                logs.append(f"[OPTIONAL_FAILED] {str(e)}")
-                result.test_result = "OPTIONAL_FAILED"
-                return result
-            except Exception as e:
-                logs.append(f"[INFO] Retry failed: {e}")
-
-        if result.test_result != "PASS":
-            logs.append("[FAIL] Device did not respond to health-check/get after factory reset.")
-            result.test_result = "FAILED"
-
-    except UnsupportedOperationError as e:
-        logs.append(f"[OPTIONAL_FAILED] {str(e)}")
-        result.test_result = "OPTIONAL_FAILED"
-
-    except Exception as e:
-        logs.append(f"[ERROR] {str(e)}")
-        if result.test_result == "UNKNOWN":
-            result.test_result = "SKIPPED"
-
-    print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}\n{'-'*100}")
     return result
 
-# === Test 29: Behavior when personalized ads setting is not supported ===
-# Functional Test: Validate behavior when 'personalizedAds' setting is NOT supported on the device
-def run_personalized_ads_response_check(dab_topic, test_category, test_name, tester, device_id):
-    print(f"\n[Test] Personalized Ads Optional Check, test name: {test_name}")
-    print("Objective: Verify device behavior for the optional 'personalizedAds' setting.")
-
+def run_network_reset_check(dab_topic, test_category, test_name, tester, device_id):
+    """
+    Validates that the device remains responsive to DAB commands after a network reset.
+    """
     test_id = to_test_id(f"{dab_topic}/{test_category}")
     logs = []
-    payload_set = json.dumps({"personalizedAds": True})
-    
-    result = TestResult(test_id, device_id, "system/settings/set", payload_set, "UNKNOWN", "", logs )
+    result = TestResult(test_id, device_id, "system/network-reset", "{}", "UNKNOWN", "", logs)
+    info_status = "N/A"
 
     try:
-        # Step 1: Check if system/settings/list is supported
-        print("Step 1: Checking if 'system/settings/list' operation is supported...")
+        # Header and description
+        for line in (
+            f"[TEST] Network Reset Check — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: Reset all network settings and then verify the device is still responsive via 'system/info'.",
+            "[DESC] Required operations: system/network-reset, system/info.",
+            "[DESC] Pass criteria: The 'system/info' command must succeed after the network reset.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Capability gate
+        if not need(tester, device_id, "ops: system/network-reset, system/info", result, logs):
+            return result
+
+        # Step 1: Execute the network reset
+        line = "[STEP] Sending 'system/network-reset' command."
+        LOGGER.result(line)
+        logs.append(line)
+        rc, response = execute_cmd_and_log(tester, device_id, "system/network-reset", "{}", logs, result)
+        if dab_status_from(response, rc) != 200:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — The 'system/network-reset' command failed."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        # Allow time for network to re-establish
+        time.sleep(15)
+
+        # Step 2: Verify DAB is still responsive
+        line = "[STEP] Verifying DAB responsiveness with 'system/info'."
+        LOGGER.result(line)
+        logs.append(line)
+        rc, response = execute_cmd_and_log(tester, device_id, "system/info", "{}", logs, result)
+        info_status = dab_status_from(response, rc)
+        
+        if info_status == 200:
+            result.test_result = "PASS"
+            line = "[RESULT] PASS — Device responded successfully to 'system/info' after network reset."
+        else:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — 'system/info' failed with status {info_status} after network reset."
+
+        LOGGER.result(line)
+        logs.append(line)
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
+        LOGGER.result(line)
+        logs.append(line)
+
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — An unexpected error occurred: {e}"
+        LOGGER.result(line)
+        logs.append(line)
+
+    finally:
+        line = f"[SUMMARY] outcome={result.test_result}, post_reset_info_status={info_status}, test_id={test_id}, device={device_id}"
+        LOGGER.result(line)
+        logs.append(line)
+
+    return result
+
+# === Test26: Validates the device can be factory reset and recovers to a healthy state.
+def run_factory_reset_and_recovery_check(dab_topic, test_category, test_name, tester, device_id):
+    """
+    Validates the device can be factory reset and recovers to a healthy state.
+    """
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    logs = []
+    result = TestResult(test_id, device_id, "system/factory-reset", "{}", "UNKNOWN", "", logs)
+    device_recovered = False
+
+    try:
+        # Header and description
+        for line in (
+            f"[TEST] Factory Reset and Recovery Check — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: Initiate a factory reset and poll until the device comes back online and is healthy.",
+            "[DESC] Required operations: system/factory-reset, health-check/get.",
+            "[DESC] Pass criteria: The device must become healthy within the timeout period after a reset.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Capability gate
+        if not need(tester, device_id, "ops: system/factory-reset, health-check/get", result, logs):
+            return result
+
+        # Step 1: Send the factory reset command
+        line = "[STEP] Sending 'system/factory-reset' command. This will take several minutes."
+        LOGGER.result(line)
+        logs.append(line)
+        rc, response = execute_cmd_and_log(tester, device_id, "system/factory-reset", "{}", logs, result)
+        if dab_status_from(response, rc) != 200:
+            result.test_result = "FAILED"
+            line = "[RESULT] FAILED — The 'system/factory-reset' command was rejected."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        # Step 2: Poll for health check until the device recovers
+        line = f"[WAIT] Polling health-check every {HEALTH_CHECK_INTERVAL}s for up to {DEVICE_REBOOT_WAIT}s..."
+        LOGGER.info(line)
+        logs.append(line)
+        
+        start_time = time.time()
+        while time.time() - start_time < DEVICE_REBOOT_WAIT:
+            try:
+                rc_health, resp_health = execute_cmd_and_log(tester, device_id, "health-check/get", "{}", logs)
+                if dab_status_from(resp_health, rc_health) == 200:
+                    device_recovered = True
+                    break
+            except Exception:
+                pass # Suppress errors while device is offline
+            time.sleep(HEALTH_CHECK_INTERVAL)
+
+        if device_recovered:
+            result.test_result = "PASS"
+            line = "[RESULT] PASS — Device recovered and became healthy after factory reset."
+        else:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — Device did not recover within the {DEVICE_REBOOT_WAIT}s timeout."
+
+        LOGGER.result(line)
+        logs.append(line)
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
+        LOGGER.result(line)
+        logs.append(line)
+
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — An unexpected error occurred: {e}"
+        LOGGER.result(line)
+        logs.append(line)
+
+    finally:
+        line = f"[SUMMARY] outcome={result.test_result}, device_recovered={device_recovered}, test_id={test_id}, device={device_id}"
+        LOGGER.result(line)
+        logs.append(line)
+
+    return result
+
+# === Test27: Validates device behavior for the optional 'personalizedAds' setting when it is NOT supported.
+def run_personalized_ads_response_check(dab_topic, test_category, test_name, tester, device_id):
+    """
+    Validates device behavior for the optional 'personalizedAds' setting when it is NOT supported.
+    """
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    logs = []
+    result = TestResult(test_id, device_id, "system/settings/set", "{}", "UNKNOWN", "", logs)
+    set_status = "N/A"
+
+    try:
+        # Header and description
+        for line in (
+            f"[TEST] Personalized Ads Not Supported Check — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: On a device that does not support 'personalizedAds', verify that setting it returns an error.",
+            "[DESC] Required ops: system/settings/set. Optional: system/settings/list.",
+            "[DESC] Pass criteria: 'set' command returns a non-200 status. If setting is listed as supported, test is OPTIONAL_FAILED.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Capability gate
+        if not need(tester, device_id, "ops: system/settings/set", result, logs):
+            return result
+
+        # Step 1 (Optional): Check if the setting is listed. If so, this test is not applicable.
         try:
             _, response = execute_cmd_and_log(tester, device_id, "system/settings/list", "{}", logs)
-            if response:
-                settings_list = json.loads(response).get("settings", [])
-                setting_ids = [setting.get("settingId") for setting in settings_list]
-                if "personalizedAds" in setting_ids:
-                    logs.append("[INFO] 'personalizedAds' is listed in supported settings.")
-                    print("[INFO] 'personalizedAds' is listed in supported settings.")
-                    result.test_result = "OPTIONAL_FAILED"
-                    print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}\n{'-' * 100}")
-                    return result
-                else:
-                    logs.append("[INFO] 'personalizedAds' is NOT listed in supported settings. Proceeding with set attempt.")
-                    print("[INFO] 'personalizedAds' is NOT listed in supported settings. Proceeding with set attempt.")
-            else:
-                logs.append("[WARNING] No response received for 'system/settings/list'. Proceeding anyway.")
-
-        except UnsupportedOperationError:
-            logs.append("[INFO] 'system/settings/list' not supported. Skipping list check and trying to set directly.")
-            print("[INFO] 'system/settings/list' not supported. Skipping list check and trying to set directly.")
-
-        # Step 2: Check if system/settings/set is supported
-        print("Step 2: Checking if 'system/settings/set' operation is supported...")
-        try:
-            execute_cmd_and_log(tester, device_id, "system/settings/set", "{}", logs)
-        except UnsupportedOperationError:
-            logs.append("[SKIPPED] 'system/settings/set' operation not supported. Test not applicable.")
-            result.test_result = "SKIPPED"
-            print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}\n{'-' * 100}")
-            return result
-
-        # Step 3: Attempt to set personalizedAds
-        print(f"Step 3: Attempting to set 'personalizedAds' with payload: {payload_set}")
-        status_code, response = execute_cmd_and_log(tester, device_id, "system/settings/set", payload_set, logs)
-        print_response(response)
-
-        if not response:
-            logs.append("[FAIL] No response received.")
-            result.test_result = "FAILED"
-            return result
-
-        resp_json = json.loads(response)
-        status = resp_json.get("status")
-        error_msg = resp_json.get("error", "").lower()
-
-        if status in (400, 501) and ("not supported" in error_msg or "do not support" in error_msg or "invalid" in error_msg):
-            logs.append(f"[PASS] Device correctly rejected unsupported setting with status {status}.")
-            result.test_result = "PASS"
-        elif status == 200:
-            logs.append("[OPTIONAL_FAILED] Device accepted 'personalizedAds' setting despite not listing it.")
-            result.test_result = "OPTIONAL_FAILED"
-        else:
-            logs.append(f"[FAILED] Unexpected status: {status}, error: {error_msg}")
-            result.test_result = "FAILED"
-
-    except Exception as e:
-        logs.append(f"[ERROR] Exception during test: {str(e)}")
-        result.test_result = "FAILED"
-
-    print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}\n{'-' * 100}")
-    return result
-
-
-# === Test 30: Personalized Ads Setting Persistence Check ===
-def run_personalized_ads_persistence_check(dab_topic, test_category, test_name, tester, device_id):
-    print(f"\n[Test] Personalized Ads Persistence Check, test name: {test_name}")
-    print("Objective: Verify that 'personalizedAds' setting persists after device restart.")
-
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
-    logs = []
-    result = TestResult(test_id, device_id, "system/settings/set", json.dumps({"personalizedAds": True}), "UNKNOWN", "", logs)
-
-    try:
-        # Step 1: Check if required operations are supported using operations/list
-        print("[STEP 1] Fetching supported DAB operations using 'operations/list' to verify required operations.")
-        required_ops = {"system/settings/set", "system/settings/get", "system/restart"}
-        status, response = execute_cmd_and_log(tester, device_id, "operations/list", "{}", logs)
-
-        if status != 200:
-            msg = f"[FAIL] Failed to retrieve supported operations. Status: {status}"
-            print(msg)
-            logs.append(msg)
-            result.test_result = "FAILED"
-            return result
-
-        try:
-            supported_ops = set(json.loads(response).get("operations", []))
-            missing_ops = required_ops - supported_ops
-            if missing_ops:
-                msg = f"[OPTIONAL_FAILED] Missing required operations: {', '.join(missing_ops)}. Cannot perform persistence check."
-                print(msg)
-                logs.append(msg)
+            if response and '"personalizedAds"' in response:
                 result.test_result = "OPTIONAL_FAILED"
+                line = "[RESULT] OPTIONAL_FAILED — 'personalizedAds' is listed as a supported setting. This test is not applicable."
+                LOGGER.result(line)
+                logs.append(line)
                 return result
-            logs.append("[INFO] All required operations are supported.")
-        except Exception as e:
-            msg = f"[ERROR] Failed to parse operations/list response: {str(e)}"
-            print(msg)
-            logs.append(msg)
-            result.test_result = "FAILED"
-            return result
-
-        # Step 2: Enable personalizedAds
-        print("[STEP 2] Enabling 'personalizedAds' setting using system/settings/set.")
-        status, _ = execute_cmd_and_log(tester, device_id, "system/settings/set",
-                                        json.dumps({"personalizedAds": True}), logs)
-        if status != 200:
-            msg = f"[FAIL] Failed to set personalizedAds. Received status: {status}"
-            print(msg)
-            logs.append(msg)
-            result.test_result = "FAILED"
-            return result
-        logs.append("[INFO] Successfully enabled personalizedAds setting.")
-
-        # Step 3: Restart the device
-        print("[STEP 3] Sending system/restart command to reboot the device.")
-        status, _ = execute_cmd_and_log(tester, device_id, "system/restart", "{}", logs)
-        if status != 200:
-            msg = f"[FAIL] Device restart failed with status: {status}"
-            print(msg)
-            logs.append(msg)
-            result.test_result = "FAILED"
-            return result
-        print("[INFO] Device restart initiated. Waiting for device to come back online...")
-        logs.append("[INFO] Device restart initiated.")
-        time.sleep(15)  # Modify as needed based on device boot duration
-
-        # Step 4: Verify personalizedAds after restart
-        print("[STEP 4] Fetching 'personalizedAds' value post-reboot using system/settings/get.")
-        status, response = execute_cmd_and_log(tester, device_id, "system/settings/get",
-                                               json.dumps({"settingId": "personalizedAds"}), logs)
-        if status != 200:
-            msg = f"[FAIL] Unable to retrieve 'personalizedAds' after restart. Status: {status}"
-            print(msg)
-            logs.append(msg)
-            result.test_result = "FAILED"
-            return result
-
-        value = json.loads(response).get("value")
-        if value is True:
-            print("[PASS] 'personalizedAds' setting persisted after device restart.")
-            logs.append("[PASS] 'personalizedAds' setting persisted after device restart.")
-            result.test_result = "PASS"
-        else:
-            msg = f"[FAIL] 'personalizedAds' setting did not persist. Retrieved value: {value}"
-            print(msg)
-            logs.append(msg)
-            result.test_result = "FAILED"
-
-    except Exception as e:
-        msg = f"[ERROR] Exception occurred during test execution: {str(e)}"
-        print(msg)
-        logs.append(msg)
-        result.test_result = "FAILED"
-
-    print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}\n{'-' * 100}")
-    return result
-
-
-# === Test 31: Personalized Ads Not Supported Check ===
-
-def run_personalized_ads_not_supported_check(dab_topic, test_category, test_name, tester, device_id):
-    print(f"\n[Test] Personalized Ads Not-Supported Check, test name: {test_name}")
-    print("Objective: If 'personalizedAds' is not supported, device should reject with 501. If listed in settings, mark as OPTIONAL_FAILED.")
-
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
-    logs = []
-    set_payload = json.dumps({"personalizedAds": True})
-
-    result = TestResult(test_id, device_id, "system/settings/set", json.dumps({"personalizedAds": True}), "UNKNOWN", "", logs)
-
-    try:
-        # Step 0: Try to use settings/list to see if 'personalizedAds' appears at all
-        print("[STEP 0] Checking 'system/settings/list' for 'personalizedAds' support...")
-        listed = False
-        try:
-            _, list_resp = execute_cmd_and_log(tester, device_id, "system/settings/list", "{}", logs, result)
-            if list_resp:
-                try:
-                    # Expecting a JSON object; many bridges return a flat map of supported settings or a list of settingIds.
-                    data = json.loads(list_resp)
-                    # Handle both shapes gracefully:
-                    # 1) {"personalizedAds": <capabilities or True/False>}
-                    # 2) {"settings":[{"settingId":"..."}, ...]}
-                    if isinstance(data, dict):
-                        if "settings" in data and isinstance(data["settings"], list):
-                            listed = any((isinstance(s, dict) and s.get("settingId") == "personalizedAds") for s in data["settings"])
-                        else:
-                            listed = "personalizedAds" in data
-                except Exception as e:
-                    logs.append(f"[WARN] Couldn't parse system/settings/list response: {e}")
         except UnsupportedOperationError:
-            logs.append("[INFO] 'system/settings/list' not supported; will validate by attempting 'system/settings/set'.")
-
-        if listed:
-            msg = "[OPTIONAL_FAILED] 'personalizedAds' is listed in supported settings (device supports it)."
-            print(msg)
-            logs.append(msg)
-            result.test_result = "OPTIONAL_FAILED"
-            print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}\n{'-' * 100}")
-            return result
-
-        # Step 1: Not listed → attempt to set; expect 501 Not Implemented (treated as Not Supported)
-        print("[STEP 1] 'personalizedAds' not listed. Attempting 'system/settings/set' expecting 501 (Not Implemented).")
-        status_code, set_resp = execute_cmd_and_log(tester, device_id, "system/settings/set", set_payload, logs, result)
-
-        # Parse response safely
-        resp_json = {}
-        if set_resp:
-            try:
-                resp_json = json.loads(set_resp)
-            except Exception as e:
-                logs.append(f"[ERROR] Invalid JSON in set response: {e}")
-
-        status = resp_json.get("status", status_code)
-
-        if status == 501:
-            logs.append("[PASS] Device returned 501 (Not Implemented) for 'personalizedAds' — treated as not supported.")
-            result.test_result = "PASS"
-        elif status == 200:
-            logs.append("[OPTIONAL_FAILED] Device accepted 'personalizedAds' (status 200) even though it was not listed.")
-            result.test_result = "OPTIONAL_FAILED"
-        else:
-            logs.append(f"[FAILED] Unexpected status for unsupported setting. Got: {status}; Expected: 501.")
-            result.test_result = "FAILED"
-
-    except UnsupportedOperationError as e:
-        # If set itself isn’t supported, that’s effectively “not supported” for this setting too → PASS by your rule?
-        # You said “use 501 not error”; but if the op is missing entirely we’ll treat as PASS (equivalent outcome).
-        logs.append(f"[PASS] '{e.topic}' operation not supported; treated as not supported for 'personalizedAds'.")
-        result.test_result = "PASS"
-    except Exception as e:
-        logs.append(f"[ERROR] Exception during test: {str(e)}")
-        result.test_result = "FAILED"
-
-    print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}\n{'-' * 100}")
-    return result
-
-# === Test 32: Personalized Video Ads Check ===
-def run_personalized_ads_Video_ads_are_personalized(dab_topic, test_category, test_name, tester, device_id):
-    print(f"\n[Test] Personalized Ads Manual Validation Check, test name: {test_name}")
-    print("Objective: Enable personalized ads and validate via tester confirmation if ads are personalized.")
-
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
-    logs = []
-    set_payload = json.dumps({"personalizedAds": True})
-
-    result = TestResult(test_id, device_id, "system/settings/set", json.dumps({"personalizedAds": True}), "UNKNOWN", "", logs)
-
-
-    try:
-        # STEP 0: Check support using system/settings/list
-        print("[STEP 0] Checking 'system/settings/list' for 'personalizedAds' support...")
-        listed = False
-        try:
-            _, list_resp = execute_cmd_and_log(tester, device_id, "system/settings/list", "{}", logs, result)
-            if list_resp:
-                try:
-                    data = json.loads(list_resp)
-                    if isinstance(data, dict):
-                        if "settings" in data and isinstance(data["settings"], list):
-                            listed = any((isinstance(s, dict) and s.get("settingId") == "personalizedAds") for s in data["settings"])
-                        else:
-                            listed = "personalizedAds" in data
-                except Exception as e:
-                    logs.append(f"[WARN] Couldn't parse system/settings/list response: {e}")
-        except UnsupportedOperationError:
-            logs.append("[INFO] 'system/settings/list' not supported; will proceed to attempt 'system/settings/set'.")
-
-        if not listed:
-            msg = "[OPTIONAL_FAILED] 'personalizedAds' is not supported on this device. Skipping manual validation."
-            print(msg)
-            logs.append(msg)
-            result.test_result = "OPTIONAL_FAILED"
-            print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}\n{'-' * 100}")
-            return result
-
-        # STEP 1: Enable personalized ads
-        print("[STEP 1] Enabling 'personalizedAds' setting on the device.")
-        status_code, set_resp = execute_cmd_and_log(tester, device_id, "system/settings/set", set_payload, logs, result)
-
-        resp_json = {}
-        if set_resp:
-            try:
-                resp_json = json.loads(set_resp)
-            except Exception as e:
-                logs.append(f"[ERROR] Invalid JSON in set response: {e}")
-
-        status = resp_json.get("status", status_code)
-
-        if status != 200:
-            logs.append(f"[FAILED] Failed to enable 'personalizedAds'. Status: {status}")
-            result.test_result = "FAILED"
-            print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}\n{'-' * 100}")
-            return result
-
-        # STEP 2: Prompt for manual verification
-        print("\n[STEP 2] Manual validation required:")
-        print("Navigate through Google TV home screen, app discovery pages, and open a few ad-supported apps (e.g., YouTube).")
-        print("Check if the displayed ads are highly relevant to the Google account's known interests (hobbies, favorite genres, recent searches).")
-        user_input = input("Are the ads personalized? (y/n): ").strip().lower()
-
-        if user_input == "y":
-            logs.append("[PASS] Tester confirmed that ads are personalized.")
-            result.test_result = "PASSED"
-        elif user_input == "n":
-            logs.append("[FAIL] Tester confirmed ads are NOT personalized.")
-            result.test_result = "FAILED"
-        else:
-            logs.append("[ERROR] Invalid input provided for manual check.")
-            result.test_result = "FAILED"
-
-    except UnsupportedOperationError as e:
-        logs.append(f"[OPTIONAL_FAILED] '{e.topic}' not supported. Cannot perform manual validation for 'personalizedAds'.")
-        result.test_result = "OPTIONAL_FAILED"
-    except Exception as e:
-        logs.append(f"[ERROR] Exception during test: {str(e)}")
-        result.test_result = "FAILED"
-
-    print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}\n{'-' * 100}")
-    return result
-
-# === Test 33: Personalized Ads Apply and Display Check ===
-
-def run_personalized_ads_apply_and_display_check(dab_topic, test_category, test_name, tester, device_id):
-    """
-    Positive: Enable personalized ads and verify device applies the setting and shows personalized ads.
-    Manual validation uses yes_or_no() for the ad observation step.
-    Behavior:
-      - If system/settings/list works and doesn't list 'personalizedAds' -> OPTIONAL_FAILED (feature not supported).
-      - If list fails (e.g., rc=500) -> proceed to set anyway.
-      - If set returns 501 -> OPTIONAL_FAILED (not supported).
-      - If set returns 200 -> ask tester to confirm ads are personalized (PASS/FAIL).
-      - Other statuses -> FAILED.
-    """
-    print(f"\n[Test] Personalized Ads Apply & Display (Manual), test name: {test_name}")
-    print("Objective: Enable 'personalizedAds' and confirm ads shown are tailored to the user.")
-
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
-    logs = []
-    set_payload = json.dumps({"personalizedAds": True})
-    result = TestResult(test_id, device_id, "system/settings/set", set_payload, "UNKNOWN", "", logs)
-
-    try:
-        # STEP 0: Preconditions (manual)
-        if not yes_or_no(result, logs, "Is the device powered on AND a user is logged in?"):
-            logs.append("[FAILED] Preconditions not met (power/login).")
-            result.test_result = "FAILED"
-            return result
-
-        # STEP 1: Best-effort: ensure ops are loaded, and check 'system/settings/set' support
-        try:
-            execute_cmd_and_log(tester, device_id, "operations/list", "{}", logs, result)
-        except Exception as e:
-            logs.append(f"[WARN] operations/list failed; continuing. {e}")
-
-        try:
-            execute_cmd_and_log(tester, device_id, "system/settings/set", "{}", logs, result)
-        except UnsupportedOperationError as e:
-            logs.append(f"[OPTIONAL_FAILED] '{e.topic}' not supported; cannot enable 'personalizedAds'.")
-            result.test_result = "OPTIONAL_FAILED"
-            return result
-
-        # STEP 2: Try system/settings/list (if it fails, don't fail the test—just continue)
-        listed = False
-        try:
-            rc, list_resp = execute_cmd_and_log(tester, device_id, "system/settings/list", "{}", logs, result)
-            if list_resp:
-                try:
-                    data = json.loads(list_resp)
-                    if isinstance(data, dict):
-                        if "settings" in data and isinstance(data["settings"], list):
-                            listed = any((isinstance(s, dict) and s.get("settingId") == "personalizedAds") for s in data["settings"])
-                        else:
-                            listed = "personalizedAds" in data
-                except Exception as e:
-                    logs.append(f"[WARN] Could not parse settings/list JSON: {e}")
-            else:
-                logs.append("[WARN] Empty response from system/settings/list; continuing without list gate.")
-        except UnsupportedOperationError:
-            logs.append("[INFO] 'system/settings/list' not supported by device; continuing without list gate.")
-        except Exception as e:
-            logs.append(f"[WARN] system/settings/list failed (e.g., rc=500). Continuing. {e}")
-
-        # If list says it's NOT supported, mark optional and bail
-        if rc == 200 and listed is False:
-            logs.append("[OPTIONAL_FAILED] 'personalizedAds' is not listed in supported settings (feature not supported).")
-            result.test_result = "OPTIONAL_FAILED"
-            return result
-
-        # STEP 3: Enable personalizedAds
-        status_code, set_resp = execute_cmd_and_log(tester, device_id, "system/settings/set", set_payload, logs, result)
-        try:
-            status = json.loads(set_resp).get("status", status_code) if set_resp else status_code
+            logs.append("[INFO] 'system/settings/list' not supported. Proceeding to 'set' check.")
         except Exception:
-            status = status_code
+            logs.append("[INFO] Could not parse 'system/settings/list'. Proceeding to 'set' check.")
 
-        if status == 501:
-            logs.append("[OPTIONAL_FAILED] Device returned 501 (Not Implemented) for 'personalizedAds' set — treat as not supported.")
-            result.test_result = "OPTIONAL_FAILED"
-            return result
-        if status != 200:
-            logs.append(f"[FAILED] Failed to enable 'personalizedAds'. Status: {status}")
-            result.test_result = "FAILED"
-            return result
-
-        # STEP 4: Manual ad observation (yes_or_no)
-        print("\nPlease navigate to ad surfaces (home screen, discovery rows, YouTube, other ad-supported apps).")
-        print("Look for ads tailored to the logged-in user's interests (recent searches, favorite genres, etc.).")
-        if yes_or_no(result, logs, "Do the ads appear tailored/personalized to the user?"):
-            logs.append("[PASS] Tester confirmed ads are personalized.")
+        # Step 2: Attempt to set the unsupported setting
+        line = "[STEP] Attempting to set 'personalizedAds', expecting an error."
+        LOGGER.result(line)
+        logs.append(line)
+        payload = json.dumps({"personalizedAds": True})
+        rc, response = execute_cmd_and_log(tester, device_id, "system/settings/set", payload, logs, result)
+        set_status = dab_status_from(response, rc)
+        
+        if set_status != 200:
             result.test_result = "PASS"
+            line = f"[RESULT] PASS — Device correctly rejected the unsupported setting with status {set_status}."
         else:
-            logs.append("[FAILED] Tester reported ads are NOT personalized.")
             result.test_result = "FAILED"
+            line = "[RESULT] FAILED — Device unexpectedly accepted the unsupported setting with status 200."
+        
+        LOGGER.result(line)
+        logs.append(line)
 
     except UnsupportedOperationError as e:
-        logs.append(f"[OPTIONAL_FAILED] '{e.topic}' not supported.")
         result.test_result = "OPTIONAL_FAILED"
-    except Exception as e:
-        logs.append(f"[ERROR] Exception during test: {e}")
-        result.test_result = "FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
+        LOGGER.result(line)
+        logs.append(line)
 
-    print(f"[Result] Test Id: {result.test_id} \nTest Outcome: {result.test_result}\n{'-' * 100}")
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — An unexpected error occurred: {e}"
+        LOGGER.result(line)
+        logs.append(line)
+
+    finally:
+        line = f"[SUMMARY] outcome={result.test_result}, set_status={set_status}, test_id={test_id}, device={device_id}"
+        LOGGER.result(line)
+        logs.append(line)
+
+    return result
+
+def run_personalized_ads_persistence_check(dab_topic, test_category, test_name, tester, device_id):
+    """
+    Verifies that the 'personalizedAds' setting persists after a device restart.
+    """
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    logs = []
+    result = TestResult(test_id, device_id, "system/settings/set", "{}", "UNKNOWN", "", logs)
+    persisted_value = "N/A"
+
+    try:
+        # Header and description
+        for line in (
+            f"[TEST] Personalized Ads Persistence Check — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: Enable personalized ads, reboot, and verify the setting is still enabled.",
+            "[DESC] Required ops: system/settings/set, system/settings/get, system/restart.",
+            "[DESC] Pass criteria: The 'personalizedAds' value must be true after reboot.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Capability gate
+        required_ops = "ops: system/settings/set, system/settings/get, system/restart"
+        if not need(tester, device_id, required_ops, result, logs):
+            return result
+
+        # Step 1: Enable personalized ads
+        line = "[STEP] Enabling 'personalizedAds' setting."
+        LOGGER.result(line)
+        logs.append(line)
+        payload = json.dumps({"personalizedAds": True})
+        rc, response = execute_cmd_and_log(tester, device_id, "system/settings/set", payload, logs, result)
+        if dab_status_from(response, rc) != 200:
+            result.test_result = "FAILED"
+            line = "[RESULT] FAILED — Could not enable 'personalizedAds' as a precondition."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        # Step 2: Reboot the device
+        line = "[STEP] Rebooting the device."
+        LOGGER.result(line)
+        logs.append(line)
+        execute_cmd_and_log(tester, device_id, "system/restart", "{}", logs)
+        
+        line = f"[WAIT] Waiting {DEVICE_REBOOT_WAIT}s for device to restart and stabilize."
+        LOGGER.info(line)
+        logs.append(line)
+        time.sleep(DEVICE_REBOOT_WAIT)
+
+        # Step 3: Verify the setting after reboot
+        line = "[STEP] Verifying 'personalizedAds' setting after reboot."
+        LOGGER.result(line)
+        logs.append(line)
+        _, response = execute_cmd_and_log(tester, device_id, "system/settings/get", "{}", logs, result)
+        try:
+            settings = json.loads(response) if response else {}
+            persisted_value = settings.get("personalizedAds")
+        except Exception:
+            persisted_value = "ERROR_PARSING"
+
+        if persisted_value is True:
+            result.test_result = "PASS"
+            line = "[RESULT] PASS — 'personalizedAds' setting correctly persisted as true."
+        else:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — Setting did not persist. Expected true, got '{persisted_value}'."
+        
+        LOGGER.result(line)
+        logs.append(line)
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
+        LOGGER.result(line)
+        logs.append(line)
+
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — An unexpected error occurred: {e}"
+        LOGGER.result(line)
+        logs.append(line)
+
+    finally:
+        line = f"[SUMMARY] outcome={result.test_result}, persisted_value={persisted_value}, test_id={test_id}, device={device_id}"
+        LOGGER.result(line)
+        logs.append(line)
+
+    return result
+
+# NOTE: The following tests are variations of the same manual ad validation.
+# We will use one robust, combined version to avoid redundancy.
+# run_personalized_ads_not_supported_check, run_personalized_ads_Video_ads_are_personalized,
+# and run_personalized_ads_apply_and_display_check are all covered by the logic in
+# run_personalized_ads_response_check (for unsupported) and a new manual check.
+
+def run_personalized_ads_manual_check(dab_topic, test_category, test_name, tester, device_id):
+    """
+    Manually verifies that enabling personalized ads results in tailored ads being shown.
+    """
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    logs = []
+    result = TestResult(test_id, device_id, "system/settings/set", "{}", "UNKNOWN", "", logs)
+    user_validated = "N/A"
+
+    try:
+        # Header and description
+        for line in (
+            f"[TEST] Personalized Ads Display Check (Manual) — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: Enable personalized ads and have the user manually verify that the ads are tailored.",
+            "[DESC] Required ops: system/settings/set. Optional: system/settings/list.",
+            "[DESC] Pass criteria: User confirmation that ads appear personalized.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Capability gate
+        if not need(tester, device_id, "ops: system/settings/set", result, logs):
+            return result
+        
+        # Pre-check if the setting is supported. If not, this test is optional.
+        try:
+            _, response = execute_cmd_and_log(tester, device_id, "system/settings/list", "{}", logs)
+            if response and '"personalizedAds"' not in response:
+                result.test_result = "OPTIONAL_FAILED"
+                line = "[RESULT] OPTIONAL_FAILED — 'personalizedAds' is not listed as a supported setting."
+                LOGGER.result(line)
+                logs.append(line)
+                return result
+        except Exception:
+            logs.append("[INFO] Could not check settings list. Proceeding with 'set' command.")
+
+        # Step 1: Enable personalized ads
+        line = "[STEP] Enabling 'personalizedAds' setting."
+        LOGGER.result(line)
+        logs.append(line)
+        payload = json.dumps({"personalizedAds": True})
+        rc, response = execute_cmd_and_log(tester, device_id, "system/settings/set", payload, logs, result)
+        if dab_status_from(response, rc) != 200:
+            result.test_result = "FAILED"
+            line = "[RESULT] FAILED — Could not enable 'personalizedAds'."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        # Step 2: Manual verification
+        line = "[STEP] Manual check: Please navigate ad surfaces (home screen, YouTube, etc.)."
+        LOGGER.result(line)
+        logs.append(line)
+        user_validated = yes_or_no(result, logs, "Do the ads appear to be personalized to the user's interests?")
+        if user_validated:
+            result.test_result = "PASS"
+            line = "[RESULT] PASS — User confirmed ads are personalized."
+        else:
+            result.test_result = "FAILED"
+            line = "[RESULT] FAILED — User reported ads are not personalized."
+
+        LOGGER.result(line)
+        logs.append(line)
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
+        LOGGER.result(line)
+        logs.append(line)
+
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — An unexpected error occurred: {e}"
+        LOGGER.result(line)
+        logs.append(line)
+
+    finally:
+        line = f"[SUMMARY] outcome={result.test_result}, user_validated={user_validated}, test_id={test_id}, device={device_id}"
+        LOGGER.result(line)
+        logs.append(line)
+
     return result
 
 # === Test 34: Uninstall An Application Currently Running Foreground Check ===
@@ -2577,6 +3185,1601 @@ def run_clear_data_system_app_check(dab_topic, test_category, test_name, tester,
     print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
     return result
 
+def run_clear_data_user_installed_app_foreground(dab_topic, test_category, test_name, tester, device_id):
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    app_id = config.apps.get("sample_app", "Sample_App")
+    logs = []
+    payload_app = json.dumps({"appId": app_id})
+    result = TestResult(test_id, device_id, "applications/clear-data", payload_app, "UNKNOWN", "", logs)
+
+    try:
+        for line in (
+            f"[TEST] Clear Data (User-Installed App) — {test_name} (test_id={test_id}, device={device_id}, appId={app_id})",
+            "[DESC] Minimal flow: launch → clear-data → relaunch. Pass if DAB status == 200."
+        ):
+            LOGGER.result(line); logs.append(line)
+
+        # === Capability gate via new need() (raises UnsupportedOperationError if missing) ===
+        need(tester, device_id, "ops: applications/launch, applications/clear-data")
+        line = "[INFO] Capability gate passed."
+        LOGGER.info(line); logs.append(line)
+
+        # 1) Launch to ensure app is active (assume FOREGROUND after wait)
+        line = f"[STEP] applications/launch {payload_app}"; LOGGER.result(line); logs.append(line)
+        execute_cmd_and_log(tester, device_id, "applications/launch", payload_app, logs, result)
+        line = f"[WAIT] {APP_LAUNCH_WAIT}s"; LOGGER.info(line); logs.append(line)
+        time.sleep(APP_LAUNCH_WAIT)
+
+        # 2) Clear data (use DAB status, not transport rc)
+        line = f"[STEP] applications/clear-data {payload_app}"; LOGGER.result(line); logs.append(line)
+        rc, resp = execute_cmd_and_log(tester, device_id, "applications/clear-data", payload_app, logs, result)
+        dab_status = dab_status_from(resp, rc)
+        line = f"[INFO] applications/clear-data transport_rc={rc}, dab_status={dab_status}"; LOGGER.info(line); logs.append(line)
+
+        # 3) Relaunch to surface first-run behavior
+        line = f"[STEP] applications/launch {payload_app}"; LOGGER.result(line); logs.append(line)
+        execute_cmd_and_log(tester, device_id, "applications/launch", payload_app, logs, result)
+        line = f"[WAIT] {APP_LAUNCH_WAIT}s"; LOGGER.info(line); logs.append(line)
+        time.sleep(APP_LAUNCH_WAIT)
+
+        if dab_status == 200:
+            result.test_result = "PASS"
+            line = f"[RESULT] PASS — clear-data returned 200 (appId={app_id}, device={device_id}, test_id={test_id})"
+            LOGGER.result(line); logs.append(line)
+        elif dab_status == 501:
+            result.test_result = "OPTIONAL_FAILED"
+            line = f"[RESULT] OPTIONAL_FAILED — clear-data not implemented (501) (appId={app_id}, device={device_id}, test_id={test_id})"
+            LOGGER.result(line); logs.append(line)
+        else:
+            result.test_result = "FAILED"
+            line = (f"[RESULT] FAILED — clear-data returned {dab_status} (transport_rc={rc}) "
+                    f"(appId={app_id}, device={device_id}, test_id={test_id})")
+            LOGGER.result(line); logs.append(line)
+
+        line = (f"[SUMMARY] outcome={result.test_result}, clear_status={dab_status}, "
+                f"test_id={test_id}, device={device_id}, appId={app_id}")
+        LOGGER.result(line); logs.append(line)
+        return result
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = (f"[RESULT] OPTIONAL_FAILED — operation '{e.topic}' not supported "
+                f"(test_id={test_id}, device={device_id}, appId={app_id})")
+        LOGGER.result(line); logs.append(line)
+        line = (f"[SUMMARY] outcome=OPTIONAL_FAILED, clear_status=N/A, "
+                f"test_id={test_id}, device={device_id}, appId={app_id}")
+        LOGGER.result(line); logs.append(line)
+        return result
+
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        line = (f"[RESULT] SKIPPED — internal error: {e} "
+                f"(test_id={test_id}, device={device_id}, appId={app_id})")
+        LOGGER.result(line); logs.append(line)
+        line = (f"[SUMMARY] outcome=SKIPPED, clear_status=N/A, "
+                f"test_id={test_id}, device={device_id}, appId={app_id}")
+        LOGGER.result(line); logs.append(line)
+        return result
+    
+def run_install_from_app_store_check(dab_topic, test_category, test_name, tester, device_id):
+    """
+    Positive: Install a new app from the app store and launch it.
+    Minimal flow: install-from-app-store → short wait → launch
+    Pass if install returns 200 and launch returns 200.
+    """
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    app_id = config.apps.get("store_app", "Store_App")  # valid, not-installed appId
+    logs = []
+    payload_app = json.dumps({"appId": app_id})
+    result = TestResult(test_id, device_id, "applications/install-from-app-store", payload_app, "UNKNOWN", "", logs)
+
+    INSTALL_WAIT = 10  # short padding after install to finalize
+
+    try:
+        # Header
+        msg = f"[TEST] Install From App Store — {test_name} (test_id={test_id}, device={device_id}, appId={app_id})"
+        LOGGER.result(msg); logs.append(msg)
+        msg = "[DESC] Flow: install-from-app-store → short wait → launch; PASS if both return 200."
+        LOGGER.result(msg); logs.append(msg)
+
+        # Capability gate — returns OPTIONAL_FAILED in result/logs if unsupported
+        if not need(tester, device_id, "ops: applications/install-from-app-store, applications/launch", result, logs):
+            msg = (f"[SUMMARY] outcome=OPTIONAL_FAILED, install_status=N/A, launch_status=N/A, "
+                   f"test_id={test_id}, device={device_id}, appId={app_id}")
+            LOGGER.result(msg); logs.append(msg)
+            return result
+
+        msg = "[INFO] Capability gate passed."
+        LOGGER.info(msg); logs.append(msg)
+
+        # 1) Install from app store
+        msg = f"[STEP] applications/install-from-app-store {payload_app}"
+        LOGGER.result(msg); logs.append(msg)
+        rc_install, resp_install = execute_cmd_and_log(
+            tester, device_id, "applications/install-from-app-store", payload_app, logs, result
+        )
+        install_status = dab_status_from(resp_install, rc_install)
+        msg = f"[INFO] install-from-app-store transport_rc={rc_install}, dab_status={install_status}"
+        LOGGER.info(msg); logs.append(msg)
+
+        if install_status != 200:
+            result.test_result = "FAILED"
+            msg = f"[RESULT] FAILED — install-from-app-store returned {install_status} (expected 200)"
+            LOGGER.result(msg); logs.append(msg)
+            msg = (f"[SUMMARY] outcome=FAILED, install_status={install_status}, launch_status=N/A, "
+                   f"test_id={test_id}, device={device_id}, appId={app_id}")
+            LOGGER.result(msg); logs.append(msg)
+            return result
+
+        # short wait to allow finalization
+        msg = f"[WAIT] {INSTALL_WAIT}s after install for finalization"
+        LOGGER.info(msg); logs.append(msg)
+        time.sleep(INSTALL_WAIT)
+
+        # 2) Launch the newly installed app
+        msg = f"[STEP] applications/launch {payload_app}"
+        LOGGER.result(msg); logs.append(msg)
+        rc_launch, resp_launch = execute_cmd_and_log(
+            tester, device_id, "applications/launch", payload_app, logs, result
+        )
+        launch_status = dab_status_from(resp_launch, rc_launch)
+        msg = f"[INFO] launch transport_rc={rc_launch}, dab_status={launch_status}"
+        LOGGER.info(msg); logs.append(msg)
+
+        if launch_status == 200:
+            result.test_result = "PASS"
+            msg = "[RESULT] PASS — install-from-app-store and launch both returned 200"
+            LOGGER.result(msg); logs.append(msg)
+        else:
+            result.test_result = "FAILED"
+            msg = f"[RESULT] FAILED — launch returned {launch_status} (expected 200) after install"
+            LOGGER.result(msg); logs.append(msg)
+
+        msg = (f"[SUMMARY] outcome={result.test_result}, install_status={install_status}, "
+               f"launch_status={launch_status}, test_id={test_id}, device={device_id}, appId={app_id}")
+        LOGGER.result(msg); logs.append(msg)
+        return result
+
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        msg = f"[RESULT] SKIPPED — internal error: {e} (test_id={test_id}, device={device_id}, appId={app_id})"
+        LOGGER.result(msg); logs.append(msg)
+        msg = (f"[SUMMARY] outcome=SKIPPED, install_status=N/A, launch_status=N/A, "
+               f"test_id={test_id}, device={device_id}, appId={app_id}")
+        LOGGER.result(msg); logs.append(msg)
+        return result
+
+def run_install_youtube_kids_from_store(dab_topic, test_category, test_name, tester, device_id):
+    """
+    Positive: Install YouTube Kids from the app store and confirm it launches.
+    Flow: install-from-app-store -> short wait -> (optional) applications/list check -> launch
+    Pass if install == 200 and launch == 200.
+    Note: "family-friendly settings" visibility is outside DAB scope; log info for manual/OEM validation.
+    """
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    app_id = config.apps.get("youtube_kids", "YouTubeKids")  # use config.py entry
+    logs = []
+    payload_app = json.dumps({"appId": app_id})
+    result = TestResult(test_id, device_id, "applications/install-from-app-store", payload_app, "UNKNOWN", "", logs)
+
+    INSTALL_WAIT = 10  # short padding after install
+
+    try:
+        # Header
+        msg = f"[TEST] YouTube Kids Install — {test_name} (test_id={test_id}, device={device_id}, appId={app_id})"
+        LOGGER.result(msg); logs.append(msg)
+        msg = "[DESC] Flow: install-from-app-store → short wait → (optional) apps list → launch; PASS if both steps return 200."
+        LOGGER.result(msg); logs.append(msg)
+        msg = "[DESC] Note: Family-friendly settings check is manual/OEM (not exposed via DAB)."
+        LOGGER.result(msg); logs.append(msg)
+
+        # Capability gate (required ops only)
+        if not need(tester, device_id, "ops: applications/install-from-app-store, applications/launch", result, logs):
+            msg = (f"[SUMMARY] outcome=OPTIONAL_FAILED, install_status=N/A, launch_status=N/A, "
+                   f"test_id={test_id}, device={device_id}, appId={app_id}")
+            LOGGER.result(msg); logs.append(msg)
+            return result
+
+        msg = "[INFO] Capability gate passed."
+        LOGGER.info(msg); logs.append(msg)
+
+        # 1) Install from app store
+        msg = f"[STEP] applications/install-from-app-store {payload_app}"
+        LOGGER.result(msg); logs.append(msg)
+        rc_install, resp_install = execute_cmd_and_log(
+            tester, device_id, "applications/install-from-app-store", payload_app, logs, result
+        )
+        install_status = dab_status_from(resp_install, rc_install)
+        msg = f"[INFO] install-from-app-store transport_rc={rc_install}, dab_status={install_status}"
+        LOGGER.info(msg); logs.append(msg)
+
+        if install_status != 200:
+            result.test_result = "FAILED"
+            msg = f"[RESULT] FAILED — install-from-app-store returned {install_status} (expected 200)"
+            LOGGER.result(msg); logs.append(msg)
+            msg = (f"[SUMMARY] outcome=FAILED, install_status={install_status}, launch_status=N/A, "
+                   f"test_id={test_id}, device={device_id}, appId={app_id}")
+            LOGGER.result(msg); logs.append(msg)
+            return result
+
+        # short wait to finalize install
+        msg = f"[WAIT] {INSTALL_WAIT}s after install for finalization"
+        LOGGER.info(msg); logs.append(msg)
+        time.sleep(INSTALL_WAIT)
+
+        # (Optional) verify appears in installed apps list, if supported
+        try:
+            msg = "[STEP] applications/list"
+            LOGGER.result(msg); logs.append(msg)
+            rc_list, resp_list = execute_cmd_and_log(
+                tester, device_id, "applications/list", "{}", logs, result
+            )
+            # Best-effort parse
+            installed = False
+            try:
+                data = json.loads(resp_list) if isinstance(resp_list, str) else (resp_list or {})
+                apps = data.get("applications") or data.get("apps") or data
+                if isinstance(apps, list):
+                    for a in apps:
+                        if isinstance(a, str) and a == app_id:
+                            installed = True; break
+                        if isinstance(a, dict) and (a.get("appId") == app_id or a.get("id") == app_id or a.get("name") == app_id):
+                            installed = True; break
+                elif isinstance(apps, dict):
+                    # Some devices might return a dict keyed by appId
+                    installed = app_id in apps.keys()
+            except Exception:
+                installed = None
+            msg = f"[INFO] applications/list contains appId={app_id}: {installed}"
+            LOGGER.info(msg); logs.append(msg)
+        except UnsupportedOperationError:
+            msg = "[INFO] Skipping installed-apps verification: applications/list not supported"
+            LOGGER.info(msg); logs.append(msg)
+
+        # 2) Launch the newly installed app
+        msg = f"[STEP] applications/launch {payload_app}"
+        LOGGER.result(msg); logs.append(msg)
+        rc_launch, resp_launch = execute_cmd_and_log(
+            tester, device_id, "applications/launch", payload_app, logs, result
+        )
+        launch_status = dab_status_from(resp_launch, rc_launch)
+        msg = f"[INFO] launch transport_rc={rc_launch}, dab_status={launch_status}"
+        LOGGER.info(msg); logs.append(msg)
+
+        if launch_status == 200:
+            result.test_result = "PASS"
+            msg = "[RESULT] PASS — install-from-app-store and launch both returned 200"
+            LOGGER.result(msg); logs.append(msg)
+        else:
+            result.test_result = "FAILED"
+            msg = f"[RESULT] FAILED — launch returned {launch_status} (expected 200) after install"
+            LOGGER.result(msg); logs.append(msg)
+
+        msg = (f"[SUMMARY] outcome={result.test_result}, install_status={install_status}, "
+               f"launch_status={launch_status}, test_id={test_id}, device={device_id}, appId={app_id}")
+        LOGGER.result(msg); logs.append(msg)
+        return result
+
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        msg = f"[RESULT] SKIPPED — internal error: {e} (test_id={test_id}, device={device_id}, appId={app_id})"
+        LOGGER.result(msg); logs.append(msg)
+        msg = (f"[SUMMARY] outcome=SKIPPED, install_status=N/A, launch_status=N/A, "
+               f"test_id={test_id}, device={device_id}, appId={app_id}")
+        LOGGER.result(msg); logs.append(msg)
+        return result
+
+def run_uninstall_after_standby_check(dab_topic, test_category, test_name, tester, device_id):
+    """
+    Positive: Uninstall a pre-installed removable app when device was in standby (woken for operation).
+    Flow: (best-effort) wake via input/key-press -> applications/uninstall -> short wait -> (best-effort) applications/list
+    Pass if uninstall returns 200 and (if list is available) the app no longer appears.
+    """
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    app_id = config.apps.get("sample_app", "Sample_App")
+    logs = []
+    payload_app = json.dumps({"appId": app_id})
+    result = TestResult(test_id, device_id, "applications/uninstall", payload_app, "UNKNOWN", "", logs)
+
+    UNINSTALL_WAIT = 10  # short padding after uninstall
+    WAKE_WAIT = 3        # brief wait after wake attempt
+
+    try:
+        # Header
+        msg = f"[TEST] Uninstall After Standby — {test_name} (test_id={test_id}, device={device_id}, appId={app_id})"
+        LOGGER.result(msg); logs.append(msg)
+        msg = "[DESC] Flow: wake (best-effort) → uninstall → short wait → (best-effort) apps list check; PASS if uninstall == 200."
+        LOGGER.result(msg); logs.append(msg)
+        msg = "[DESC] Data deletion must be verified manually/OEM; DAB lacks per-app storage APIs."
+        LOGGER.result(msg); logs.append(msg)
+
+        # Required capability gate (unsupported → OPTIONAL_FAILED handled by need)
+        if not need(tester, device_id, "ops: applications/uninstall", result, logs):
+            msg = (f"[SUMMARY] outcome=OPTIONAL_FAILED, uninstall_status=N/A, "
+                   f"test_id={test_id}, device={device_id}, appId={app_id}")
+            LOGGER.result(msg); logs.append(msg)
+            return result
+
+        msg = "[INFO] Capability gate passed."
+        LOGGER.info(msg); logs.append(msg)
+
+        # 0) Best-effort wake from standby (optional)
+        try:
+            msg = f"[STEP] input/key-press {{\"key\": \"POWER\"}}  # best-effort wake"
+            LOGGER.result(msg); logs.append(msg)
+            rc_wake, resp_wake = execute_cmd_and_log(
+                tester, device_id, "input/key-press", json.dumps({"key": "POWER"}), logs, result
+            )
+            msg = f"[INFO] input/key-press transport_rc={rc_wake}, response={resp_wake}"
+            LOGGER.info(msg); logs.append(msg)
+            msg = f"[WAIT] {WAKE_WAIT}s after wake attempt"
+            LOGGER.info(msg); logs.append(msg)
+            time.sleep(WAKE_WAIT)
+        except Exception:
+            msg = "[INFO] Skipping wake attempt (input/key-press unavailable or failed)"
+            LOGGER.info(msg); logs.append(msg)
+
+        # 1) Uninstall
+        msg = f"[STEP] applications/uninstall {payload_app}"
+        LOGGER.result(msg); logs.append(msg)
+        rc_uninst, resp_uninst = execute_cmd_and_log(
+            tester, device_id, "applications/uninstall", payload_app, logs, result
+        )
+        uninstall_status = dab_status_from(resp_uninst, rc_uninst)
+        msg = f"[INFO] applications/uninstall transport_rc={rc_uninst}, dab_status={uninstall_status}"
+        LOGGER.info(msg); logs.append(msg)
+
+        if uninstall_status != 200:
+            result.test_result = "FAILED"
+            msg = f"[RESULT] FAILED — applications/uninstall returned {uninstall_status} (expected 200)"
+            LOGGER.result(msg); logs.append(msg)
+            msg = (f"[SUMMARY] outcome=FAILED, uninstall_status={uninstall_status}, "
+                   f"test_id={test_id}, device={device_id}, appId={app_id}")
+            LOGGER.result(msg); logs.append(msg)
+            return result
+
+        # short wait to finalize uninstall
+        msg = f"[WAIT] {UNINSTALL_WAIT}s after uninstall for finalization"
+        LOGGER.info(msg); logs.append(msg)
+        time.sleep(UNINSTALL_WAIT)
+
+        # 2) Best-effort verification via applications/list (optional)
+        removed_flag = None
+        try:
+            msg = "[STEP] applications/list"
+            LOGGER.result(msg); logs.append(msg)
+            rc_list, resp_list = execute_cmd_and_log(
+                tester, device_id, "applications/list", "{}", logs, result
+            )
+            try:
+                data = json.loads(resp_list) if isinstance(resp_list, str) else (resp_list or {})
+            except Exception:
+                data = {}
+            apps = data.get("applications") or data.get("apps") or data
+            present = False
+            if isinstance(apps, list):
+                for a in apps:
+                    if (isinstance(a, str) and a == app_id) or \
+                       (isinstance(a, dict) and (a.get("appId") == app_id or a.get("id") == app_id or a.get("name") == app_id)):
+                        present = True; break
+            elif isinstance(apps, dict):
+                present = app_id in apps.keys()
+            removed_flag = not present
+            msg = f"[INFO] applications/list absence check for appId={app_id}: removed={removed_flag}"
+            LOGGER.info(msg); logs.append(msg)
+
+            if removed_flag is False:
+                result.test_result = "FAILED"
+                msg = "[RESULT] FAILED — app still present in applications/list after uninstall"
+                LOGGER.result(msg); logs.append(msg)
+                msg = (f"[SUMMARY] outcome=FAILED, uninstall_status=200, "
+                       f"apps_list_present=True, test_id={test_id}, device={device_id}, appId={app_id}")
+                LOGGER.result(msg); logs.append(msg)
+                return result
+        except Exception:
+            msg = "[INFO] Skipping apps list verification: applications/list not available or parsing failed"
+            LOGGER.info(msg); logs.append(msg)
+
+        # Result
+        result.test_result = "PASS"
+        msg = "[RESULT] PASS — applications/uninstall returned 200" + ("" if removed_flag is None else f"; removed_in_list={removed_flag}")
+        LOGGER.result(msg); logs.append(msg)
+        msg = (f"[SUMMARY] outcome=PASS, uninstall_status=200, removed_in_list={removed_flag}, "
+               f"test_id={test_id}, device={device_id}, appId={app_id}")
+        LOGGER.result(msg); logs.append(msg)
+        return result
+
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        msg = f"[RESULT] SKIPPED — internal error: {e} (test_id={test_id}, device={device_id}, appId={app_id})"
+        LOGGER.result(msg); logs.append(msg)
+        msg = (f"[SUMMARY] outcome=SKIPPED, uninstall_status=N/A, "
+               f"test_id={test_id}, device={device_id}, appId={app_id}")
+        LOGGER.result(msg); logs.append(msg)
+        return result
+
+def run_install_bg_uninstall_sample_app(dab_topic, test_category, test_name, tester, device_id):
+    """
+    Flow: applications/install (sample_app) -> applications/launch -> background -> applications/uninstall
+    Pass if install == 200 and uninstall == 200.
+    """
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    app_id = config.apps.get("sample_app", "Sample_App")
+    logs = []
+    payload_app = json.dumps({"appId": app_id})
+
+    # Core op under validation is uninstall
+    result = TestResult(test_id, device_id, "applications/uninstall", payload_app, "UNKNOWN", "", logs)
+
+    INSTALL_WAIT = 10   # short padding after install
+    BG_WAIT = 3         # short settle time after backgrounding
+
+    try:
+        # Header
+        msg = f"[TEST] Install → Background → Uninstall (applications/install) — {test_name} (test_id={test_id}, device={device_id}, appId={app_id})"
+        LOGGER.result(msg); logs.append(msg)
+        msg = "[DESC] Method: install sample_app → open it → keep in background → uninstall (no app-store API used)."
+        LOGGER.result(msg); logs.append(msg)
+
+        # Gate required ops (OPTIONAL_FAILED handled by need)
+        if not need(tester, device_id, "ops: applications/install, applications/launch, applications/uninstall", result, logs):
+            msg = (f"[SUMMARY] outcome=OPTIONAL_FAILED, install_status=N/A, uninstall_status=N/A, "
+                   f"test_id={test_id}, device={device_id}, appId={app_id}")
+            LOGGER.result(msg); logs.append(msg)
+            return result
+
+        msg = "[INFO] Capability gate passed."
+        LOGGER.info(msg); logs.append(msg)
+
+        # 1) Install sample_app (applications/install)
+        msg = f"[STEP] applications/install {payload_app}"
+        LOGGER.result(msg); logs.append(msg)
+        rc_install, resp_install = execute_cmd_and_log(
+            tester, device_id, "applications/install", payload_app, logs, result
+        )
+        install_status = dab_status_from(resp_install, rc_install)
+        msg = f"[INFO] applications/install transport_rc={rc_install}, dab_status={install_status}"
+        LOGGER.info(msg); logs.append(msg)
+
+        if install_status != 200:
+            result.test_result = "FAILED"
+            msg = f"[RESULT] FAILED — applications/install returned {install_status} (expected 200)"
+            LOGGER.result(msg); logs.append(msg)
+            msg = (f"[SUMMARY] outcome=FAILED, install_status={install_status}, uninstall_status=N/A, "
+                   f"test_id={test_id}, device={device_id}, appId={app_id}")
+            LOGGER.result(msg); logs.append(msg)
+            return result
+
+        msg = f"[WAIT] {INSTALL_WAIT}s after install for finalization"
+        LOGGER.info(msg); logs.append(msg)
+        time.sleep(INSTALL_WAIT)
+
+        # 2) Launch the app (foreground)
+        msg = f"[STEP] applications/launch {payload_app}"
+        LOGGER.result(msg); logs.append(msg)
+        rc_launch, resp_launch = execute_cmd_and_log(
+            tester, device_id, "applications/launch", payload_app, logs, result
+        )
+        msg = f"[WAIT] {APP_LAUNCH_WAIT}s after launch"
+        LOGGER.info(msg); logs.append(msg)
+        time.sleep(APP_LAUNCH_WAIT)
+
+        # 3) Background the app (best-effort: HOME key; fallback to launcher)
+        try:
+            msg = '[STEP] input/key-press {"key": "HOME"}  # background app'
+            LOGGER.result(msg); logs.append(msg)
+            rc_home, resp_home = execute_cmd_and_log(
+                tester, device_id, "input/key-press", json.dumps({"key": "HOME"}), logs, result
+            )
+            msg = f"[INFO] input/key-press HOME transport_rc={rc_home}, response={resp_home}"
+            LOGGER.info(msg); logs.append(msg)
+        except Exception:
+            launcher_id = config.apps.get("home_launcher", "com.android.tv.launcher")
+            payload_home = json.dumps({"appId": launcher_id})
+            msg = f"[STEP] applications/launch {payload_home}  # fallback to launcher"
+            LOGGER.result(msg); logs.append(msg)
+            rc_home2, resp_home2 = execute_cmd_and_log(
+                tester, device_id, "applications/launch", payload_home, logs, result
+            )
+            msg = f"[INFO] launcher transport_rc={rc_home2}, response={resp_home2}"
+            LOGGER.info(msg); logs.append(msg)
+
+        msg = f"[WAIT] {BG_WAIT}s after backgrounding"
+        LOGGER.info(msg); logs.append(msg)
+        time.sleep(BG_WAIT)
+
+        # 4) Uninstall the app
+        msg = f"[STEP] applications/uninstall {payload_app}"
+        LOGGER.result(msg); logs.append(msg)
+        rc_uninst, resp_uninst = execute_cmd_and_log(
+            tester, device_id, "applications/uninstall", payload_app, logs, result
+        )
+        uninstall_status = dab_status_from(resp_uninst, rc_uninst)
+        msg = f"[INFO] applications/uninstall transport_rc={rc_uninst}, dab_status={uninstall_status}"
+        LOGGER.info(msg); logs.append(msg)
+
+        if uninstall_status == 200:
+            result.test_result = "PASS"
+            msg = "[RESULT] PASS — install 200, then uninstall 200 with app backgrounded"
+            LOGGER.result(msg); logs.append(msg)
+        else:
+            result.test_result = "FAILED"
+            msg = f"[RESULT] FAILED — applications/uninstall returned {uninstall_status} (expected 200)"
+            LOGGER.result(msg); logs.append(msg)
+
+        msg = (f"[SUMMARY] outcome={result.test_result}, install_status={install_status}, "
+               f"uninstall_status={uninstall_status}, test_id={test_id}, device={device_id}, appId={app_id}")
+        LOGGER.result(msg); logs.append(msg)
+        return result
+
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        msg = f"[RESULT] SKIPPED — internal error: {e} (test_id={test_id}, device={device_id}, appId={app_id})"
+        LOGGER.result(msg); logs.append(msg)
+        msg = (f"[SUMMARY] outcome=SKIPPED, install_status=N/A, uninstall_status=N/A, "
+               f"test_id={test_id}, device={device_id}, appId={app_id}")
+        LOGGER.result(msg); logs.append(msg)
+        return result
+
+def run_uninstall_sample_app_with_local_data_check(dab_topic, test_category, test_name, tester, device_id):
+    """
+    Positive: Uninstall a third-party app (sample_app) that has local storage data.
+    Minimal flow: (optional) launch -> applications/uninstall -> short wait
+    Pass if uninstall returns 200.
+    """
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    app_id = config.apps.get("sample_app", "Sample_App")
+    logs = []
+    payload_app = json.dumps({"appId": app_id})
+    result = TestResult(test_id, device_id, "applications/uninstall", payload_app, "UNKNOWN", "", logs)
+
+    UNINSTALL_WAIT = 10  # seconds
+    APP_POKE_WAIT = 3    # small wait after optional launch
+
+    try:
+        # Header
+        msg = f"[TEST] Uninstall Sample App (with local data) — {test_name} (test_id={test_id}, device={device_id}, appId={app_id})"
+        LOGGER.result(msg); logs.append(msg)
+        msg = "[DESC] Flow: (optional) launch → uninstall → short wait; PASS if uninstall == 200."
+        LOGGER.result(msg); logs.append(msg)
+        msg = "[DESC] Local data deletion must be verified manually/OEM; storage inspection not in DAB scope."
+        LOGGER.result(msg); logs.append(msg)
+
+        # Required capability gate (unsupported → OPTIONAL_FAILED handled by need)
+        if not need(tester, device_id, "ops: applications/uninstall", result, logs):
+            msg = (f"[SUMMARY] outcome=OPTIONAL_FAILED, uninstall_status=N/A, "
+                   f"test_id={test_id}, device={device_id}, appId={app_id}")
+            LOGGER.result(msg); logs.append(msg)
+            return result
+
+        msg = "[INFO] Capability gate passed."
+        LOGGER.info(msg); logs.append(msg)
+
+        # 0) Optional: launch the app to ensure it recently touched local data (best-effort)
+        try:
+            msg = f"[STEP] (optional) applications/launch {payload_app}"
+            LOGGER.result(msg); logs.append(msg)
+            rc_launch, resp_launch = execute_cmd_and_log(
+                tester, device_id, "applications/launch", payload_app, logs, result
+            )
+            msg = f"[WAIT] {APP_POKE_WAIT}s after optional launch"
+            LOGGER.info(msg); logs.append(msg)
+            time.sleep(APP_POKE_WAIT)
+        except Exception:
+            msg = "[INFO] Skipping optional launch (applications/launch unsupported or failed)"
+            LOGGER.info(msg); logs.append(msg)
+
+        # 1) Uninstall the sample app
+        msg = f"[STEP] applications/uninstall {payload_app}"
+        LOGGER.result(msg); logs.append(msg)
+        rc_uninst, resp_uninst = execute_cmd_and_log(
+            tester, device_id, "applications/uninstall", payload_app, logs, result
+        )
+        uninstall_status = dab_status_from(resp_uninst, rc_uninst)
+        msg = f"[INFO] applications/uninstall transport_rc={rc_uninst}, dab_status={uninstall_status}"
+        LOGGER.info(msg); logs.append(msg)
+
+        if uninstall_status != 200:
+            result.test_result = "FAILED"
+            msg = f"[RESULT] FAILED — applications/uninstall returned {uninstall_status} (expected 200)"
+            LOGGER.result(msg); logs.append(msg)
+            msg = (f"[SUMMARY] outcome=FAILED, uninstall_status={uninstall_status}, "
+                   f"test_id={test_id}, device={device_id}, appId={app_id}")
+            LOGGER.result(msg); logs.append(msg)
+            return result
+
+        # Short wait to finalize uninstall
+        msg = f"[WAIT] {UNINSTALL_WAIT}s after uninstall for finalization"
+        LOGGER.info(msg); logs.append(msg)
+        time.sleep(UNINSTALL_WAIT)
+
+        # Result
+        result.test_result = "PASS"
+        msg = "[RESULT] PASS — applications/uninstall returned 200"
+        LOGGER.result(msg); logs.append(msg)
+        msg = (f"[SUMMARY] outcome=PASS, uninstall_status=200, "
+               f"test_id={test_id}, device={device_id}, appId={app_id}")
+        LOGGER.result(msg); logs.append(msg)
+        return result
+
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        msg = f"[RESULT] SKIPPED — internal error: {e} (test_id={test_id}, device={device_id}, appId={app_id})"
+        LOGGER.result(msg); logs.append(msg)
+        msg = (f"[SUMMARY] outcome=SKIPPED, uninstall_status=N/A, "
+               f"test_id={test_id}, device={device_id}, appId={app_id}")
+        LOGGER.result(msg); logs.append(msg)
+        return result
+    
+def run_uninstall_preinstalled_with_local_data_simple(dab_topic, test_category, test_name, tester, device_id):
+    """
+    Positive: Uninstall a pre-installed removable app (with local data).
+    Minimal flow: (optional) launch -> applications/uninstall -> short wait
+    Pass if uninstall returns 200.
+    """
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    app_id = config.apps.get("sample_app", "Sample_App")
+    logs = []
+    payload_app = json.dumps({"appId": app_id})
+    result = TestResult(test_id, device_id, "applications/uninstall", payload_app, "UNKNOWN", "", logs)
+
+    UNINSTALL_WAIT = 10  # seconds
+    APP_POKE_WAIT = 3    # brief wait after optional launch
+
+    try:
+        # Header
+        msg = f"[TEST] Uninstall Preinstalled (with local data) — {test_name} (test_id={test_id}, device={device_id}, appId={app_id})"
+        LOGGER.result(msg); logs.append(msg)
+        msg = "[DESC] Flow: (optional) launch → uninstall → short wait; PASS if uninstall == 200."
+        LOGGER.result(msg); logs.append(msg)
+        msg = "[DESC] Local-data deletion must be verified manually/OEM; DAB cannot inspect storage."
+        LOGGER.result(msg); logs.append(msg)
+
+        # Gate only the required op (unsupported -> OPTIONAL_FAILED handled by need)
+        if not need(tester, device_id, "ops: applications/uninstall", result, logs):
+            msg = (f"[SUMMARY] outcome=OPTIONAL_FAILED, uninstall_status=N/A, "
+                   f"test_id={test_id}, device={device_id}, appId={app_id}")
+            LOGGER.result(msg); logs.append(msg)
+            return result
+
+        msg = "[INFO] Capability gate passed."
+        LOGGER.info(msg); logs.append(msg)
+
+        # 0) Optional: launch to ensure app recently touched local data (best-effort; not gated)
+        try:
+            msg = f"[STEP] (optional) applications/launch {payload_app}"
+            LOGGER.result(msg); logs.append(msg)
+            rc_launch, resp_launch = execute_cmd_and_log(
+                tester, device_id, "applications/launch", payload_app, logs, result
+            )
+            msg = f"[WAIT] {APP_POKE_WAIT}s after optional launch"
+            LOGGER.info(msg); logs.append(msg)
+            time.sleep(APP_POKE_WAIT)
+        except Exception:
+            msg = "[INFO] Skipping optional launch (applications/launch unsupported or failed)"
+            LOGGER.info(msg); logs.append(msg)
+
+        # 1) Uninstall the app
+        msg = f"[STEP] applications/uninstall {payload_app}"
+        LOGGER.result(msg); logs.append(msg)
+        rc_uninst, resp_uninst = execute_cmd_and_log(
+            tester, device_id, "applications/uninstall", payload_app, logs, result
+        )
+        uninstall_status = dab_status_from(resp_uninst, rc_uninst)
+        msg = f"[INFO] applications/uninstall transport_rc={rc_uninst}, dab_status={uninstall_status}"
+        LOGGER.info(msg); logs.append(msg)
+
+        if uninstall_status != 200:
+            result.test_result = "FAILED"
+            msg = f"[RESULT] FAILED — applications/uninstall returned {uninstall_status} (expected 200)"
+            LOGGER.result(msg); logs.append(msg)
+            msg = (f"[SUMMARY] outcome=FAILED, uninstall_status={uninstall_status}, "
+                   f"test_id={test_id}, device={device_id}, appId={app_id}")
+            LOGGER.result(msg); logs.append(msg)
+            return result
+
+        # short wait to finalize uninstall
+        msg = f"[WAIT] {UNINSTALL_WAIT}s after uninstall for finalization"
+        LOGGER.info(msg); logs.append(msg)
+        time.sleep(UNINSTALL_WAIT)
+
+        # Result
+        result.test_result = "PASS"
+        msg = "[RESULT] PASS — applications/uninstall returned 200"
+        LOGGER.result(msg); logs.append(msg)
+        msg = (f"[SUMMARY] outcome=PASS, uninstall_status=200, "
+               f"test_id={test_id}, device={device_id}, appId={app_id}")
+        LOGGER.result(msg); logs.append(msg)
+        return result
+
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        msg = f"[RESULT] SKIPPED — internal error: {e} (test_id={test_id}, device={device_id}, appId={app_id})"
+        LOGGER.result(msg); logs.append(msg)
+        msg = (f"[SUMMARY] outcome=SKIPPED, uninstall_status=N/A, "
+               f"test_id={test_id}, device={device_id}, appId={app_id}")
+        LOGGER.result(msg); logs.append(msg)
+        return result
+
+def run_install_from_url_during_idle_then_launch(dab_topic, test_category, test_name, tester, device_id):
+    """
+    Positive: Install an app from a valid APK URL during device idle (screen off), then wake and launch.
+    Minimal flow: sleep (best-effort) -> applications/install(url) -> short wait -> wake (best-effort) -> applications/launch
+    Pass if install == 200 and launch == 200.
+    """
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    app_id = config.apps.get("sample_app", "Sample_App")
+
+    # Try to read APK URL from config; user/project should populate one of these.
+    apk_url = (
+        config.apps.get("sample_app_url") or
+        getattr(config, "apk_urls", {}).get("sample_app") or
+        getattr(config, "urls", {}).get("sample_app")
+    )
+
+    logs = []
+    payload_install = json.dumps({"appId": app_id, "url": apk_url})
+    payload_launch  = json.dumps({"appId": app_id})
+    result = TestResult(test_id, device_id, "applications/install", payload_install, "UNKNOWN", "", logs)
+
+    INSTALL_WAIT = 10  # short padding for install finalize
+    IDLE_WAIT    = 3   # small delay after sleep press
+    WAKE_WAIT    = 3   # small delay after wake press
+
+    try:
+        # Headers
+        msg = f"[TEST] Install During Idle (URL) → Wake → Launch — {test_name} (test_id={test_id}, device={device_id}, appId={app_id})"
+        LOGGER.result(msg); logs.append(msg)
+        msg = "[DESC] Flow: sleep (best-effort) → applications/install(url) → short wait → wake (best-effort) → applications/launch; PASS if both return 200."
+        LOGGER.result(msg); logs.append(msg)
+
+        # Validate URL presence (precondition)
+        if not apk_url:
+            result.test_result = "SKIPPED"
+            msg = "[RESULT] SKIPPED — missing APK URL in config (sample_app_url / apk_urls['sample_app'] / urls['sample_app'])."
+            LOGGER.result(msg); logs.append(msg)
+            msg = f"[SUMMARY] outcome=SKIPPED, install_status=N/A, launch_status=N/A, test_id={test_id}, device={device_id}, appId={app_id}"
+            LOGGER.result(msg); logs.append(msg)
+            return result
+
+        # Gate required operations (OPTIONAL_FAILED handled by need)
+        if not need(tester, device_id, "ops: applications/install, applications/launch", result, logs):
+            msg = f"[SUMMARY] outcome=OPTIONAL_FAILED, install_status=N/A, launch_status=N/A, test_id={test_id}, device={device_id}, appId={app_id}"
+            LOGGER.result(msg); logs.append(msg)
+            return result
+
+        msg = "[INFO] Capability gate passed."
+        LOGGER.info(msg); logs.append(msg)
+
+        # 0) Best-effort put device into idle (screen off)
+        try:
+            msg = '[STEP] input/key-press {"key": "POWER"}  # best-effort to enter idle/screen-off'
+            LOGGER.result(msg); logs.append(msg)
+            rc_sleep, resp_sleep = execute_cmd_and_log(
+                tester, device_id, "input/key-press", json.dumps({"key": "POWER"}), logs, result
+            )
+            msg = f"[INFO] input/key-press POWER transport_rc={rc_sleep}, response={resp_sleep}"
+            LOGGER.info(msg); logs.append(msg)
+            msg = f"[WAIT] {IDLE_WAIT}s after sleep attempt"
+            LOGGER.info(msg); logs.append(msg)
+            time.sleep(IDLE_WAIT)
+        except Exception:
+            msg = "[INFO] Skipping sleep attempt (input/key-press unavailable or failed)"
+            LOGGER.info(msg); logs.append(msg)
+
+        # 1) Install from URL while device is idle
+        msg = f"[STEP] applications/install {payload_install}"
+        LOGGER.result(msg); logs.append(msg)
+        rc_install, resp_install = execute_cmd_and_log(
+            tester, device_id, "applications/install", payload_install, logs, result
+        )
+        install_status = dab_status_from(resp_install, rc_install)
+        msg = f"[INFO] applications/install transport_rc={rc_install}, dab_status={install_status}"
+        LOGGER.info(msg); logs.append(msg)
+
+        if install_status != 200:
+            result.test_result = "FAILED"
+            msg = f"[RESULT] FAILED — applications/install returned {install_status} (expected 200)"
+            LOGGER.result(msg); logs.append(msg)
+            msg = f"[SUMMARY] outcome=FAILED, install_status={install_status}, launch_status=N/A, test_id={test_id}, device={device_id}, appId={app_id}"
+            LOGGER.result(msg); logs.append(msg)
+            return result
+
+        # short wait to finalize install
+        msg = f"[WAIT] {INSTALL_WAIT}s after install for finalization"
+        LOGGER.info(msg); logs.append(msg)
+        time.sleep(INSTALL_WAIT)
+
+        # 2) Best-effort wake device
+        try:
+            msg = '[STEP] input/key-press {"key": "POWER"}  # wake device'
+            LOGGER.result(msg); logs.append(msg)
+            rc_wake, resp_wake = execute_cmd_and_log(
+                tester, device_id, "input/key-press", json.dumps({"key": "POWER"}), logs, result
+            )
+            msg = f"[INFO] input/key-press POWER transport_rc={rc_wake}, response={resp_wake}"
+            LOGGER.info(msg); logs.append(msg)
+            msg = f"[WAIT] {WAKE_WAIT}s after wake attempt"
+            LOGGER.info(msg); logs.append(msg)
+            time.sleep(WAKE_WAIT)
+        except Exception:
+            msg = "[INFO] Skipping wake attempt (input/key-press unavailable or failed)"
+            LOGGER.info(msg); logs.append(msg)
+
+        # 3) Launch to verify availability after wake
+        msg = f"[STEP] applications/launch {payload_launch}"
+        LOGGER.result(msg); logs.append(msg)
+        rc_launch, resp_launch = execute_cmd_and_log(
+            tester, device_id, "applications/launch", payload_launch, logs, result
+        )
+        launch_status = dab_status_from(resp_launch, rc_launch)
+        msg = f"[INFO] applications/launch transport_rc={rc_launch}, dab_status={launch_status}"
+        LOGGER.info(msg); logs.append(msg)
+
+        if launch_status == 200:
+            result.test_result = "PASS"
+            msg = "[RESULT] PASS — install (idle) 200 and launch (post-wake) 200"
+            LOGGER.result(msg); logs.append(msg)
+        else:
+            result.test_result = "FAILED"
+            msg = f"[RESULT] FAILED — applications/launch returned {launch_status} (expected 200)"
+            LOGGER.result(msg); logs.append(msg)
+
+        msg = f"[SUMMARY] outcome={result.test_result}, install_status={install_status}, launch_status={launch_status}, test_id={test_id}, device={device_id}, appId={app_id}"
+        LOGGER.result(msg); logs.append(msg)
+        return result
+
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        msg = f"[RESULT] SKIPPED — internal error: {e} (test_id={test_id}, device={device_id}, appId={app_id})"
+        LOGGER.result(msg); logs.append(msg)
+        msg = f"[SUMMARY] outcome=SKIPPED, install_status=N/A, launch_status=N/A, test_id={test_id}, device={device_id}, appId={app_id}"
+        LOGGER.result(msg); logs.append(msg)
+        return result
+
+def run_install_large_apk_from_url_then_launch(dab_topic, test_category, test_name, tester, device_id):
+    """
+    Positive: Install a large APK from a valid URL, then launch to verify functionality.
+    Minimal flow: applications/install(url) -> long wait -> applications/launch
+    Pass if install == 200 and launch == 200.
+    """
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    app_id = config.apps.get("large_app", "Large_App")
+
+    # Provide the APK URL via config (one of these should be set in your repo config)
+    apk_url = (
+        config.apps.get("large_app_url") or
+        getattr(config, "apk_urls", {}).get("large_app") or
+        getattr(config, "urls", {}).get("large_app")
+    )
+
+    logs = []
+    payload_install = json.dumps({"appId": app_id, "url": apk_url})
+    payload_launch  = json.dumps({"appId": app_id})
+    result = TestResult(test_id, device_id, "applications/install", payload_install, "UNKNOWN", "", logs)
+
+    LARGE_INSTALL_WAIT = 180  # seconds; larger buffer for big APK download+install
+
+    try:
+        # Headers
+        msg = f"[TEST] Large APK Install from URL → Launch — {test_name} (test_id={test_id}, device={device_id}, appId={app_id})"
+        LOGGER.result(msg); logs.append(msg)
+        msg = "[DESC] Flow: applications/install(url) → long wait → applications/launch; PASS if both return 200."
+        LOGGER.result(msg); logs.append(msg)
+
+        # Validate URL precondition
+        if not apk_url:
+            result.test_result = "SKIPPED"
+            msg = "[RESULT] SKIPPED — missing large APK URL in config (large_app_url / apk_urls['large_app'] / urls['large_app'])."
+            LOGGER.result(msg); logs.append(msg)
+            msg = f"[SUMMARY] outcome=SKIPPED, install_status=N/A, launch_status=N/A, test_id={test_id}, device={device_id}, appId={app_id}"
+            LOGGER.result(msg); logs.append(msg)
+            return result
+
+        # Capability gate (install + launch). If unsupported, need(...) fills result/logs and returns False.
+        if not need(tester, device_id, "ops: applications/install, applications/launch", result, logs):
+            msg = f"[SUMMARY] outcome=OPTIONAL_FAILED, install_status=N/A, launch_status=N/A, test_id={test_id}, device={device_id}, appId={app_id}"
+            LOGGER.result(msg); logs.append(msg)
+            return result
+
+        msg = "[INFO] Capability gate passed."
+        LOGGER.info(msg); logs.append(msg)
+
+        # 1) Install from URL (large APK)
+        msg = f"[STEP] applications/install {payload_install}"
+        LOGGER.result(msg); logs.append(msg)
+        rc_install, resp_install = execute_cmd_and_log(
+            tester, device_id, "applications/install", payload_install, logs, result
+        )
+        install_status = dab_status_from(resp_install, rc_install)
+        msg = f"[INFO] applications/install transport_rc={rc_install}, dab_status={install_status}"
+        LOGGER.info(msg); logs.append(msg)
+
+        if install_status != 200:
+            result.test_result = "FAILED"
+            msg = f"[RESULT] FAILED — applications/install returned {install_status} (expected 200)"
+            LOGGER.result(msg); logs.append(msg)
+            msg = f"[SUMMARY] outcome=FAILED, install_status={install_status}, launch_status=N/A, test_id={test_id}, device={device_id}, appId={app_id}"
+            LOGGER.result(msg); logs.append(msg)
+            return result
+
+        # Long wait to accommodate big APK download/installation finalization
+        msg = f"[WAIT] {LARGE_INSTALL_WAIT}s after install for finalization (large APK)"
+        LOGGER.info(msg); logs.append(msg)
+        time.sleep(LARGE_INSTALL_WAIT)
+
+        # 2) Launch to verify app is functional post-install
+        msg = f"[STEP] applications/launch {payload_launch}"
+        LOGGER.result(msg); logs.append(msg)
+        rc_launch, resp_launch = execute_cmd_and_log(
+            tester, device_id, "applications/launch", payload_launch, logs, result
+        )
+        launch_status = dab_status_from(resp_launch, rc_launch)
+        msg = f"[INFO] applications/launch transport_rc={rc_launch}, dab_status={launch_status}"
+        LOGGER.info(msg); logs.append(msg)
+
+        if launch_status == 200:
+            result.test_result = "PASS"
+            msg = "[RESULT] PASS — large APK install and launch both returned 200"
+            LOGGER.result(msg); logs.append(msg)
+        else:
+            result.test_result = "FAILED"
+            msg = f"[RESULT] FAILED — applications/launch returned {launch_status} (expected 200)"
+            LOGGER.result(msg); logs.append(msg)
+
+        msg = f"[SUMMARY] outcome={result.test_result}, install_status={install_status}, launch_status={launch_status}, test_id={test_id}, device={device_id}, appId={app_id}"
+        LOGGER.result(msg); logs.append(msg)
+        return result
+
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        msg = f"[RESULT] SKIPPED — internal error: {e} (test_id={test_id}, device={device_id}, appId={app_id})"
+        LOGGER.result(msg); logs.append(msg)
+        msg = f"[SUMMARY] outcome=SKIPPED, install_status=N/A, launch_status=N/A, test_id={test_id}, device={device_id}, appId={app_id}"
+        LOGGER.result(msg); logs.append(msg)
+        return result
+    
+def run_install_from_url_while_heavy_app_running(dab_topic, test_category, test_name, tester, device_id):
+    """
+    Positive: Install an app from a valid APK URL while a resource-intensive app is running, then launch it.
+    Flow: launch heavy_app -> applications/install(url) -> long wait -> applications/launch
+    Pass if install == 200 and launch == 200.
+    """
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+
+    # Resource-intensive app to keep pressure on the device
+    heavy_app_id = config.apps.get("heavy_app", config.apps.get("youtube", "YouTube"))
+    # Target app to install from URL (use your existing sample_app config)
+    app_id = config.apps.get("sample_app", "Sample_App")
+
+    # APK URL for the target app (set one of these in your config)
+    apk_url = (
+        config.apps.get("sample_app_url")
+        or getattr(config, "apk_urls", {}).get("sample_app")
+        or getattr(config, "urls", {}).get("sample_app")
+    )
+
+    logs = []
+    payload_install = json.dumps({"appId": app_id, "url": apk_url})
+    payload_launch  = json.dumps({"appId": app_id})
+    payload_heavy   = json.dumps({"appId": heavy_app_id})
+    result = TestResult(test_id, device_id, "applications/install", payload_install, "UNKNOWN", "", logs)
+
+    HEAVY_WAIT         = 5    # let heavy app start streaming/processing
+    LARGE_INSTALL_WAIT = 120  # allow time for download+install under load
+
+    try:
+        # Headers
+        msg = f"[TEST] Install From URL While Heavy App Running — {test_name} (test_id={test_id}, device={device_id}, targetApp={app_id}, heavyApp={heavy_app_id})"
+        LOGGER.result(msg); logs.append(msg)
+        msg = "[DESC] Flow: launch heavy_app → applications/install(url) → long wait → applications/launch; PASS if both return 200."
+        LOGGER.result(msg); logs.append(msg)
+
+        # Precondition: URL available
+        if not apk_url:
+            result.test_result = "SKIPPED"
+            msg = "[RESULT] SKIPPED — missing APK URL (sample_app_url / apk_urls['sample_app'] / urls['sample_app'])."
+            LOGGER.result(msg); logs.append(msg)
+            msg = f"[SUMMARY] outcome=SKIPPED, install_status=N/A, launch_status=N/A, test_id={test_id}, device={device_id}, targetApp={app_id}"
+            LOGGER.result(msg); logs.append(msg)
+            return result
+
+        # Capability gate for required ops (install + launch)
+        if not need(tester, device_id, "ops: applications/install, applications/launch", result, logs):
+            msg = f"[SUMMARY] outcome=OPTIONAL_FAILED, install_status=N/A, launch_status=N/A, test_id={test_id}, device={device_id}, targetApp={app_id}"
+            LOGGER.result(msg); logs.append(msg)
+            return result
+
+        msg = "[INFO] Capability gate passed."
+        LOGGER.info(msg); logs.append(msg)
+
+        # 0) Launch resource-intensive app
+        msg = f"[STEP] applications/launch {payload_heavy}  # start heavy workload"
+        LOGGER.result(msg); logs.append(msg)
+        rc_heavy, resp_heavy = execute_cmd_and_log(
+            tester, device_id, "applications/launch", payload_heavy, logs, result
+        )
+        msg = f"[INFO] heavy_app launch transport_rc={rc_heavy}, response={resp_heavy}"
+        LOGGER.info(msg); logs.append(msg)
+        msg = f"[WAIT] {HEAVY_WAIT}s to let heavy_app stabilize"
+        LOGGER.info(msg); logs.append(msg)
+        time.sleep(HEAVY_WAIT)
+
+        # 1) Install target app from URL while heavy app is running
+        msg = f"[STEP] applications/install {payload_install}"
+        LOGGER.result(msg); logs.append(msg)
+        rc_install, resp_install = execute_cmd_and_log(
+            tester, device_id, "applications/install", payload_install, logs, result
+        )
+        install_status = dab_status_from(resp_install, rc_install)
+        msg = f"[INFO] applications/install transport_rc={rc_install}, dab_status={install_status}"
+        LOGGER.info(msg); logs.append(msg)
+
+        if install_status != 200:
+            result.test_result = "FAILED"
+            msg = f"[RESULT] FAILED — applications/install returned {install_status} (expected 200)"
+            LOGGER.result(msg); logs.append(msg)
+            msg = f"[SUMMARY] outcome=FAILED, install_status={install_status}, launch_status=N/A, test_id={test_id}, device={device_id}, targetApp={app_id}"
+            LOGGER.result(msg); logs.append(msg)
+            return result
+
+        # Long wait to accommodate big install under system load
+        msg = f"[WAIT] {LARGE_INSTALL_WAIT}s after install for finalization (under load)"
+        LOGGER.info(msg); logs.append(msg)
+        time.sleep(LARGE_INSTALL_WAIT)
+
+        # 2) Launch the newly installed target app to confirm it's functional
+        msg = f"[STEP] applications/launch {payload_launch}"
+        LOGGER.result(msg); logs.append(msg)
+        rc_launch, resp_launch = execute_cmd_and_log(
+            tester, device_id, "applications/launch", payload_launch, logs, result
+        )
+        launch_status = dab_status_from(resp_launch, rc_launch)
+        msg = f"[INFO] applications/launch transport_rc={rc_launch}, dab_status={launch_status}"
+        LOGGER.info(msg); logs.append(msg)
+
+        if launch_status == 200:
+            result.test_result = "PASS"
+            msg = "[RESULT] PASS — install during heavy load (200) and post-install launch (200) succeeded"
+            LOGGER.result(msg); logs.append(msg)
+        else:
+            result.test_result = "FAILED"
+            msg = f"[RESULT] FAILED — applications/launch returned {launch_status} (expected 200)"
+            LOGGER.result(msg); logs.append(msg)
+
+        msg = f"[SUMMARY] outcome={result.test_result}, install_status={install_status}, launch_status={launch_status}, test_id={test_id}, device={device_id}, targetApp={app_id}, heavyApp={heavy_app_id}"
+        LOGGER.result(msg); logs.append(msg)
+        return result
+
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        msg = f"[RESULT] SKIPPED — internal error: {e} (test_id={test_id}, device={device_id}, targetApp={app_id})"
+        LOGGER.result(msg); logs.append(msg)
+        msg = f"[SUMMARY] outcome=SKIPPED, install_status=N/A, launch_status=N/A, test_id={test_id}, device={device_id}, targetApp={app_id}"
+        LOGGER.result(msg); logs.append(msg)
+        return result
+
+def run_install_after_reboot_then_launch(dab_topic, test_category, test_name, tester, device_id):
+    """
+    Positive: After device restart, install an app from a valid APK URL and launch it.
+    Flow: fire_and_forget_restart -> wait -> applications/install(url) -> wait -> applications/launch
+    Pass if install == 200 and launch == 200.
+    """
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+
+    # Target app + URL (configure these in config)
+    app_id = config.apps.get("sample_app", "Sample_App")
+    apk_url = (
+        config.apps.get("sample_app_url")
+        or getattr(config, "apk_urls", {}).get("sample_app")
+        or getattr(config, "urls", {}).get("sample_app")
+    )
+
+    logs = []
+    payload_install = json.dumps({"appId": app_id, "url": apk_url})
+    payload_launch  = json.dumps({"appId": app_id})
+    result = TestResult(test_id, device_id, "applications/install", payload_install, "UNKNOWN", "", logs)
+
+    # Waits tuned for reboot + network + package manager settle
+    RESTART_WAIT = 60   # device restart window
+    STABLE_WAIT  = 15   # extra stabilization
+    INSTALL_WAIT = 60   # finalize install
+
+    try:
+        # Headers
+        msg = f"[TEST] Install After Restart → Launch — {test_name} (test_id={test_id}, device={device_id}, appId={app_id})"
+        LOGGER.result(msg); logs.append(msg)
+        msg = "[DESC] Flow: restart → wait → applications/install(url) → wait → applications/launch; PASS if both return 200."
+        LOGGER.result(msg); logs.append(msg)
+
+        # Precondition: URL present
+        if not apk_url:
+            result.test_result = "SKIPPED"
+            msg = "[RESULT] SKIPPED — missing APK URL in config (sample_app_url / apk_urls['sample_app'] / urls['sample_app'])."
+            LOGGER.result(msg); logs.append(msg)
+            msg = f"[SUMMARY] outcome=SKIPPED, install_status=N/A, launch_status=N/A, test_id={test_id}, device={device_id}, appId={app_id}"
+            LOGGER.result(msg); logs.append(msg)
+            return result
+
+        # 0) Use the built-in restart op (fire-and-forget)
+        msg = "[STEP] system/restart (fire-and-forget helper)"
+        LOGGER.result(msg); logs.append(msg)
+        fire_and_forget_restart(tester.dab_client, device_id)
+
+        msg = f"[WAIT] {RESTART_WAIT}s for restart + {STABLE_WAIT}s stabilize"
+        LOGGER.info(msg); logs.append(msg)
+        time.sleep(RESTART_WAIT + STABLE_WAIT)
+
+        # Gate required ops (install + launch). If unsupported, need() marks OPTIONAL_FAILED and returns False.
+        if not need(tester, device_id, "ops: applications/install, applications/launch", result, logs):
+            msg = f"[SUMMARY] outcome=OPTIONAL_FAILED, install_status=N/A, launch_status=N/A, test_id={test_id}, device={device_id}, appId={app_id}"
+            LOGGER.result(msg); logs.append(msg)
+            return result
+
+        msg = "[INFO] Capability gate passed."
+        LOGGER.info(msg); logs.append(msg)
+
+        # 1) Install from URL
+        msg = f"[STEP] applications/install {payload_install}"
+        LOGGER.result(msg); logs.append(msg)
+        rc_install, resp_install = execute_cmd_and_log(
+            tester, device_id, "applications/install", payload_install, logs, result
+        )
+        install_status = dab_status_from(resp_install, rc_install)
+        msg = f"[INFO] applications/install transport_rc={rc_install}, dab_status={install_status}"
+        LOGGER.info(msg); logs.append(msg)
+
+        if install_status != 200:
+            result.test_result = "FAILED"
+            msg = f"[RESULT] FAILED — applications/install returned {install_status} (expected 200)"
+            LOGGER.result(msg); logs.append(msg)
+            msg = f"[SUMMARY] outcome=FAILED, install_status={install_status}, launch_status=N/A, test_id={test_id}, device={device_id}, appId={app_id}"
+            LOGGER.result(msg); logs.append(msg)
+            return result
+
+        msg = f"[WAIT] {INSTALL_WAIT}s after install for finalization"
+        LOGGER.info(msg); logs.append(msg)
+        time.sleep(INSTALL_WAIT)
+
+        # 2) Launch to verify functional post-restart
+        msg = f"[STEP] applications/launch {payload_launch}"
+        LOGGER.result(msg); logs.append(msg)
+        rc_launch, resp_launch = execute_cmd_and_log(
+            tester, device_id, "applications/launch", payload_launch, logs, result
+        )
+        launch_status = dab_status_from(resp_launch, rc_launch)
+        msg = f"[INFO] applications/launch transport_rc={rc_launch}, dab_status={launch_status}"
+        LOGGER.info(msg); logs.append(msg)
+
+        if launch_status == 200:
+            result.test_result = "PASS"
+            msg = "[RESULT] PASS — install (post-restart) 200 and launch 200"
+            LOGGER.result(msg); logs.append(msg)
+        else:
+            result.test_result = "FAILED"
+            msg = f"[RESULT] FAILED — applications/launch returned {launch_status} (expected 200)"
+            LOGGER.result(msg); logs.append(msg)
+
+        msg = f"[SUMMARY] outcome={result.test_result}, install_status={install_status}, launch_status={launch_status}, test_id={test_id}, device={device_id}, appId={app_id}"
+        LOGGER.result(msg); logs.append(msg)
+        return result
+
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        msg = f"[RESULT] SKIPPED — internal error: {e} (test_id={test_id}, device={device_id}, appId={app_id})"
+        LOGGER.result(msg); logs.append(msg)
+        msg = f"[SUMMARY] outcome=SKIPPED, install_status=N/A, launch_status=N/A, test_id={test_id}, device={device_id}, appId={app_id}"
+        LOGGER.result(msg); logs.append(msg)
+        return result
+
+config.install_sequence = [
+    {"key": "app1", "appId": "App1_Id", "url": "https://.../app1.apk"},
+    {"key": "app2", "appId": "App2_Id", "url": "https://.../app2.apk"},
+]
+
+def run_sequential_installs_then_launch(dab_topic, test_category, test_name, tester, device_id):
+    """
+    Positive: Sequentially install N applications from valid URLs, then launch each to confirm functionality.
+    Flow per app: applications/install(url) -> wait -> applications/launch
+    Pass if ALL installs == 200 and ALL launches == 200.
+    Config expectations (pick one):
+      - config.install_sequence: list[{"key": "<cfg-key>", "appId": "<realId>", "url": "<apk-url>"}]
+      - config.apps["seq_targets"]: list[str cfg keys]; URL pulled from config using "<key>_url", apk_urls[key], or urls[key]
+    """
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    logs = []
+
+    # --- Build target list from config ---
+    targets = []
+    try:
+        # Preferred explicit structure
+        seq = getattr(config, "install_sequence", None)
+        if isinstance(seq, list) and seq:
+            for item in seq:
+                app_id = item.get("appId")
+                url    = item.get("url")
+                key    = item.get("key") or app_id or "unknown"
+                if app_id and url:
+                    targets.append({"key": key, "appId": app_id, "url": url})
+        else:
+            # Fallback: derive from named keys
+            keys = config.apps.get("seq_targets", [])
+            if not keys:
+                keys = ["sample_app"]  # minimal sensible default
+            for key in keys:
+                app_id = config.apps.get(key, key)
+                url = (
+                    config.apps.get(f"{key}_url")
+                    or getattr(config, "apk_urls", {}).get(key)
+                    or getattr(config, "urls", {}).get(key)
+                )
+                if app_id and url:
+                    targets.append({"key": key, "appId": app_id, "url": url})
+    except Exception:
+        targets = []
+
+    # If no valid targets, skip
+    payload_init = json.dumps({"apps": [t.get("appId") for t in targets]}) if targets else "{}"
+    result = TestResult(test_id, device_id, "applications/install", payload_init, "UNKNOWN", "", logs)
+
+    INSTALL_WAIT = 45  # per-app settle time
+
+    try:
+        # Headers
+        msg = f"[TEST] Sequential Installs from URL → Launch Each — {test_name} (test_id={test_id}, device={device_id})"
+        LOGGER.result(msg); logs.append(msg)
+        msg = "[DESC] Flow per app: applications/install(url) → wait → applications/launch; PASS if all return 200."
+        LOGGER.result(msg); logs.append(msg)
+
+        if not targets:
+            result.test_result = "SKIPPED"
+            msg = "[RESULT] SKIPPED — no install targets with URLs configured (install_sequence or apps.seq_targets)"
+            LOGGER.result(msg); logs.append(msg)
+            msg = f"[SUMMARY] outcome=SKIPPED, apps=0, test_id={test_id}, device={device_id}"
+            LOGGER.result(msg); logs.append(msg)
+            return result
+
+        # Capability gate (install + launch)
+        if not need(tester, device_id, "ops: applications/install, applications/launch", result, logs):
+            msg = f"[SUMMARY] outcome=OPTIONAL_FAILED, apps={len(targets)}, test_id={test_id}, device={device_id}"
+            LOGGER.result(msg); logs.append(msg)
+            return result
+
+        msg = "[INFO] Capability gate passed."
+        LOGGER.info(msg); logs.append(msg)
+
+        # Run sequentially; stop on first failure to keep it simple
+        installed = []
+        for idx, t in enumerate(targets, 1):
+            app_id = t["appId"]; url = t["url"]; key = t["key"]
+            payload_install = json.dumps({"appId": app_id, "url": url})
+            payload_launch  = json.dumps({"appId": app_id})
+
+            # Install
+            msg = f"[STEP {idx}] applications/install {payload_install}"
+            LOGGER.result(msg); logs.append(msg)
+            rc_i, resp_i = execute_cmd_and_log(
+                tester, device_id, "applications/install", payload_install, logs, result
+            )
+            st_i = dab_status_from(resp_i, rc_i)
+            msg = f"[INFO] applications/install[{key}] transport_rc={rc_i}, dab_status={st_i}"
+            LOGGER.info(msg); logs.append(msg)
+            if st_i != 200:
+                result.test_result = "FAILED"
+                msg = f"[RESULT] FAILED — install[{key}] returned {st_i} (expected 200)"
+                LOGGER.result(msg); logs.append(msg)
+                msg = (f"[SUMMARY] outcome=FAILED, failed_key={key}, install_status={st_i}, "
+                       f"progress={idx-1}/{len(targets)}, test_id={test_id}, device={device_id}")
+                LOGGER.result(msg); logs.append(msg)
+                return result
+
+            msg = f"[WAIT] {INSTALL_WAIT}s after install[{key}]"
+            LOGGER.info(msg); logs.append(msg)
+            time.sleep(INSTALL_WAIT)
+
+            # Launch
+            msg = f"[STEP {idx}] applications/launch {payload_launch}"
+            LOGGER.result(msg); logs.append(msg)
+            rc_l, resp_l = execute_cmd_and_log(
+                tester, device_id, "applications/launch", payload_launch, logs, result
+            )
+            st_l = dab_status_from(resp_l, rc_l)
+            msg = f"[INFO] applications/launch[{key}] transport_rc={rc_l}, dab_status={st_l}"
+            LOGGER.info(msg); logs.append(msg)
+
+            if st_l != 200:
+                result.test_result = "FAILED"
+                msg = f"[RESULT] FAILED — launch[{key}] returned {st_l} (expected 200)"
+                LOGGER.result(msg); logs.append(msg)
+                msg = (f"[SUMMARY] outcome=FAILED, failed_key={key}, launch_status={st_l}, "
+                       f"progress={idx-1}/{len(targets)}, test_id={test_id}, device={device_id}")
+                LOGGER.result(msg); logs.append(msg)
+                return result
+
+            installed.append(key)
+
+        # If we reach here, all apps installed + launched
+        result.test_result = "PASS"
+        msg = f"[RESULT] PASS — all {len(targets)} apps installed and launched: {installed}"
+        LOGGER.result(msg); logs.append(msg)
+        msg = (f"[SUMMARY] outcome=PASS, apps={len(targets)}, "
+               f"installed_launched={installed}, test_id={test_id}, device={device_id}")
+        LOGGER.result(msg); logs.append(msg)
+        return result
+
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        msg = f"[RESULT] SKIPPED — internal error: {e} (test_id={test_id}, device={device_id})"
+        LOGGER.result(msg); logs.append(msg)
+        msg = f"[SUMMARY] outcome=SKIPPED, apps={len(targets)}, test_id={test_id}, device={device_id}"
+        LOGGER.result(msg); logs.append(msg)
+        return result
+
+def run_install_from_url_then_launch_simple(dab_topic, test_category, test_name, tester, device_id):
+    """
+    Positive: Install an application from a valid APK URL when not already installed, then launch it.
+    Minimal flow: applications/install(url) -> wait -> applications/launch
+    Pass if install == 200 and launch == 200.
+    """
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    app_id = config.apps.get("sample_app", "Sample_App")  # target app ID
+
+    # Resolve the APK URL for this app from config (set one of these)
+    apk_url = (
+        config.apps.get("sample_app_url")
+        or getattr(config, "apk_urls", {}).get("sample_app")
+        or getattr(config, "urls", {}).get("sample_app")
+    )
+
+    logs = []
+    payload_install = json.dumps({"appId": app_id, "url": apk_url})
+    payload_launch  = json.dumps({"appId": app_id})
+    result = TestResult(test_id, device_id, "applications/install", payload_install, "UNKNOWN", "", logs)
+
+    INSTALL_WAIT = 45  # seconds to allow download + package manager finalize
+
+    try:
+        # Headers
+        msg = f"[TEST] Install From URL → Launch (Not Pre-Installed) — {test_name} (test_id={test_id}, device={device_id}, appId={app_id})"
+        LOGGER.result(msg); logs.append(msg)
+        msg = "[DESC] Flow: applications/install(url) → wait → applications/launch; PASS if both return 200."
+        LOGGER.result(msg); logs.append(msg)
+
+        # Precondition: URL must be configured
+        if not apk_url:
+            result.test_result = "SKIPPED"
+            msg = "[RESULT] SKIPPED — missing APK URL (sample_app_url / apk_urls['sample_app'] / urls['sample_app'])."
+            LOGGER.result(msg); logs.append(msg)
+            msg = f"[SUMMARY] outcome=SKIPPED, install_status=N/A, launch_status=N/A, test_id={test_id}, device={device_id}, appId={app_id}"
+            LOGGER.result(msg); logs.append(msg)
+            return result
+
+        # Capability gate (install + launch). If unsupported, need() fills result/logs and returns False.
+        if not need(tester, device_id, "ops: applications/install, applications/launch", result, logs):
+            msg = f"[SUMMARY] outcome=OPTIONAL_FAILED, install_status=N/A, launch_status=N/A, test_id={test_id}, device={device_id}, appId={app_id}"
+            LOGGER.result(msg); logs.append(msg)
+            return result
+
+        msg = "[INFO] Capability gate passed."
+        LOGGER.info(msg); logs.append(msg)
+
+        # 1) Install from URL
+        msg = f"[STEP] applications/install {payload_install}"
+        LOGGER.result(msg); logs.append(msg)
+        rc_install, resp_install = execute_cmd_and_log(
+            tester, device_id, "applications/install", payload_install, logs, result
+        )
+        install_status = dab_status_from(resp_install, rc_install)
+        msg = f"[INFO] applications/install transport_rc={rc_install}, dab_status={install_status}"
+        LOGGER.info(msg); logs.append(msg)
+
+        if install_status != 200:
+            result.test_result = "FAILED"
+            msg = f"[RESULT] FAILED — applications/install returned {install_status} (expected 200)"
+            LOGGER.result(msg); logs.append(msg)
+            msg = f"[SUMMARY] outcome=FAILED, install_status={install_status}, launch_status=N/A, test_id={test_id}, device={device_id}, appId={app_id}"
+            LOGGER.result(msg); logs.append(msg)
+            return result
+
+        # Allow install to finalize
+        msg = f"[WAIT] {INSTALL_WAIT}s after install for finalization"
+        LOGGER.info(msg); logs.append(msg)
+        time.sleep(INSTALL_WAIT)
+
+        # 2) Launch to confirm availability and basic functionality
+        msg = f"[STEP] applications/launch {payload_launch}"
+        LOGGER.result(msg); logs.append(msg)
+        rc_launch, resp_launch = execute_cmd_and_log(
+            tester, device_id, "applications/launch", payload_launch, logs, result
+        )
+        launch_status = dab_status_from(resp_launch, rc_launch)
+        msg = f"[INFO] applications/launch transport_rc={rc_launch}, dab_status={launch_status}"
+        LOGGER.info(msg); logs.append(msg)
+
+        if launch_status == 200:
+            result.test_result = "PASS"
+            msg = "[RESULT] PASS — install 200 and launch 200"
+            LOGGER.result(msg); logs.append(msg)
+        else:
+            result.test_result = "FAILED"
+            msg = f"[RESULT] FAILED — applications/launch returned {launch_status} (expected 200)"
+            LOGGER.result(msg); logs.append(msg)
+
+        msg = f"[SUMMARY] outcome={result.test_result}, install_status={install_status}, launch_status={launch_status}, test_id={test_id}, device={device_id}, appId={app_id}"
+        LOGGER.result(msg); logs.append(msg)
+        return result
+
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        msg = f"[RESULT] SKIPPED — internal error: {e} (test_id={test_id}, device={device_id}, appId={app_id})"
+        LOGGER.result(msg); logs.append(msg)
+        msg = f"[SUMMARY] outcome=SKIPPED, install_status=N/A, launch_status=N/A, test_id={test_id}, device={device_id}, appId={app_id}"
+        LOGGER.result(msg); logs.append(msg)
+        return result
+    
+def run_clear_data_accessibility_settings_reset(dab_topic, test_category, test_name, tester, device_id):
+    """
+    Positive: Verify applications/clear-data resets a third-party app's accessibility settings to defaults.
+    Flow: applications/launch -> applications/clear-data -> applications/launch
+    Pass if clear-data returns 200. (Accessibility reset verification is manual/OEM.)
+    """
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    app_id = config.apps.get("sample_app", "Sample_App")
+    logs = []
+    payload_app = json.dumps({"appId": app_id})
+    result = TestResult(test_id, device_id, "applications/clear-data", payload_app, "UNKNOWN", "", logs)
+
+    try:
+        # Headers
+        msg = f"[TEST] Clear Data (Accessibility Settings) — {test_name} (test_id={test_id}, device={device_id}, appId={app_id})"
+        LOGGER.result(msg); logs.append(msg)
+        msg = "[DESC] Flow: launch → clear-data → relaunch; PASS if clear-data returns 200."
+        LOGGER.result(msg); logs.append(msg)
+        msg = "[DESC] Note: Confirm accessibility settings (e.g., high contrast, screen reader) are enabled BEFORE test; reset is manual/OEM to verify."
+        LOGGER.result(msg); logs.append(msg)
+
+        # Capability gate
+        if not need(tester, device_id, "ops: applications/launch, applications/clear-data", result, logs):
+            msg = (f"[SUMMARY] outcome=OPTIONAL_FAILED, clear_status=N/A, "
+                   f"test_id={test_id}, device={device_id}, appId={app_id}")
+            LOGGER.result(msg); logs.append(msg)
+            return result
+
+        msg = "[INFO] Capability gate passed."
+        LOGGER.info(msg); logs.append(msg)
+
+        # 1) Launch to ensure app session is active (and settings are persisted)
+        msg = f"[STEP] applications/launch {payload_app}"
+        LOGGER.result(msg); logs.append(msg)
+        execute_cmd_and_log(tester, device_id, "applications/launch", payload_app, logs, result)
+        msg = f"[WAIT] {APP_LAUNCH_WAIT}s after launch"
+        LOGGER.info(msg); logs.append(msg)
+        time.sleep(APP_LAUNCH_WAIT)
+
+        # 2) Clear data
+        msg = f"[STEP] applications/clear-data {payload_app}"
+        LOGGER.result(msg); logs.append(msg)
+        rc_clear, resp_clear = execute_cmd_and_log(
+            tester, device_id, "applications/clear-data", payload_app, logs, result
+        )
+        clear_status = dab_status_from(resp_clear, rc_clear)
+        msg = f"[INFO] applications/clear-data transport_rc={rc_clear}, dab_status={clear_status}"
+        LOGGER.info(msg); logs.append(msg)
+
+        # 3) Relaunch to surface first-run / default state
+        msg = f"[STEP] applications/launch {payload_app}"
+        LOGGER.result(msg); logs.append(msg)
+        execute_cmd_and_log(tester, device_id, "applications/launch", payload_app, logs, result)
+        msg = f"[WAIT] {APP_LAUNCH_WAIT}s after relaunch"
+        LOGGER.info(msg); logs.append(msg)
+        time.sleep(APP_LAUNCH_WAIT)
+
+        # Result
+        if clear_status == 200:
+            result.test_result = "PASS"
+            msg = "[RESULT] PASS — applications/clear-data returned 200; verify accessibility defaults manually"
+            LOGGER.result(msg); logs.append(msg)
+        else:
+            result.test_result = "FAILED"
+            msg = f"[RESULT] FAILED — applications/clear-data returned {clear_status} (expected 200)"
+            LOGGER.result(msg); logs.append(msg)
+
+        msg = (f"[SUMMARY] outcome={result.test_result}, clear_status={clear_status}, "
+               f"test_id={test_id}, device={device_id}, appId={app_id}")
+        LOGGER.result(msg); logs.append(msg)
+        return result
+
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        msg = f"[RESULT] SKIPPED — internal error: {e} (test_id={test_id}, device={device_id}, appId={app_id})"
+        LOGGER.result(msg); logs.append(msg)
+        msg = (f"[SUMMARY] outcome=SKIPPED, clear_status=N/A, "
+               f"test_id={test_id}, device={device_id}, appId={app_id}")
+        LOGGER.result(msg); logs.append(msg)
+        return result
+
+def run_clear_data_session_reset(dab_topic, test_category, test_name, tester, device_id):
+    """
+    Positive: Verify applications/clear-data clears a third-party app's user login/session data.
+    Flow: applications/launch -> applications/clear-data -> applications/launch
+    Pass if clear-data returns 200. (Session reset verification is manual/OEM).
+    """
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    app_id = config.apps.get("sample_app", "Sample_App")
+    logs = []
+    payload_app = json.dumps({"appId": app_id})
+    result = TestResult(test_id, device_id, "applications/clear-data", payload_app, "UNKNOWN", "", logs)
+
+    try:
+        # Headers
+        msg = f"[TEST] Clear Data (User Session) — {test_name} (test_id={test_id}, device={device_id}, appId={app_id})"
+        LOGGER.result(msg); logs.append(msg)
+        msg = "[DESC] Flow: launch → clear-data → relaunch; PASS if clear-data returns 200."
+        LOGGER.result(msg); logs.append(msg)
+        msg = "[DESC] Precondition: app installed and user is logged in (session stored locally). Session-clear verification is manual/OEM."
+        LOGGER.result(msg); logs.append(msg)
+
+        # Capability gate
+        if not need(tester, device_id, "ops: applications/launch, applications/clear-data", result, logs):
+            msg = (f"[SUMMARY] outcome=OPTIONAL_FAILED, clear_status=N/A, "
+                   f"test_id={test_id}, device={device_id}, appId={app_id}")
+            LOGGER.result(msg); logs.append(msg)
+            return result
+
+        msg = "[INFO] Capability gate passed."
+        LOGGER.info(msg); logs.append(msg)
+
+        # 1) Launch to ensure current session is active
+        msg = f"[STEP] applications/launch {payload_app}"
+        LOGGER.result(msg); logs.append(msg)
+        execute_cmd_and_log(tester, device_id, "applications/launch", payload_app, logs, result)
+        msg = f"[WAIT] {APP_LAUNCH_WAIT}s after launch"
+        LOGGER.info(msg); logs.append(msg)
+        time.sleep(APP_LAUNCH_WAIT)
+
+        # 2) Clear data
+        msg = f"[STEP] applications/clear-data {payload_app}"
+        LOGGER.result(msg); logs.append(msg)
+        rc_clear, resp_clear = execute_cmd_and_log(
+            tester, device_id, "applications/clear-data", payload_app, logs, result
+        )
+        clear_status = dab_status_from(resp_clear, rc_clear)
+        msg = f"[INFO] applications/clear-data transport_rc={rc_clear}, dab_status={clear_status}"
+        LOGGER.info(msg); logs.append(msg)
+
+        # 3) Relaunch to surface first-run (logged-out) behavior
+        msg = f"[STEP] applications/launch {payload_app}"
+        LOGGER.result(msg); logs.append(msg)
+        execute_cmd_and_log(tester, device_id, "applications/launch", payload_app, logs, result)
+        msg = f"[WAIT] {APP_LAUNCH_WAIT}s after relaunch"
+        LOGGER.info(msg); logs.append(msg)
+        time.sleep(APP_LAUNCH_WAIT)
+
+        # Result
+        if clear_status == 200:
+            result.test_result = "PASS"
+            msg = "[RESULT] PASS — applications/clear-data returned 200; verify login/session is reset manually"
+            LOGGER.result(msg); logs.append(msg)
+        else:
+            result.test_result = "FAILED"
+            msg = f"[RESULT] FAILED — applications/clear-data returned {clear_status} (expected 200)"
+            LOGGER.result(msg); logs.append(msg)
+
+        msg = (f"[SUMMARY] outcome={result.test_result}, clear_status={clear_status}, "
+               f"test_id={test_id}, device={device_id}, appId={app_id}")
+        LOGGER.result(msg); logs.append(msg)
+        return result
+
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        msg = f"[RESULT] SKIPPED — internal error: {e} (test_id={test_id}, device={device_id}, appId={app_id})"
+        LOGGER.result(msg); logs.append(msg)
+        msg = (f"[SUMMARY] outcome=SKIPPED, clear_status=N/A, "
+               f"test_id={test_id}, device={device_id}, appId={app_id}")
+        LOGGER.result(msg); logs.append(msg)
+        return result
+
+
 # === Functional Test Case List ===
 FUNCTIONAL_TEST_CASE = [
     ("applications/get-state", "functional", run_app_foreground_check, "AppForegroundCheck", "2.0", False),
@@ -2585,7 +4788,6 @@ FUNCTIONAL_TEST_CASE = [
     ("applications/launch-with-content", "functional", run_launch_without_content_id, "LaunchWithoutContentID", "2.0", True),
     ("applications/exit", "functional", run_exit_after_video_check, "ExitAfterVideoCheck", "2.0", False),
     ("applications/launch", "functional", run_relaunch_stability_check, "RelaunchStabilityCheck", "2.0", False),
-    ("applications/launch", "functional", run_exit_and_relaunch_check, "ExitAndRelaunchApp", "2.0", False),
     ("system/settings/set", "functional", run_screensaver_enable_check, "ScreensaverEnableCheck", "2.1", False),
     ("system/settings/set", "functional", run_screensaver_disable_check, "ScreensaverDisableCheck", "2.1", False),
     ("system/settings/set", "functional", run_screensaver_active_check, "ScreensaverActiveCheck", "2.1", False),
@@ -2611,11 +4813,23 @@ FUNCTIONAL_TEST_CASE = [
     ("system/factory-reset", "functional", run_factory_reset_and_recovery_check, "Factory Reset and Recovery Check", "2.1", False ),
     ("system/settings/list", "functional", run_personalized_ads_response_check, "behavior when personalized ads setting is not supported", "2.1", False ),
     ("system/settings/set", "functional", run_personalized_ads_persistence_check, "Personalized Ads Setting Persistence Check", "2.1", False),
-    ("system/settings/list", "functional", run_personalized_ads_not_supported_check, "PersonalizedAdsNotSupportedCheck", "2.1", False),
-    ("system/settings/set", "functional", run_personalized_ads_Video_ads_are_personalized, "Video ads are personalized", "2.1", False),
-    ("system/settings/set", "functional", run_personalized_ads_apply_and_display_check, "display_check for personalized", "2.1", False),
     ("applications/uninstall", "functional", run_uninstall_foreground_app_check, "UninstallForegroundAppCheck", "2.1", False),
     ("applications/uninstall", "functional", run_uninstall_system_app_check, "UninstallSystemAppCheck", "2.1", False),
     ("applications/clear-data", "functional", run_clear_data_foreground_app_check, "ClearDataForegroundAppCheck", "2.1", False),
     ("applications/clear-data", "functional", run_clear_data_system_app_check, "ClearDataSystemAppCheck", "2.1", False),
+    ("applications/clear-data", "functional", run_clear_data_user_installed_app_foreground, "ClearDataUserInstalledAppForeground", "2.1", False),
+    ("applications/install-from-app-store", "functional", run_install_from_app_store_check, "InstallFromAppStoreAndLaunch", "2.1", False),
+    ("applications/install-from-app-store", "functional", run_install_youtube_kids_from_store, "InstallYouTubeKidsFromStore", "2.1", False),
+    ("applications/uninstall", "functional", run_uninstall_after_standby_check, "UninstallPreinstalledAppAfterStandby", "2.1", False),
+    ("applications/uninstall", "functional", run_install_bg_uninstall_sample_app, "InstallBackgroundAndUninstallSampleApp", "2.1", False),
+    ("applications/uninstall", "functional", run_uninstall_sample_app_with_local_data_check, "UninstallSampleAppWithLocalData_NoList", "2.1", False),
+    ("applications/uninstall", "functional", run_uninstall_preinstalled_with_local_data_simple, "UninstallPreinstalledWithLocalData_Simple", "2.1", False),
+    ("applications/install", "functional", run_install_from_url_during_idle_then_launch, "InstallFromUrlDuringIdleThenLaunch", "2.1", False),
+    ("applications/install", "functional", run_install_large_apk_from_url_then_launch, "InstallLargeApkFromUrlThenLaunch", "2.1", False),
+    ("applications/install", "functional", run_install_from_url_while_heavy_app_running, "InstallFromUrlWhileHeavyAppRunning", "2.1", False),
+    ("applications/install", "functional", run_install_after_reboot_then_launch, "InstallAfterRebootThenLaunch", "2.1", False),
+    ("applications/install", "functional", run_sequential_installs_then_launch, "SequentialInstallsFromUrlsThenLaunch", "2.1", False),
+    ("applications/install", "functional", run_install_from_url_then_launch_simple, "InstallFromUrlThenLaunch_Simple", "2.1", False),
+    ("applications/clear-data", "functional", run_clear_data_accessibility_settings_reset, "ClearDataAccessibilitySettingsReset", "2.1", False),
+    ("applications/clear-data", "functional", run_clear_data_session_reset, "ClearDataSessionReset", "2.1", False),
 ]

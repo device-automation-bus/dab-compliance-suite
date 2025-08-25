@@ -157,9 +157,10 @@ install_application_response_schema = {
     "properties": {
         "status": {"type": "integer"},
         "error": {"type": "string"},
-        "state": {"type": "string"}
+        "message": {"type": "string"},
+        "details": {"type": "object"},
     },
-    "required": ["status", "state"]
+    "required": ["status"],
 }
 
 # UninstallApplicationRequest
@@ -177,9 +178,10 @@ uninstall_application_response_schema = {
     "properties": {
         "status": {"type": "integer"},
         "error": {"type": "string"},
-        "state": {"type": "string"}
+        "message": {"type": "string"},
+        "details": {"type": "object"},
     },
-    "required": ["status", "state"]
+    "required": ["status"],
 }
 # Clear_dataApplicationRequest
 clear_data_application_request_schema = {
@@ -196,9 +198,10 @@ clear_data_application_response_schema = {
     "properties": {
         "status": {"type": "integer"},
         "error": {"type": "string"},
-        "state": {"type": "string"}
+        "message": {"type": "string"},
+        "details": {"type": "object"},
     },
-    "required": ["status", "state"]
+    "required": ["status"],
 }
 # InstallFromAppstoreApplicationRequest
 install_from_appstore_application_request_schema = {
@@ -215,9 +218,10 @@ install_from_appstore_application_response_schema = {
     "properties": {
         "status": {"type": "integer"},
         "error": {"type": "string"},
-        "state": {"type": "string"}
+        "message": {"type": "string"},
+        "details": {"type": "object"},
     },
-    "required": ["status", "state"]
+    "required": ["status"],
 }
 
 # Operation: device/info
