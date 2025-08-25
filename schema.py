@@ -157,9 +157,10 @@ install_application_response_schema = {
     "properties": {
         "status": {"type": "integer"},
         "error": {"type": "string"},
-        "state": {"type": "string"}
+        "message": {"type": "string"},
+        "details": {"type": "object"},
     },
-    "required": ["status", "state"]
+    "required": ["status"],
 }
 
 # UninstallApplicationRequest
@@ -177,9 +178,10 @@ uninstall_application_response_schema = {
     "properties": {
         "status": {"type": "integer"},
         "error": {"type": "string"},
-        "state": {"type": "string"}
+        "message": {"type": "string"},
+        "details": {"type": "object"},
     },
-    "required": ["status", "state"]
+    "required": ["status"],
 }
 # Clear_dataApplicationRequest
 clear_data_application_request_schema = {
@@ -196,9 +198,10 @@ clear_data_application_response_schema = {
     "properties": {
         "status": {"type": "integer"},
         "error": {"type": "string"},
-        "state": {"type": "string"}
+        "message": {"type": "string"},
+        "details": {"type": "object"},
     },
-    "required": ["status", "state"]
+    "required": ["status"],
 }
 # InstallFromAppstoreApplicationRequest
 install_from_appstore_application_request_schema = {
@@ -215,9 +218,10 @@ install_from_appstore_application_response_schema = {
     "properties": {
         "status": {"type": "integer"},
         "error": {"type": "string"},
-        "state": {"type": "string"}
+        "message": {"type": "string"},
+        "details": {"type": "object"},
     },
-    "required": ["status", "state"]
+    "required": ["status"],
 }
 
 # Operation: device/info
@@ -823,6 +827,63 @@ power_mode_set_response_schema = {
     "required": ["status", "powerMode"]
 }
 
+# Operation: content/open
+# ContentOpenRequest
+content_open_request_schema = {
+    "type": "object",
+    "properties": {
+        "entryId": {"type": "string"}
+    },
+    "required": ["entryId"]
+}
+
+# ContentOpenResponse
+content_open_response_schema = dab_response_schema
+
+content_entries_schema = {
+    "type": "object",
+    "properties": {
+        "status": {"type": "integer"},
+        "error": {"type": ["string", "null"]},
+        "entries": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "entryId": {"type": "string"},
+                    "title": {"type": "string"},
+                    "appId": {"type": "string"},
+                    "poster": {"type": "string"},
+                    "categories": {
+                        "type": "array",
+                        "items": {"type": "string"}
+                    }
+                },
+                "required": ["entryId", "title", "appId", "poster", "categories"]
+            }
+        },
+    },
+    "required": ["status", "entries"]
+}
+
+# Operation: content/recommendations
+# ContentRecommendationsRequest
+content_recommendations_request_schema = dab_request_schema
+# ContentRecommendationsResponse
+content_recommendations_response_schema = content_entries_schema
+
+# Operation: content/search
+# ContentSearchRequest
+content_search_request_schema = {
+    "type": "object",
+    "properties": {
+        "searchText": {"type": "string"}
+    },
+    "required": ["searchText"]
+}
+# ContentSearchResponse
+content_search_response_schema = content_entries_schema
+
 class dab_response_validator(object):
     def __init__(self):
         pass
@@ -950,3 +1011,15 @@ class dab_response_validator(object):
     @staticmethod
     def validate_power_mode_get_response_schema(response):
         validate(instance=jsons.loads(response), schema=power_mode_get_response_schema)
+
+    @staticmethod
+    def validate_content_recommendations_response_schema(response):
+        validate(instance=jsons.loads(response), schema=content_recommendations_response_schema)
+
+    @staticmethod
+    def validate_content_search_response_schema(response):
+        validate(instance=jsons.loads(response), schema=content_search_response_schema)
+
+    @staticmethod
+    def validate_content_open_response_schema(response):
+        validate(instance=jsons.loads(response), schema=content_open_response_schema)

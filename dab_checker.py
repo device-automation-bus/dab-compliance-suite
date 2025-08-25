@@ -4,18 +4,29 @@ from util.enforcement_manager import EnforcementManager
 from util.enforcement_manager import ValidateCode
 from time import sleep
 import json
+from logger import LOGGER  # <— use the shared singleton logger
 
 class DabChecker:
     def __init__(self, dab_tester):
         self.dab_tester = dab_tester
+        self.logger = LOGGER
 
     def __execute_cmd(self, device_id, dab_topic, dab_body):
+        # verbose detail about the command being sent
+        self.logger.info(f"Sending request to '{dab_topic}' for device '{device_id}'.")
         code = self.dab_tester.execute_cmd(device_id, dab_topic, dab_body)
         dab_response = self.dab_tester.dab_client.response()
         if code == 0:
-            response = json.loads(dab_response)
+            self.logger.ok(f"Received a valid response from '{dab_topic}'.")
+            try:
+                response = json.loads(dab_response)
+            except Exception as e:
+                self.logger.warn(f"Response payload from '{dab_topic}' was not valid JSON: {e}")
+                return None
             return response
         else:
+            err = self.dab_tester.dab_client.last_error_code()
+            self.logger.warn(f"No valid response from '{dab_topic}'. Error code: {err}")
             return None
 
     def is_operation_supported(self, device_id, operation):
@@ -24,12 +35,14 @@ class DabChecker:
         if not EnforcementManager().get_supported_operations():
             dab_precheck_topic = "operations/list"
             dab_precheck_body = "{}"
-            print(f"\nTry to get supported DAB operation list...\n")
+            # print(f"\nTry to get supported DAB operation list...\n")
+            self.logger.info("Fetching the list of supported DAB operations from the device.")
             dab_response = self.__execute_cmd(device_id, dab_precheck_topic, dab_precheck_body)
             operations = dab_response['operations'] if dab_response is not None else None
             EnforcementManager().add_supported_operations(operations)
 
         if not EnforcementManager().get_supported_operations():
+            # rely on caller to emit prechecker_log as a result line
             return validate_code, prechecker_log
 
         if EnforcementManager().is_operation_supported(operation):
@@ -39,7 +52,8 @@ class DabChecker:
             validate_code = ValidateCode.UNSUPPORT
             prechecker_log = f"\n{operation} is NOT supported on this device. Ongoing...\n"
 
-        print(prechecker_log)
+        # print(prechecker_log)
+        # the caller will print/store this via its own result logger
         return validate_code, prechecker_log
 
     def precheck(self, device_id, dab_request_topic, dab_request_body):
@@ -89,7 +103,8 @@ class DabChecker:
         prechecker_log = f"\nsystem settings set {request_key} is uncertain whether it is supported on this device. Ongoing...\n"
 
         if EnforcementManager().check_supported_settings() == False:
-            print(f"\nTry to get system supported settings list...\n")
+            # print(f"\nTry to get system supported settings list...\n")
+            self.logger.info("Fetching the list of supported system settings from the device.")
             dab_response = self.__execute_cmd(device_id, dab_precheck_topic, dab_precheck_body)
             EnforcementManager().set_supported_settings(dab_response)
 
@@ -114,7 +129,8 @@ class DabChecker:
         prechecker_log = f"\nvoice set {request_value['name']} is uncertain whether it is supported on this device. Ongoing...\n"
 
         if not EnforcementManager().get_supported_voice_assistants():
-            print(f"\nTry to get system supported voice system list...\n")
+            # print(f"\nTry to get system supported voice system list...\n")
+            self.logger.info("Fetching the list of supported voice systems from the device.")
             dab_response = self.__execute_cmd(device_id, dab_precheck_topic, dab_precheck_body)
 
             if not dab_response or 'voiceSystems' not in dab_response:
@@ -151,7 +167,8 @@ class DabChecker:
             prechecker_log = f"\nvoice system {request_voice_system} is enabled on this device. Ongoing...\n"
             return validate_code, prechecker_log
 
-        print(f"\nvoice system {request_voice_system} is disabled on this device. Try to enable...")
+        # print(f"\nvoice system {request_voice_system} is disabled on this device. Try to enable...")
+        self.logger.info(f"Voice system '{request_voice_system}' is disabled. Attempting to enable it for this test.")
 
         dab_precheck_topic = "voice/set"
         voice_assistant["enabled"] = True
@@ -172,7 +189,8 @@ class DabChecker:
         dab_precheck_topic = "device-telemetry/stop"
         dab_precheck_body = "{}"
 
-        print(f"\nstop device telemetry on this device...\n")
+        # print(f"\nstop device telemetry on this device...\n")
+        self.logger.info("Stopping any existing device telemetry so the start request can be validated cleanly.")
         dab_response = self.__execute_cmd(device_id, dab_precheck_topic, dab_precheck_body)
         prechecker_log = f"\ndevice telemetry is stopped on this device. Try to start...\n"
         return ValidateCode.SUPPORT, prechecker_log
@@ -181,13 +199,15 @@ class DabChecker:
         dab_precheck_topic = "device-telemetry/start"
         dab_precheck_body = json.dumps({"duration": 1000}, indent = 4)
 
-        print(f"\nstart device telemetry on this device...\n")
+        # print(f"\nstart device telemetry on this device...\n")
+        self.logger.info("Starting device telemetry briefly to verify the stop request behaves correctly.")
         self.__execute_cmd(device_id, dab_precheck_topic, dab_precheck_body)
 
         validate_result = self.__check_telemetry_metrics(device_id)
 
         if not validate_result:
-            print(f"\ndevice telemetry is not started on this device.\n")
+            # print(f"\ndevice telemetry is not started on this device.\n")
+            self.logger.warn("Device telemetry did not appear to start.")
             prechecker_log = f"\ndevice telemetry is not started.\n"
             return ValidateCode.UNSUPPORT, prechecker_log
         else:
@@ -200,7 +220,8 @@ class DabChecker:
         appId = request_body['appId']
         dab_precheck_body = json.dumps({"appId": appId}, indent = 4)
 
-        print(f"\nstop app {appId} telemetry on this device...\n")
+        # print(f"\nstop app {appId} telemetry on this device...\n")
+        self.logger.info(f"Stopping any existing telemetry for app '{appId}' so the start request can be validated cleanly.")
         dab_response = self.__execute_cmd(device_id, dab_precheck_topic, dab_precheck_body)
         prechecker_log = f"\napp {appId} telemetry is stopped on this device. Try to start...\n"
         return ValidateCode.SUPPORT, prechecker_log
@@ -211,13 +232,15 @@ class DabChecker:
         appId = request_body['appId']
         dab_precheck_body = json.dumps({"appId": appId, "duration": 1000}, indent = 4)
 
-        print(f"\nstart app {appId} telemetry on this device...\n")
+        # print(f"\nstart app {appId} telemetry on this device...\n")
+        self.logger.info(f"Starting telemetry for app '{appId}' briefly to verify the stop request behaves correctly.")
         self.__execute_cmd(device_id, dab_precheck_topic, dab_precheck_body)
 
         validate_result = self.__check_telemetry_metrics(device_id, appId)
 
         if not validate_result:
-            print(f"\napp {appId} telemetry is not started on this device.\n")
+            # print(f"\napp {appId} telemetry is not started on this device.\n")
+            self.logger.warn(f"App '{appId}' telemetry did not appear to start.")
             prechecker_log = f"\napp {appId} telemetry is not started.\n"
             return ValidateCode.UNSUPPORT, prechecker_log
         else:
@@ -234,7 +257,8 @@ class DabChecker:
         prechecker_log = f"\n{key} is uncertain whether it is supported on this device. Ongoing...\n"
 
         if not EnforcementManager().get_supported_keys():
-            print(f"\nTry to get supported key list...\n")
+            # print(f"\nTry to get supported key list...\n")
+            self.logger.info("Fetching the list of supported input keys from the device.")
             dab_response = self.__execute_cmd(device_id, dab_precheck_topic, dab_precheck_body)
             keys = dab_response['keyCodes'] if dab_response else None
             EnforcementManager().add_supported_keys(keys)
@@ -363,7 +387,8 @@ class DabChecker:
         validate_result = self.__check_telemetry_metrics(device_id)
 
         checker_log = f"\ndevice telemetry start, Expected: True, Actual: {validate_result}\n"
-        print(f"\nstop device telemetry on this device...\n")
+        # print(f"\nstop device telemetry on this device...\n")
+        self.logger.info("Stopping device telemetry after validation.")
         dab_response = self.__execute_cmd(device_id, 'device-telemetry/stop', '{}')
         return validate_result, checker_log
 
@@ -378,7 +403,8 @@ class DabChecker:
 
         validate_result = self.__check_telemetry_metrics(device_id, appId)
         checker_log = f"\napp {appId} telemetry start, Expected: True, Actual: {validate_result}\n"
-        print(f"\nstop app {appId} telemetry on this device...\n")
+        # print(f"\nstop app {appId} telemetry on this device...\n")
+        self.logger.info(f"Stopping telemetry for app '{appId}' after validation.")
         self.__execute_cmd(device_id, 'app-telemetry/stop', json.dumps({"appId": appId}, indent = 4))
         return validate_result, checker_log
 
@@ -397,11 +423,13 @@ class DabChecker:
             dab_check_topic = "device-telemetry/metrics"
             metrics_log = f"device telemetry metrics"
 
-        print(f"\nstart {metrics_log} checking...\n")
+        # print(f"\nstart {metrics_log} checking...\n")
+        self.logger.info(f"Starting {metrics_log} check by subscribing to '{dab_check_topic}'.")
         self.dab_tester.dab_client.subscribe_metrics(device_id, dab_check_topic)
         validate_result = self.dab_tester.dab_client.last_metrics_state()
 
-        print(f"\nstop {metrics_log} checking...\n")
+        # print(f"\nstop {metrics_log} checking...\n")
+        self.logger.info(f"Stopping {metrics_log} check by unsubscribing from '{dab_check_topic}'.")
         self.dab_tester.dab_client.unsubscribe_metrics(device_id, dab_check_topic)
 
         return validate_result

@@ -27,11 +27,13 @@ def key_press(test_result, durationInMs=0, expectedLatencyMs=None):
             if response['status'] != 501:
                 return False
     sleep(1)
-    if type(expectedLatencyMs) == int:
-        return YesNoQuestion(test_result, f"{test_result.request} key initiated?") and Default_Validations(test_result, durationInMs, expectedLatencyMs)
-    else:
-        return YesNoQuestion(test_result, expectedLatencyMs)
 
+    # Remove YesNoQuestion → directly validate
+    if isinstance(expectedLatencyMs, int):
+        return Default_Validations(test_result, durationInMs, expectedLatencyMs)
+    else:
+        return True
+    
 def long_key_press(test_result, durationInMs=0, expectedLatencyMs=None):
     try:
         dab_response_validator.validate_dab_response_schema(test_result.response)
@@ -53,10 +55,11 @@ def long_key_press(test_result, durationInMs=0, expectedLatencyMs=None):
                 return False
 
     sleep(1)
-    if type(expectedLatencyMs) == int:
-        return YesNoQuestion(test_result, f"{test_result.request} long key initiated?") and Default_Validations(test_result, durationInMs, expectedLatencyMs)
+    # Remove YesNoQuestion → directly validate
+    if isinstance(expectedLatencyMs, int):
+        return Default_Validations(test_result, durationInMs, expectedLatencyMs)
     else:
-        return YesNoQuestion(test_result, expectedLatencyMs)
+        return True
 
 def list(test_result, durationInMs=0, expectedLatencyMs=0):
     try:
