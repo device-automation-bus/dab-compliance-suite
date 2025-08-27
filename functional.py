@@ -5556,9 +5556,11 @@ def run_logs_collection_check(dab_topic, test_category, test_name, tester, devic
         logs.append(f"[ERROR] {str(e)}")
         result.test_result = "SKIPPED"
 
-    EnforcementManager().delete_logs_collection_files()
-    # Print concise final test result status
-    print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+    finally:
+        EnforcementManager().delete_logs_collection_files()
+        # Print concise final test result status
+        print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+
     return result
 
 # === Test 39: Log Collection For Major System Services Check ===
@@ -5664,9 +5666,11 @@ def run_logs_collection_for_major_system_services_check(dab_topic, test_category
         logs.append(f"[ERROR] {str(e)}")
         result.test_result = "SKIPPED"
 
-    EnforcementManager().delete_logs_collection_files()
-    # Print concise final test result status
-    print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+    finally:
+        EnforcementManager().delete_logs_collection_files()
+        # Print concise final test result status
+        print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+
     return result
 
 # === Test 40: Log Collection While App Pause Check ===
@@ -5786,9 +5790,11 @@ def run_logs_collection_app_pause_check(dab_topic, test_category, test_name, tes
         logs.append(f"[ERROR] {str(e)}")
         result.test_result = "SKIPPED"
 
-    EnforcementManager().delete_logs_collection_files()
-    # Print concise final test result status
-    print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+    finally:
+        EnforcementManager().delete_logs_collection_files()
+        # Print concise final test result status
+        print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+
     return result
 
 # === Test 41: Log Collection While Background App Is Force-Stopped Check ===
@@ -5923,9 +5929,11 @@ def run_logs_collection_app_force_stop_check(dab_topic, test_category, test_name
         logs.append(f"[ERROR] {str(e)}")
         result.test_result = "SKIPPED"
 
-    EnforcementManager().delete_logs_collection_files()
-    # Print concise final test result status
-    print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+    finally:
+        EnforcementManager().delete_logs_collection_files()
+        # Print concise final test result status
+        print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+
     return result
 
 # === Test 42: Log Collection During App Uninstallation Check ===
@@ -6030,9 +6038,11 @@ def run_logs_collection_app_uninstall_check(dab_topic, test_category, test_name,
         logs.append(f"[ERROR] {str(e)}")
         result.test_result = "SKIPPED"
 
-    EnforcementManager().delete_logs_collection_files()
-    # Print concise final test result status
-    print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+    finally:
+        EnforcementManager().delete_logs_collection_files()
+        # Print concise final test result status
+        print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+
     return result
 
 # === Test 43: Log Collection While App Install And Launch Check ===
@@ -6174,9 +6184,11 @@ def run_logs_collection_app_install_and_launch_check(dab_topic, test_category, t
         logs.append(f"[ERROR] {str(e)}")
         result.test_result = "SKIPPED"
 
-    EnforcementManager().delete_logs_collection_files()
-    # Print concise final test result status
-    print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+    finally:
+        EnforcementManager().delete_logs_collection_files()
+        # Print concise final test result status
+        print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+
     return result
 
 # === Functional Test Case List ===

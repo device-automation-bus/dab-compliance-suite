@@ -6,6 +6,7 @@ import tarfile
 import json
 import os
 import shutil
+import time
 
 class Resolution:
     width: int
@@ -141,11 +142,21 @@ class EnforcementManager:
         all_logArchives = bytearray()
         validate_state = True
 
+        startTime = time.time()
         while True:
             chunkData = tester.dab_client.get_response_chunk()
+            currentTime = time.time()
             if not chunkData:
-                continue
+                if currentTime - startTime > 90:
+                    validate_state = False
+                    print(f"More than 90s without receiving logs chunk. Timeout!")
+                    logs.append(f"[FAILED] More than 90s without receiving logs chunk. Timeout!.")
+                    result.test_result = "FAILED"
+                    break
+                else:
+                    continue
 
+            startTime = currentTime
             remainingChunks = chunkData["remainingChunks"]
             if previous_remainingChunks != -1 and remainingChunks != previous_remainingChunks - 1:
                 validate_state = False
@@ -162,11 +173,17 @@ class EnforcementManager:
                     validate_state = True
                     break
 
-            if validate_state:
+        if validate_state == True:
+            try:
                 with open(LOGS_COLLECTION_PACKAGE, 'wb') as f:
                     f.write(all_logArchives)
                     print(f"Received all log chunks, and combined into log.tar.gz file.")
                     logs.append(f"Received all log chunks, and combined into log.tar.gz file.")
+            except Exception as e:
+                validate_state = False
+                print(f"[Error] Combine chunks failed: {str(e)}")
+                logs.append(f"[FAILED] Combine chunks failed: {str(e)}")
+                result.test_result = "FAILED"
 
         return validate_state, result
 
