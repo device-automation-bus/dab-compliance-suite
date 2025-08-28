@@ -1,6 +1,6 @@
 # DAB Compliance Testing Suite #
 
-This project contains tools and tests to validate Device Automation Bus 2.1 Partner implementations end-to-end.
+This project contains tools and tests for end-to-end validation of Device Automation Bus (DAB) 2.0 and 2.1 Partner implementations.
 
 ## Follow these steps to prepare and run the test suite: ##
 
@@ -25,9 +25,7 @@ Each time you push code to the 'main' branch, a version number is created automa
 
 #### What does it do? ####
 
-- The test tool reads test_version.txt.
-- The same version is added inside the test result JSON file.
-- This helps you know which version of the tool ran that test.
+- The test tool reads test_version.txt and embeds that version number in the test result JSON file. This helps you easily identify which tool version was used for a particular test.
 
 #### Why is it useful? ####
 
@@ -53,52 +51,38 @@ Please edit config.py to have the device app line up with your system settings.
 pip3 install -r requirements.txt
 ```
 
-### Automatic App Setup Instructions ###
+### Automatic App Setup Instructions  ###
 
 After extracting the DAB Compliance Test Suite, you DO NOT need to manually configure the APK or App Store URL.
 
-Just follow this single step:
+1. Run your CLI with --init
+   Example:
+   python3 main.py --init
 
-    Step 1: Run the following command
+2. Application Setup:
+   - The tool will check if Sample_App (application file) exists in config/apps/
+   - If missing, it will prompt:
+       "Full path to the application file (.apk or .apks):"
+   - Enter the absolute path to your application file.
+   - The tool will copy it into config/apps/ and rename to Sample_App.<ext>
 
-    ❯ python3 main.py -l
+3. App Store URL Setup:
+   - The tool will check if config/apps/sample_app.json exists.
+   - If missing, it will prompt:
+       "Enter App Store URL for install-from-app-store tests:"
+   - Paste the Play Store (or App Store) URL.
+   - The tool saves it into config/apps/sample_app.json
 
-#### This will automatically guide you through setup: ####
+4. Done!
+   - only need to run --init again if you want to replace applications or URLs.
 
 
-  1. Sample App APK Setup
-
-  - The tool will check if `Sample_App.apk` is available in:
-      config/apps/
-
-  - If it's missing:
-    You will be prompted to enter the path to your APK file.
-    The tool will automatically:
-      - Copy the APK to the `config/apps/` folder
-      - Rename it to `sample_app.apk` (preserving the original extension)
-
-2. App Store URL Setup
-
-  - The tool will also check if the App Store URL is saved in:
-      config/apps/sample_app.json
-
-  - If it's missing:
-    You’ll be prompted to paste the App Store URL (e.g., from Google Play)
-    This URL will be saved automatically in:
-      config/apps/sample_app.json
-
-  Example saved file:
-      ```
-      {
-        "app_url": "https://play.google.com/store/apps/details?id=com.example.sample"
-      }
-      ```
 ## Available Test Suite ##
 
   ### 1. Spec conformance Test Suite ###
 
-  Spec Conformance test checks if all DAB topic is available and the latency of each requests is within expectation. 
-  This test doesn't check on functionality or endurance. This should be the first test suite to run if you are checking your baisc implementation against DAB.
+  Spec Conformance test checks if all DAB topics are available and the latency of each request is within expectations. 
+  This test doesn't check for functionality or endurance. It should be the first test suite to run if you are checking your basic implementation against DAB.
 
   The following is command to run Spec conformance Test Suite:
   ```
@@ -106,34 +90,13 @@ Just follow this single step:
   ```
 
 
-  ### 2. Send Text/Send Audio Voice Test Suite ###
-
-  Voice functionality tests focuses on voice assisstance intergration with the platform. It go through a playback lifecycle from search to playback controls. Make sure if your device support all of these voice actions. 
-
-  The following is command to run Send Text/Send Audio Voice Test Suite
-  ```
-  ❯ python3 main.py -v -b <mqtt-broker-ip> -I <dab-device-id> -s "voice_audio"
-
-  ❯ python3 main.py -v -b <mqtt-broker-ip> -I <dab-device-id> -s "voice_text"
-  ```
-
-  ### 3. End to End Cobalt Test Suite ###
-
-  This end to end intergration test focuses on a mix of key presses and voice controls.
-
-  The following is command to run End to End Cobalt Test Suite
-
-  ```
-  ❯ python3 main.py -v -b <mqtt-broker-ip> -I <dab-device-id> -s "end_to_end_cobalt"
-  ```
-
 ## Commands ##
 
 These are the main commands of the tool:
 
 ```
-❯ python3 test_suite.py --help
-usage: main.py [-h] [-v] [-l] [-b BROKER] [-I ID] [-c CASE] [-o OUTPUT] [-s SUITE] [--dab-version {2.0,2.1}]
+python3 main.py --help
+usage: main.py [-h] [-v] [-l] [-b BROKER] [-I ID] [-c CASE] [-o OUTPUT] [-s SUITE] [--dab-version {2.0,2.1}] [--init]
 
 options:
   -h, --help            show this help message and exit
@@ -146,10 +109,10 @@ options:
   -o OUTPUT, --output OUTPUT
                         output location for the json file
   -s SUITE, --suite SUITE
-                        set what test suite to run. Available test suite includes:conformance, voice_audio, voice_text, output_image, netflix, functional
+                        set what test suite to run. Available test suite includes:conformance, output_image, netflix, functional
   --dab-version {2.0,2.1}
                         Override detected DAB version. Use 2.0 or 2.1 to force specific test compatibility.
-</pre>
+  --init                Interactive setup: prompt for app paths (and optional store URL), then exit.
 
 ```
 
@@ -183,21 +146,23 @@ The DAB Compliance Test Tool supports running tests in different ways:
   - The tool continues running even if one test fails.
 
   Use Case:
-  Useful for rerunning a group of specific tests.
+  Useful for re-running a group of specific tests.
 
 3. Full Suite Execution
 
-  Command Example:
-  ❯ python3 main.py -b <broker> -I <device_id> -s conformance
+  - Run command:
+    python3 main.py -b <broker> -I <device_id> -s conformance
 
-  What Happens:
-  - Loads all test cases from the selected suite (like conformance, voice_audio, etc.)
-  - Runs each test one by one.
-  - Applies test version compatibility and prechecks.
-  - Tracks and logs results for the entire batch.
+  - What happens:
+    - Loads all test cases from the chosen suite
+    - Runs each test one by one
+    - Checks DAB version and preconditions
+    - Saves logs and results for the whole suite
 
-  Use Case:
-  Ideal for complete DAB verification (e.g., certification, release testing).
+  - When to use:
+    - For full DAB verification
+    - Certification or release testing
+
 
 4. Output Results Handling (`-o` flag)
 
@@ -218,7 +183,7 @@ Test Result Types:
 
   PASS              → Test succeeded with expected output  
   FAILED            → Test ran but result was incorrect  
-  OPTIONAL_FAILED   → Feature not supported or not required (e.g., DAB 2.1 on DAB 2.0 device)  
+  OPTIONAL_FAILED   → Feature not supported or not required (e.g., DAB 2.1 tests on DAB version 2.0) 
   SKIPPED           → Internal issue — test incomplete. Retry is required (e.g., pre-check failed).
 
 Summary:
@@ -251,10 +216,18 @@ SKIPPED
   - The test didn't complete due to internal error.
   - Example: error code 500 or device not responding.
 
-NEGATIVE TEST PASSED (Not a test result type — represents negative test results in the execution terminal log)
+NEGATIVE TEST PASSED (Not a result type stored in JSON — only shown in the execution terminal log)
 
-  - The test expected an error and got it.
-  - Example: error 400 or 404 = correct behavior for a negative test.
+  Meaning:
+  - The test intentionally expected an error response.
+  - The DAB Bridge returned the correct error code (e.g., 400 Bad Request, 404 Not Found).
+  - This confirms that the DAB Bridge is handling invalid or unsupported requests properly.
+
+  Why it is required:
+  - Negative tests ensure robustness and compliance by verifying that the DAB Bridge
+    does not silently accept invalid inputs.
+  - They check for proper error handling and system safety (e.g., rejecting bad data,
+    unsupported operations, or invalid states).
 
 Where can I see this?
 
@@ -290,4 +263,24 @@ How to Handle in Tests
   - If a required topic is missing from "operation/list" → FAIL
   - If telemetry topics are missing from "operation/list" → OK (no FAIL)
   - If telemetry tests are run but not supported → OPTIONAL_FAILED 
-  - NOTE: The remaining DAB operations are mandatory and should be implemented properly. They should not result in optional failed or failed tests — they must pass.
+  
+  - NOTE:
+    All core DAB operations are mandatory and are expected to be implemented consistently.  
+    These operations should not result in "optional failed" or "failed" outcomes they are required to pass in order to demonstrate full compliance with the DAB specification.
+    
+    - ABOUT 501 ERROR:
+        According to the DAB specification, a 501 status code indicates that the DAB Bridge  
+        recognizes the requested operation but does not support it.  
+
+        This code is reserved for optional features.  
+        When returned, the corresponding test is marked as "OPTIONAL FAILED" rather than "FAILED",  
+        as support for such features is not mandatory for baseline compliance.
+
+    - UI VS DAB OPERATIONS:
+        If a feature or setting is available through the device’s user interface,  
+        the DAB Bridge is also expected to provide the corresponding operation in `operations/list` and `system/settings/list`.  
+
+        This ensures consistency between user-facing functionality and automated control.  
+        The only acceptable case for omission is when the feature itself is not implemented  
+        on the platform at all. Otherwise, missing support in DAB is treated as a compliance gap  
+        and should be addressed.
