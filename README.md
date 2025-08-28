@@ -284,3 +284,16 @@ How to Handle in Tests
         The only acceptable case for omission is when the feature itself is not implemented  
         on the platform at all. Otherwise, missing support in DAB is treated as a compliance gap  
         and should be addressed.
+
+SKIPPED: 
+
+  - The test could not complete because of an internal issue or unexpected condition.  
+  - Example: error code 500 (Internal Error), pre-checks failing, or the DAB Bridge not responding.  
+  - A skipped test does not count as a valid pass. It should be re-run after addressing the underlying issue.  
+
+  Why it is important:
+  
+    - Every skipped test represents a gap in validation.  
+    - For compliance, skipped tests should eventually be re-run and pass.  
+    - Skipped is only a temporary state to avoid marking the test as failed when the problem was not caused by the DAB operation itself.  
+    - In certification or release runs, SKIPPED should be treated the same as FAILED until the test passes successfully.
