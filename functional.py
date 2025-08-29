@@ -22,6 +22,7 @@ DEVICE_REBOOT_WAIT = 180  # Max wait for device reboot
 TELEMETRY_DURATION_MS = 5000
 TELEMETRY_METRICS_WAIT = 30  # Max wait for telemetry metrics (seconds)
 HEALTH_CHECK_INTERVAL = 5    # Seconds between health check polls
+ASSISITANT_WAIT = 5
 LOGS_COLLECTION_WAIT = 30  # Seconds for logs collection wait
 SCREENSAVER_TIMEOUT_WAIT = 30  # Screensaver timeout for idle wait
 
@@ -5476,6 +5477,727 @@ def run_clear_data_session_reset(dab_topic, test_category, test_name, tester, de
         LOGGER.result(msg); logs.append(msg)
         return result
 
+def run_voice_log_collection_check(dab_topic, test_category, test_name, tester, device_id):
+    """
+    Verifies that voice assistant activity is captured in the system logs. This is a manual verification test.
+    """
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    logs = []
+    result = TestResult(test_id, device_id, "system/logs/start-collection", "{}", "UNKNOWN", "", logs)
+    # Variables for the final summary log
+    supports_voice = "N/A"
+    logs_contain_voice_activity = "N/A"
+
+    try:
+        # Header and description
+        for line in (
+            f"[TEST] Voice Activity Log Collection Check (Manual) — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: Start log collection, send a voice command, stop collection, and manually verify the logs.",
+            "[DESC] Required ops: system/logs/start-collection, voice/send-text, system/logs/stop-collection.",
+            "[DESC] Pass criteria: User confirmation that the voice command appears in the collected system logs.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Capability gate for all required DAB operations
+        required_ops = "ops: system/logs/start-collection, voice/send-text, system/logs/stop-collection"
+        if not need(tester, device_id, required_ops, result, logs):
+            return result
+
+        # Precondition: Manually verify that the device supports a voice assistant
+        line = "[STEP] Manual check required: Checking for Voice Assistant support."
+        LOGGER.result(line)
+        logs.append(line)
+        supports_voice = yes_or_no(result, logs, "Does this device support a Voice Assistant feature?")
+        if not supports_voice:
+            result.test_result = "OPTIONAL_FAILED"
+            line = "[RESULT] OPTIONAL_FAILED — Test skipped because the device does not support a voice assistant."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        # Step 1: Start log collection
+        line = "[STEP] Starting system log collection."
+        LOGGER.result(line)
+        logs.append(line)
+        rc, response = execute_cmd_and_log(tester, device_id, "system/logs/start-collection", "{}", logs, result)
+        if dab_status_from(response, rc) != 200:
+            result.test_result = "FAILED"
+            line = "[RESULT] FAILED — The 'system/logs/start-collection' command failed."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        # Step 2: Send a voice command
+        voice_command = "Open YouTube"
+        payload_voice = json.dumps({"requestText": voice_command})
+        line = f"[STEP] Sending voice command: '{voice_command}'"
+        LOGGER.result(line)
+        logs.append(line)
+        execute_cmd_and_log(tester, device_id, "voice/send-text", payload_voice, logs, result)
+
+        # Allow time for the command to be processed and logged
+        time.sleep(ASSISITANT_WAIT)
+
+        # Step 3: Stop log collection
+        line = "[STEP] Stopping system log collection."
+        LOGGER.result(line)
+        logs.append(line)
+        execute_cmd_and_log(tester, device_id, "system/logs/stop-collection", "{}", logs, result)
+
+        # Step 4: Manual verification of logs
+        line = "[STEP] Manual action required: Please retrieve and inspect the collected system logs."
+        LOGGER.result(line)
+        logs.append(line)
+        logs_contain_voice_activity = yes_or_no(result, logs, f"Do the logs contain entries related to the voice command '{voice_command}'?")
+        
+        if logs_contain_voice_activity:
+            result.test_result = "PASS"
+            line = "[RESULT] PASS — User confirmed voice activity was present in the system logs."
+        else:
+            result.test_result = "FAILED"
+            line = "[RESULT] FAILED — User reported no voice activity was found in the system logs."
+        
+        LOGGER.result(line)
+        logs.append(line)
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
+        LOGGER.result(line)
+        logs.append(line)
+
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — An unexpected error occurred: {e}"
+        LOGGER.result(line)
+        logs.append(line)
+
+    finally:
+        # Final summary log
+        line = (f"[SUMMARY] outcome={result.test_result}, supports_voice={supports_voice}, "
+                f"logs_contain_voice_activity={logs_contain_voice_activity}, test_id={test_id}, device={device_id}")
+        LOGGER.result(line)
+        logs.append(line)
+
+    return result
+
+def run_idle_log_collection_check(dab_topic, test_category, test_name, tester, device_id):
+    """
+    Verifies that system logs are collected correctly during an idle period. This is a manual verification test.
+    """
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    logs = []
+    result = TestResult(test_id, device_id, "system/logs/start-collection", "{}", "UNKNOWN", "", logs)
+    # Variable for the final summary log
+    logs_are_valid = "N/A"
+
+    try:
+        # Header and description
+        for line in (
+            f"[TEST] Idle Log Collection and Verification (Manual) — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: Start log collection, wait 30 seconds while the device is idle, stop collection, and manually verify the logs.",
+            "[DESC] Required ops: system/logs/start-collection, system/logs/stop-collection.",
+            "[DESC] Pass criteria: User confirmation that the logs are returned in the correct format and appear complete.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Capability gate for all required DAB operations
+        required_ops = "ops: system/logs/start-collection, system/logs/stop-collection"
+        if not need(tester, device_id, required_ops, result, logs):
+            return result
+
+        # Step 1: Start log collection
+        line = "[STEP] Starting system log collection."
+        LOGGER.result(line)
+        logs.append(line)
+        rc, response = execute_cmd_and_log(tester, device_id, "system/logs/start-collection", "{}", logs, result)
+        if dab_status_from(response, rc) != 200:
+            result.test_result = "FAILED"
+            line = "[RESULT] FAILED — The 'system/logs/start-collection' command failed."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        # Step 2: Wait for 30 seconds while the device is idle
+        wait_duration = 30
+        line = f"[STEP] Device is now idle. Waiting for {wait_duration} seconds."
+        LOGGER.result(line)
+        logs.append(line)
+        countdown("Idle log collection", wait_duration)
+
+        # Step 3: Stop log collection
+        line = "[STEP] Stopping system log collection."
+        LOGGER.result(line)
+        logs.append(line)
+        execute_cmd_and_log(tester, device_id, "system/logs/stop-collection", "{}", logs, result)
+
+        # Step 4: Manual verification of logs
+        line = "[STEP] Manual action required: Please retrieve and inspect the collected system logs."
+        LOGGER.result(line)
+        logs.append(line)
+        logs_are_valid = yes_or_no(result, logs, "Are the logs in the correct format and complete for the idle period?")
+        
+        if logs_are_valid:
+            result.test_result = "PASS"
+            line = "[RESULT] PASS — User confirmed the logs are valid and complete."
+        else:
+            result.test_result = "FAILED"
+            line = "[RESULT] FAILED — User reported the logs are incorrect or incomplete."
+        
+        LOGGER.result(line)
+        logs.append(line)
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
+        LOGGER.result(line)
+        logs.append(line)
+
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — An unexpected error occurred: {e}"
+        LOGGER.result(line)
+        logs.append(line)
+
+    finally:
+        # Final summary log
+        line = (f"[SUMMARY] outcome={result.test_result}, logs_are_valid={logs_are_valid}, "
+                f"test_id={test_id}, device={device_id}")
+        LOGGER.result(line)
+        logs.append(line)
+
+    return result
+
+def run_channel_switch_log_check(dab_topic, test_category, test_name, tester, device_id):
+    """
+    Verifies that system logs are collected correctly during rapid TV channel switching.
+    This is a manual verification test.
+    """
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    logs = []
+    result = TestResult(test_id, device_id, "system/logs/start-collection", "{}", "UNKNOWN", "", logs)
+    # Variable for the final summary log
+    logs_are_valid = "N/A"
+
+    try:
+        # Header and description
+        for line in (
+            f"[TEST] Rapid Channel Switch Log Verification (Manual) — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: Start log collection, rapidly switch TV channels, stop collection, and manually verify the logs.",
+            "[DESC] Required ops: system/logs/start-collection, system/logs/stop-collection.",
+            "[DESC] Pass criteria: User confirmation that all channel switching events are in the logs.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Capability gate for all required DAB operations
+        required_ops = "ops: system/logs/start-collection, system/logs/stop-collection"
+        if not need(tester, device_id, required_ops, result, logs):
+            return result
+
+        # Step 1: Start log collection
+        line = "[STEP] Starting system log collection."
+        LOGGER.result(line)
+        logs.append(line)
+        rc, response = execute_cmd_and_log(tester, device_id, "system/logs/start-collection", "{}", logs, result)
+        if dab_status_from(response, rc) != 200:
+            result.test_result = "FAILED"
+            line = "[RESULT] FAILED — The 'system/logs/start-collection' command failed."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        # Step 2: Manually switch channels for 5 minutes
+        wait_duration = 300 # 5 minutes
+        line = f"[STEP] Manual Action Required: Please rapidly switch TV channels for the next {wait_duration / 60} minutes."
+        LOGGER.result(line)
+        logs.append(line)
+        countdown("Channel switching period", wait_duration)
+
+        # Step 3: Stop log collection
+        line = "[STEP] Stopping system log collection."
+        LOGGER.result(line)
+        logs.append(line)
+        execute_cmd_and_log(tester, device_id, "system/logs/stop-collection", "{}", logs, result)
+
+        # Step 4: Manual verification of logs
+        line = "[STEP] Manual action required: Please retrieve and inspect the collected system logs."
+        LOGGER.result(line)
+        logs.append(line)
+        logs_are_valid = yes_or_no(result, logs, "Do the logs contain entries for each channel switch and related system events?")
+        
+        if logs_are_valid:
+            result.test_result = "PASS"
+            line = "[RESULT] PASS — User confirmed the channel switch logs are valid and complete."
+        else:
+            result.test_result = "FAILED"
+            line = "[RESULT] FAILED — User reported the logs are incorrect or incomplete."
+        
+        LOGGER.result(line)
+        logs.append(line)
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
+        LOGGER.result(line)
+        logs.append(line)
+
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — An unexpected error occurred: {e}"
+        LOGGER.result(line)
+        logs.append(line)
+
+    finally:
+        # Final summary log
+        line = (f"[SUMMARY] outcome={result.test_result}, logs_are_valid={logs_are_valid}, "
+                f"test_id={test_id}, device={device_id}")
+        LOGGER.result(line)
+        logs.append(line)
+
+    return result
+
+
+def run_app_switch_log_check(dab_topic, test_category, test_name, tester, device_id):
+    """
+    Verifies that system logs are collected correctly during an app switch.
+    This is a manual verification test.
+    """
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    logs = []
+    result = TestResult(test_id, device_id, "system/logs/start-collection", "{}", "UNKNOWN", "", logs)
+    # Variable for the final summary log
+    logs_are_valid = "N/A"
+    app1_id = config.apps.get("youtube", "YouTube")
+    app2_id = config.apps.get("prime_video", "Prime Video")
+
+
+    try:
+        # Header and description
+        for line in (
+            f"[TEST] App Switch Log Verification (Manual) — {test_name} (test_id={test_id}, device={device_id})",
+            f"[DESC] Goal: Start logs, launch '{app1_id}', switch to '{app2_id}', stop logs, and manually verify.",
+            "[DESC] Required ops: system/logs/start-collection, system/logs/stop-collection, applications/launch.",
+            "[DESC] Pass criteria: User confirmation that all app activities are in the logs.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Capability gate for all required DAB operations
+        required_ops = "ops: system/logs/start-collection, system/logs/stop-collection, applications/launch"
+        if not need(tester, device_id, required_ops, result, logs):
+            return result
+
+        # Step 1: Start log collection
+        line = "[STEP] Starting system log collection."
+        LOGGER.result(line)
+        logs.append(line)
+        rc, response = execute_cmd_and_log(tester, device_id, "system/logs/start-collection", "{}", logs, result)
+        if dab_status_from(response, rc) != 200:
+            result.test_result = "FAILED"
+            line = "[RESULT] FAILED — The 'system/logs/start-collection' command failed."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        # Step 2: Launch the first app
+        line = f"[STEP] Launching first app: '{app1_id}'."
+        LOGGER.result(line)
+        logs.append(line)
+        execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": app1_id}), logs)
+        line = f"[WAIT] Waiting {APP_LAUNCH_WAIT}s for '{app1_id}' to open and perform activity."
+        LOGGER.info(line)
+        logs.append(line)
+        time.sleep(APP_LAUNCH_WAIT)
+
+        # Step 3: Launch the second app to trigger a switch
+        line = f"[STEP] Switching to second app: '{app2_id}'."
+        LOGGER.result(line)
+        logs.append(line)
+        execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": app2_id}), logs)
+        line = f"[WAIT] Waiting {APP_LAUNCH_WAIT}s for '{app2_id}' to open and perform activity."
+        LOGGER.info(line)
+        logs.append(line)
+        time.sleep(APP_LAUNCH_WAIT)
+
+        # Step 4: Stop log collection
+        line = "[STEP] Stopping system log collection."
+        LOGGER.result(line)
+        logs.append(line)
+        execute_cmd_and_log(tester, device_id, "system/logs/stop-collection", "{}", logs, result)
+
+        # Step 5: Manual verification of logs
+        line = "[STEP] Manual action required: Please retrieve and inspect the collected system logs."
+        LOGGER.result(line)
+        logs.append(line)
+        logs_are_valid = yes_or_no(result, logs, f"Do the logs contain entries for both '{app1_id}' and '{app2_id}' activities?")
+        
+        if logs_are_valid:
+            result.test_result = "PASS"
+            line = "[RESULT] PASS — User confirmed the app switch logs are valid and complete."
+        else:
+            result.test_result = "FAILED"
+            line = "[RESULT] FAILED — User reported the logs are incorrect or incomplete."
+        
+        LOGGER.result(line)
+        logs.append(line)
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
+        LOGGER.result(line)
+        logs.append(line)
+
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — An unexpected error occurred: {e}"
+        LOGGER.result(line)
+        logs.append(line)
+
+    finally:
+        # Final summary log
+        line = (f"[SUMMARY] outcome={result.test_result}, logs_are_valid={logs_are_valid}, "
+                f"test_id={test_id}, device={device_id}")
+        LOGGER.result(line)
+        logs.append(line)
+
+    return result
+
+def run_clear_data_preinstalled_app_check(dab_topic, test_category, test_name, tester, device_id):
+    """
+    Verifies that 'applications/clear-data' works on a non-removable, pre-installed app.
+    This is a manual verification test.
+    """
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    logs = []
+    result = TestResult(test_id, device_id, "applications/clear-data", "{}", "UNKNOWN", "", logs)
+    app_id = "N/A"
+    clear_status = "N/A"
+    user_validated_reset = "N/A"
+
+    try:
+        # Header and description
+        for line in (
+            f"[TEST] Clear Data for Pre-installed App (Manual) — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: Clear all data for a non-removable, pre-installed app and manually verify it was reset.",
+            "[DESC] Required ops: applications/list, applications/launch, applications/clear-data.",
+            "[DESC] Pass criteria: User confirmation that the app was reset to its initial state.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Capability gate
+        required_ops = "ops: applications/list, applications/launch, applications/clear-data"
+        if not need(tester, device_id, required_ops, result, logs):
+            return result
+        
+        # Step 1: List and select a non-removable, pre-installed app
+        line = "[STEP] Listing applications for manual selection."
+        LOGGER.result(line)
+        logs.append(line)
+        _, response = execute_cmd_and_log(tester, device_id, "applications/list", "{}", logs)
+        apps = json.loads(response).get("applications", [])
+        app_id_list = [app.get("appId") for app in apps]
+        
+        line = "Please select one NON-REMovable, PRE-INSTALLED app from the list:"
+        LOGGER.prompt(line)
+        logs.append(line)
+        index = select_input(result, logs, app_id_list)
+        if index == 0:
+            result.test_result = "OPTIONAL_FAILED"
+            line = "[RESULT] OPTIONAL_FAILED — No suitable pre-installed app was selected."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+        
+        app_id = app_id_list[index - 1]
+        logs.append(f"[INFO] User selected app: {app_id}")
+
+        # Step 2: Launch the app to ensure it has local data
+        line = f"[STEP] Launching '{app_id}' to ensure it has local data."
+        LOGGER.result(line)
+        logs.append(line)
+        execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": app_id}), logs)
+        time.sleep(APP_LAUNCH_WAIT)
+
+        # Step 3: Clear the app's data
+        line = f"[STEP] Clearing data for '{app_id}'."
+        LOGGER.result(line)
+        logs.append(line)
+        rc, response = execute_cmd_and_log(tester, device_id, "applications/clear-data", json.dumps({"appId": app_id}), logs)
+        clear_status = dab_status_from(response, rc)
+
+        if clear_status != 200:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — 'clear-data' command failed with status {clear_status}."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+        
+        time.sleep(APP_CLEAR_DATA_WAIT)
+
+        # Step 4: Relaunch the app for verification
+        line = f"[STEP] Relaunching '{app_id}' to verify it has been reset."
+        LOGGER.result(line)
+        logs.append(line)
+        execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": app_id}), logs)
+        time.sleep(APP_LAUNCH_WAIT)
+        
+        # Step 5: Manual verification
+        user_validated_reset = yes_or_no(result, logs, "Did the application start up in its initial, first-run state (e.g., asking for login)?")
+        if user_validated_reset:
+            result.test_result = "PASS"
+            line = "[RESULT] PASS — User confirmed the app was reset to its initial state."
+        else:
+            result.test_result = "FAILED"
+            line = "[RESULT] FAILED — User reported the app was not reset."
+        
+        LOGGER.result(line)
+        logs.append(line)
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
+        LOGGER.result(line)
+        logs.append(line)
+
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — An unexpected error occurred: {e}"
+        LOGGER.result(line)
+        logs.append(line)
+
+    finally:
+        # Final summary log
+        line = (f"[SUMMARY] outcome={result.test_result}, cleared_app={app_id}, clear_status={clear_status}, "
+                f"user_validated_reset={user_validated_reset}, test_id={test_id}, device={device_id}")
+        LOGGER.result(line)
+        logs.append(line)
+
+    return result
+
+def run_install_region_specific_app_check(dab_topic, test_category, test_name, tester, device_id):
+    """
+    Verifies that a region-specific app can be installed and shows correct localization.
+    This is a manual verification test.
+    """
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    app_id = "localApp963" # Example App ID for a region-specific app
+    logs = []
+    result = TestResult(test_id, device_id, "applications/install-from-app-store", "{}", "UNKNOWN", "", logs)
+    install_status = "N/A"
+    user_validated_localization = "N/A"
+
+    try:
+        # Header and description
+        for line in (
+            f"[TEST] Install Region-Specific App (Manual) — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: Install a region-specific app and manually verify its localization.",
+            "[DESC] Required ops: applications/install-from-app-store, applications/launch, applications/uninstall (for cleanup).",
+            "[DESC] Pass criteria: User confirmation that the app installs and shows correct localization.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Capability gate
+        required_ops = "ops: applications/install-from-app-store, applications/launch, applications/uninstall"
+        if not need(tester, device_id, required_ops, result, logs):
+            return result
+        
+        # Step 1: Manually set device region
+        line = "[STEP] Manual action required: Please set the device's region/locale to a supported one for the test app (e.g., 'de-DE')."
+        LOGGER.result(line)
+        logs.append(line)
+        if not yes_or_no(result, logs, "Is the device's region set correctly for the test?"):
+            result.test_result = "SKIPPED"
+            line = "[RESULT] SKIPPED — Precondition failed: device region not set."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+        
+        # Step 2: Install the region-specific app
+        line = f"[STEP] Installing region-specific app '{app_id}' from the app store."
+        LOGGER.result(line)
+        logs.append(line)
+        payload = json.dumps({"appId": app_id})
+        rc, response = execute_cmd_and_log(tester, device_id, "applications/install-from-app-store", payload, logs, result)
+        install_status = dab_status_from(response, rc)
+        
+        if install_status != 200:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — App install failed with status {install_status}."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+        
+        line = f"[WAIT] Waiting {APP_UNINSTALL_WAIT}s for installation to finalize." # Re-using a reasonable wait time
+        LOGGER.info(line)
+        logs.append(line)
+        time.sleep(APP_UNINSTALL_WAIT)
+
+        # Step 3: Launch the app
+        line = f"[STEP] Launching '{app_id}' to verify localization."
+        LOGGER.result(line)
+        logs.append(line)
+        execute_cmd_and_log(tester, device_id, "applications/launch", payload, logs)
+        time.sleep(APP_LAUNCH_WAIT)
+
+        # Step 4: Manual verification
+        user_validated_localization = yes_or_no(result, logs, "Does the app show the correct language, content, or features for the region you set?")
+        if user_validated_localization:
+            result.test_result = "PASS"
+            line = "[RESULT] PASS — User confirmed the app shows correct localization."
+        else:
+            result.test_result = "FAILED"
+            line = "[RESULT] FAILED — User reported incorrect app localization."
+        
+        LOGGER.result(line)
+        logs.append(line)
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
+        LOGGER.result(line)
+        logs.append(line)
+
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — An unexpected error occurred: {e}"
+        LOGGER.result(line)
+        logs.append(line)
+
+    finally:
+        # Cleanup Step: Uninstall the app
+        try:
+            line = f"[CLEANUP] Uninstalling '{app_id}'."
+            LOGGER.info(line)
+            logs.append(line)
+            execute_cmd_and_log(tester, device_id, "applications/uninstall", json.dumps({"appId": app_id}), logs)
+        except Exception as e:
+            line = f"[CLEANUP] WARNING: Failed to uninstall app '{app_id}': {e}"
+            LOGGER.warn(line)
+            logs.append(line)
+
+        # Final summary log
+        line = (f"[SUMMARY] outcome={result.test_result}, install_status={install_status}, "
+                f"user_validated_localization={user_validated_localization}, test_id={test_id}, device={device_id}")
+        LOGGER.result(line)
+        logs.append(line)
+
+    return result
+
+def run_update_installed_app_check(dab_topic, test_category, test_name, tester, device_id):
+    """
+    Verifies that an already installed application can be updated to a newer version.
+    This is a manual verification test.
+    """
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    app_id = "updatableApp123" # Example App ID for an app that has an older version
+    logs = []
+    result = TestResult(test_id, device_id, "applications/install-from-app-store", "{}", "UNKNOWN", "", logs)
+    update_status = "N/A"
+    user_validated_update = "N/A"
+
+    try:
+        # Header and description
+        for line in (
+            f"[TEST] Update Installed App (Manual) — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: Manually install an old version of an app, then use DAB to update it and verify success.",
+            "[DESC] Required ops: applications/install-from-app-store, applications/launch, applications/uninstall (for cleanup).",
+            "[DESC] Pass criteria: User confirmation that the app was successfully updated to a newer version.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Capability gate
+        required_ops = "ops: applications/install-from-app-store, applications/launch, applications/uninstall"
+        if not need(tester, device_id, required_ops, result, logs):
+            return result
+        
+        # Step 1: Manually install an older version of the app
+        line = f"[STEP] Manual action required: Please ensure an OLDER version of the app '{app_id}' is installed."
+        LOGGER.result(line)
+        logs.append(line)
+        if not yes_or_no(result, logs, "Is an older version of the app installed and ready for an update?"):
+            result.test_result = "SKIPPED"
+            line = "[RESULT] SKIPPED — Precondition failed: an older version of the app was not installed."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+        
+        # Step 2: Trigger the update from the app store
+        line = f"[STEP] Triggering update for '{app_id}' via 'install-from-app-store'."
+        LOGGER.result(line)
+        logs.append(line)
+        payload = json.dumps({"appId": app_id})
+        rc, response = execute_cmd_and_log(tester, device_id, "applications/install-from-app-store", payload, logs, result)
+        update_status = dab_status_from(response, rc)
+        
+        if update_status != 200:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — App update command failed with status {update_status}."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+        
+        line = f"[WAIT] Waiting {APP_UNINSTALL_WAIT * 2}s for the update to download and install."
+        LOGGER.info(line)
+        logs.append(line)
+        time.sleep(APP_UNINSTALL_WAIT * 2)
+
+        # Step 3: Launch the app to check the new version
+        line = f"[STEP] Launching '{app_id}' to verify the update."
+        LOGGER.result(line)
+        logs.append(line)
+        execute_cmd_and_log(tester, device_id, "applications/launch", payload, logs)
+        time.sleep(APP_LAUNCH_WAIT)
+
+        # Step 4: Manual verification
+        user_validated_update = yes_or_no(result, logs, "Has the app been successfully updated to the newer version?")
+        if user_validated_update:
+            result.test_result = "PASS"
+            line = "[RESULT] PASS — User confirmed the app was successfully updated."
+        else:
+            result.test_result = "FAILED"
+            line = "[RESULT] FAILED — User reported the app was not updated."
+        
+        LOGGER.result(line)
+        logs.append(line)
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
+        LOGGER.result(line)
+        logs.append(line)
+
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — An unexpected error occurred: {e}"
+        LOGGER.result(line)
+        logs.append(line)
+
+    finally:
+        # Cleanup Step: Uninstall the app
+        try:
+            line = f"[CLEANUP] Uninstalling '{app_id}'."
+            LOGGER.info(line)
+            logs.append(line)
+            execute_cmd_and_log(tester, device_id, "applications/uninstall", json.dumps({"appId": app_id}), logs)
+        except Exception as e:
+            line = f"[CLEANUP] WARNING: Failed to uninstall app '{app_id}': {e}"
+            LOGGER.warn(line)
+            logs.append(line)
+
+        # Final summary log
+        line = (f"[SUMMARY] outcome={result.test_result}, update_status={update_status}, "
+                f"user_validated_update={user_validated_update}, test_id={test_id}, device={device_id}")
+        LOGGER.result(line)
+        logs.append(line)
+
+    return result
+
 # === Test 38: Log Collection Check ===
 def run_logs_collection_check(dab_topic, test_category, test_name, tester, device_id):
     """
@@ -6243,6 +6965,14 @@ FUNCTIONAL_TEST_CASE = [
     ("applications/install", "functional", run_install_from_url_then_launch_simple, "InstallFromUrlThenLaunch_Simple", "2.1", False),
     ("applications/clear-data", "functional", run_clear_data_accessibility_settings_reset, "ClearDataAccessibilitySettingsReset", "2.1", False),
     ("applications/clear-data", "functional", run_clear_data_session_reset, "ClearDataSessionReset", "2.1", False),
+    ("system/logs/start-collection", "functional", run_voice_log_collection_check, "VoiceAssistantLogsCollection", "2.1", False),
+    ("system/logs/start-collection", "functional", run_idle_log_collection_check, "IdleLogCollectionCheck", "2.1", False),
+    ("system/settings/set", "functional", run_personalized_ads_manual_check, "PersonalizedAdsDisplayCheck", "2.1", False),
+    ("system/logs/start-collection", "functional", run_channel_switch_log_check, "RapidChannelSwitchLogCheck", "2.1", False),
+    ("system/logs/start-collection", "functional", run_app_switch_log_check, "AppSwitchLogCheck", "2.1", False),
+    ("applications/clear-data", "functional", run_clear_data_preinstalled_app_check, "ClearDataPreinstalledAppCheck", "2.1", False),
+    ("applications/install-from-app-store", "functional", run_install_region_specific_app_check, "InstallRegionSpecificAppCheck", "2.1", False),
+    ("applications/install-from-app-store", "functional", run_update_installed_app_check, "UpdateInstalledAppCheck", "2.1", False),
     ("system/logs/start-collection", "functional", run_logs_collection_check, "LogsCollectionCheck", "2.1", False),
     ("system/logs/start-collection", "functional", run_logs_collection_for_major_system_services_check, "LogsCollectionForMajorSystemServicesCheck", "2.1", False),
     ("system/logs/start-collection", "functional", run_logs_collection_app_pause_check, "LogsCollectionAppPauseCheck", "2.1", False),
