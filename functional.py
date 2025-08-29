@@ -23,6 +23,9 @@ TELEMETRY_DURATION_MS = 5000
 TELEMETRY_METRICS_WAIT = 30  # Max wait for telemetry metrics (seconds)
 HEALTH_CHECK_INTERVAL = 5    # Seconds between health check polls
 ASSISITANT_WAIT = 5
+LOGS_COLLECTION_WAIT = 30  # Seconds for logs collection wait
+SCREENSAVER_TIMEOUT_WAIT = 30  # Screensaver timeout for idle wait
+
 # === Reusable Helper ===
 
 class UnsupportedOperationError(Exception):
@@ -402,7 +405,6 @@ def waiting_for_screensaver(result, logs, screenSaverTimeout, tips):
             continue
     countdown(f"Waiting for {screenSaverTimeout} seconds in idle state.", screenSaverTimeout)
 
-
 def validate_response(tester, dab_topic, dab_payload, dab_response, result, logs):
     if not dab_response:
         line = f"[FAIL] Request {dab_topic} '{dab_payload}' failed. No response received."
@@ -442,7 +444,6 @@ def validate_response(tester, dab_topic, dab_payload, dab_response, result, logs
 
     return True, result
 
-
 def verify_system_setting(tester, payload, response, result, logs):
     (key, value), = json.loads(payload).items()
     settings = json.loads(response)
@@ -465,7 +466,6 @@ def verify_system_setting(tester, payload, response, result, logs):
 
     LOGGER.result(f"[Result] Test Id: {result.test_id}\nTest Outcome: {result.test_result}\n{'-'*100}")
     return False, result
-
 
 def get_supported_setting(tester, device_id, key, result, logs, do_list=True):
     topic = "system/settings/list"
@@ -1109,763 +1109,1378 @@ def run_relaunch_stability_check(dab_topic, test_category, test_name, tester, de
 
 # === Test 7: Screensaver Enable Check ===
 def run_screensaver_enable_check(dab_topic, test_category, test_name, tester, device_id):
-    print("\n[Test] Screensaver Enable Check")
-    print("Objective: Validate screensaver can be enable successfully.")
-
+    """
+    Validates that the device's screensaver can be successfully enabled via DAB.
+    """
     test_id = to_test_id(f"{dab_topic}/{test_category}")
     logs = []
     result = TestResult(test_id, device_id, "system/settings/set", json.dumps({"screenSaver": True}), "UNKNOWN", "", logs)
+    final_state = "N/A" # Default state for summary log
 
     try:
-        print(f"Step 1: Disable screensaver before the test.")
-        topic = "system/settings/set"
-        payload = json.dumps({"screenSaver": False})
-        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
-        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
-        if validate_state == False:
+        # Header and description
+        for line in (
+            f"[TEST] Screensaver Enable Check — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: Disable the screensaver, then enable it and verify the setting is applied.",
+            "[DESC] Required operations: system/settings/set, system/settings/get.",
+            "[DESC] Pass criteria: The final 'get' operation must show 'screenSaver' as true.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Capability gate for required operations
+        required_ops = "ops: system/settings/set, system/settings/get"
+        if not need(tester, device_id, required_ops, result, logs):
+            return result # The 'need' function already logged the reason and set the result
+
+        # Step 1: Set a known state by disabling the screensaver first
+        payload_disable = json.dumps({"screenSaver": False})
+        line = f"[STEP] Precondition: Disabling screensaver with payload: {payload_disable}"
+        LOGGER.result(line)
+        logs.append(line)
+        rc, response = execute_cmd_and_log(tester, device_id, "system/settings/set", payload_disable, logs, result)
+        if dab_status_from(response, rc) != 200:
+            result.test_result = "FAILED"
+            line = "[RESULT] FAILED — Could not disable screensaver as a precondition."
+            LOGGER.result(line)
+            logs.append(line)
             return result
 
-        print(f"Step 2: Verify screensaver is disabled.")
-        topic = "system/settings/get"
-        payload = json.dumps({})
-        _, response = execute_cmd_and_log(tester, device_id, topic, payload)
-        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
-        if validate_state == False:
-            return result
-        validate_state, result = verify_system_setting(tester, json.dumps({"screenSaver": False}), response, result, logs)
-        if validate_state == False:
-            return result
-
-        print(f"Step 3: Enable screensaver.")
-        topic = "system/settings/set"
-        payload = json.dumps({"screenSaver": True})
-        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
-        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
-        if validate_state == False:
+        # Step 2: Enable the screensaver (the core action of the test)
+        payload_enable = json.dumps({"screenSaver": True})
+        line = f"[STEP] Action: Enabling screensaver with payload: {payload_enable}"
+        LOGGER.result(line)
+        logs.append(line)
+        rc, response = execute_cmd_and_log(tester, device_id, "system/settings/set", payload_enable, logs, result)
+        if dab_status_from(response, rc) != 200:
+            result.test_result = "FAILED"
+            line = "[RESULT] FAILED — The set command to enable the screensaver failed."
+            LOGGER.result(line)
+            logs.append(line)
             return result
 
-        print(f"Step 4: Verify screensaver is enabled.")
-        topic = "system/settings/get"
-        payload = json.dumps({})
-        _, response = execute_cmd_and_log(tester, device_id, topic, payload)
-        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
-        if validate_state == False:
-            return result
-        validate_state, result = verify_system_setting(tester, json.dumps({"screenSaver": True}), response, result, logs)
-        if validate_state == False:
+        # Step 3: Verify the change was applied
+        line = "[STEP] Verification: Getting current settings to confirm the change."
+        LOGGER.result(line)
+        logs.append(line)
+        _, response = execute_cmd_and_log(tester, device_id, "system/settings/get", "{}", logs, result)
+
+        try:
+            settings = json.loads(response) if response else {}
+            final_state = settings.get("screenSaver")
+            line = f"[INFO] Verified screensaver state is: {final_state}"
+            LOGGER.info(line)
+            logs.append(line)
+        except Exception as e:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — Could not parse the response from system/settings/get: {e}"
+            LOGGER.result(line)
+            logs.append(line)
             return result
 
-        print(f"Screensaver is enabled.")
-        logs.append(f"[PASS] Screensaver is enabled.")
-        result.test_result = "PASS"
+        if final_state is True:
+            result.test_result = "PASS"
+            line = "[RESULT] PASS — Screensaver was successfully enabled."
+            LOGGER.result(line)
+            logs.append(line)
+        else:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — Expected screensaver state to be 'True', but got '{final_state}'."
+            LOGGER.result(line)
+            logs.append(line)
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
+        LOGGER.result(line)
+        logs.append(line)
 
     except Exception as e:
-        logs.append(f"[ERROR] {str(e)}")
         result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — An unexpected error occurred: {e}"
+        LOGGER.result(line)
+        logs.append(line)
 
-    # Print concise final test result status
-    print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+    finally:
+        # Final summary log
+        line = f"[SUMMARY] outcome={result.test_result}, final_state={final_state}, test_id={test_id}, device={device_id}"
+        LOGGER.result(line)
+        logs.append(line)
+
     return result
 
 # === Test 8: Screensaver Disable Check ===
 def run_screensaver_disable_check(dab_topic, test_category, test_name, tester, device_id):
-    print("\n[Test] Screensaver Disable Check")
-    print("Objective: Validate screensaver can be disable successfully.")
-
+    """
+    Validates that the device's screensaver can be successfully disabled via DAB.
+    """
     test_id = to_test_id(f"{dab_topic}/{test_category}")
     logs = []
     result = TestResult(test_id, device_id, "system/settings/set", json.dumps({"screenSaver": False}), "UNKNOWN", "", logs)
+    final_state = "N/A" # Default state for summary log
 
     try:
-        print(f"Step 1: Enable screensaver before the test.")
-        topic = "system/settings/set"
-        payload = json.dumps({"screenSaver": True})
-        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
-        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
-        if validate_state == False:
+        # Header and description
+        for line in (
+            f"[TEST] Screensaver Disable Check — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: Enable the screensaver, then disable it and verify the setting is applied.",
+            "[DESC] Required operations: system/settings/set, system/settings/get.",
+            "[DESC] Pass criteria: The final 'get' operation must show 'screenSaver' as false.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Capability gate for required operations
+        required_ops = "ops: system/settings/set, system/settings/get"
+        if not need(tester, device_id, required_ops, result, logs):
+            return result # The 'need' function already logged the reason and set the result
+
+        # Step 1: Set a known state by enabling the screensaver first
+        payload_enable = json.dumps({"screenSaver": True})
+        line = f"[STEP] Precondition: Enabling screensaver with payload: {payload_enable}"
+        LOGGER.result(line)
+        logs.append(line)
+        rc, response = execute_cmd_and_log(tester, device_id, "system/settings/set", payload_enable, logs, result)
+        if dab_status_from(response, rc) != 200:
+            result.test_result = "FAILED"
+            line = "[RESULT] FAILED — Could not enable screensaver as a precondition."
+            LOGGER.result(line)
+            logs.append(line)
             return result
 
-        print(f"Step 2: Verify screensaver is enabled.")
-        topic = "system/settings/get"
-        payload = json.dumps({})
-        _, response = execute_cmd_and_log(tester, device_id, topic, payload)
-        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
-        if validate_state == False:
-            return result
-        validate_state, result = verify_system_setting(tester, json.dumps({"screenSaver": True}), response, result, logs)
-        if validate_state == False:
-            return result
-
-        print(f"Step 3: Disable screensaver.")
-        topic = "system/settings/set"
-        payload = json.dumps({"screenSaver": False})
-        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
-        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
-        if validate_state == False:
+        # Step 2: Disable the screensaver (the core action of the test)
+        payload_disable = json.dumps({"screenSaver": False})
+        line = f"[STEP] Action: Disabling screensaver with payload: {payload_disable}"
+        LOGGER.result(line)
+        logs.append(line)
+        rc, response = execute_cmd_and_log(tester, device_id, "system/settings/set", payload_disable, logs, result)
+        if dab_status_from(response, rc) != 200:
+            result.test_result = "FAILED"
+            line = "[RESULT] FAILED — The set command to disable the screensaver failed."
+            LOGGER.result(line)
+            logs.append(line)
             return result
 
-        print(f"Step 4: Verify screensaver is disabled.")
-        topic = "system/settings/get"
-        payload = json.dumps({})
-        _, response = execute_cmd_and_log(tester, device_id, topic, payload)
-        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
-        if validate_state == False:
-            return result
-        validate_state, result = verify_system_setting(tester, json.dumps({"screenSaver": False}), response, result, logs)
-        if validate_state == False:
+        # Step 3: Verify the change was applied
+        line = "[STEP] Verification: Getting current settings to confirm the change."
+        LOGGER.result(line)
+        logs.append(line)
+        _, response = execute_cmd_and_log(tester, device_id, "system/settings/get", "{}", logs, result)
+
+        try:
+            settings = json.loads(response) if response else {}
+            final_state = settings.get("screenSaver")
+            line = f"[INFO] Verified screensaver state is: {final_state}"
+            LOGGER.info(line)
+            logs.append(line)
+        except Exception as e:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — Could not parse the response from system/settings/get: {e}"
+            LOGGER.result(line)
+            logs.append(line)
             return result
 
-        print(f"Screensaver is disabled.")
-        logs.append(f"[PASS] Screensaver is disabled.")
-        result.test_result = "PASS"
+        if final_state is False:
+            result.test_result = "PASS"
+            line = "[RESULT] PASS — Screensaver was successfully disabled."
+            LOGGER.result(line)
+            logs.append(line)
+        else:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — Expected screensaver state to be 'False', but got '{final_state}'."
+            LOGGER.result(line)
+            logs.append(line)
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
+        LOGGER.result(line)
+        logs.append(line)
 
     except Exception as e:
-        logs.append(f"[ERROR] {str(e)}")
         result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — An unexpected error occurred: {e}"
+        LOGGER.result(line)
+        logs.append(line)
 
-    # Print concise final test result status
-    print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+    finally:
+        # Final summary log
+        line = f"[SUMMARY] outcome={result.test_result}, final_state={final_state}, test_id={test_id}, device={device_id}"
+        LOGGER.result(line)
+        logs.append(line)
+
     return result
 
 # === Test 9: Screensaver Active Check ===
 def run_screensaver_active_check(dab_topic, test_category, test_name, tester, device_id):
-    print("\n[Test] Screensaver Active Check")
-    print("Objective: Validate that screensaver can be actived after screensaver timeout.")
-
+    """
+    Validates that the screensaver activates after the specified timeout. This is a manual test.
+    """
     test_id = to_test_id(f"{dab_topic}/{test_category}")
     logs = []
-    result = TestResult(test_id, device_id, "system/settings/set", json.dumps({"screenSaver": True}), "UNKNOWN", "", logs)
+    result = TestResult(test_id, device_id, "system/settings/set", "{}", "UNKNOWN", "", logs)
+    user_validated = "N/A" # Default for summary
 
     try:
-        screenSaverTimeout = 30
-        print(f"Step 1: Enable screensaver")
-        topic = "system/settings/set"
-        payload = json.dumps({"screenSaver": True})
-        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
-        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
-        if validate_state == False:
+        # Header and description
+        for line in (
+            f"[TEST] Screensaver Active Check (Manual) — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: Enable the screensaver, set a timeout, and manually verify that it activates.",
+            "[DESC] Required operations: system/settings/set.",
+            "[DESC] Pass criteria: User confirmation that the screensaver appeared.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Capability gate
+        if not need(tester, device_id, "ops: system/settings/set", result, logs):
             return result
 
-        print(f"Step 2: Set screensaver timeout to {screenSaverTimeout} seconds")
-        topic = "system/settings/set"
-        payload = json.dumps({"screenSaverTimeout": screenSaverTimeout})
-        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
-        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
-        if validate_state == False:
-            return result
-
-        print(f"Step 3: Waiting for screensaver active.")
-        waiting_for_screensaver(result, logs, screenSaverTimeout, "Ready to wait for screensaver active?")
-
-        validate_state = yes_or_no(result, logs, f"Screensaver is active?")
-
-        if validate_state == True:
-            print(f"Screensaver is active.")
-            logs.append(f"[PASS] Screensaver is active after screensaver enabled.")
-            result.test_result = "PASS"
-        else:
-            print(f"Screensaver it not active.")
-            logs.append(f"[FAILED] Screensaver is not active after screensaver enabled.")
+        # Step 1: Enable the screensaver
+        payload_enable = json.dumps({"screenSaver": True})
+        line = f"[STEP] Enabling screensaver with payload: {payload_enable}"
+        LOGGER.result(line)
+        logs.append(line)
+        rc, response = execute_cmd_and_log(tester, device_id, "system/settings/set", payload_enable, logs, result)
+        if dab_status_from(response, rc) != 200:
             result.test_result = "FAILED"
+            line = "[RESULT] FAILED — Could not enable screensaver as a precondition."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        # Step 2: Set the screensaver timeout
+        payload_timeout = json.dumps({"screenSaverTimeout": SCREENSAVER_TIMEOUT_WAIT})
+        line = f"[STEP] Setting screensaver timeout to {SCREENSAVER_TIMEOUT_WAIT}s with payload: {payload_timeout}"
+        LOGGER.result(line)
+        logs.append(line)
+        rc, response = execute_cmd_and_log(tester, device_id, "system/settings/set", payload_timeout, logs, result)
+        if dab_status_from(response, rc) != 200:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — Could not set the screensaver timeout."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        # Step 3: Wait for timeout and prompt user for manual verification
+        line = f"[STEP] Do not interact with the device. Waiting {SCREENSAVER_TIMEOUT_WAIT} seconds for screensaver to activate."
+        LOGGER.result(line)
+        logs.append(line)
+        waiting_for_screensaver(result, logs, SCREENSAVER_TIMEOUT_WAIT, "Ready to begin the idle wait?")
+
+        line = "[STEP] Manual check required."
+        LOGGER.result(line)
+        logs.append(line)
+
+        user_validated = yes_or_no(result, logs, "Did the screensaver activate on the device?")
+        if user_validated:
+            result.test_result = "PASS"
+            line = "[RESULT] PASS — User confirmed that the screensaver activated successfully."
+        else:
+            result.test_result = "FAILED"
+            line = "[RESULT] FAILED — User reported that the screensaver did not activate."
+
+        LOGGER.result(line)
+        logs.append(line)
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
+        LOGGER.result(line)
+        logs.append(line)
 
     except Exception as e:
-        logs.append(f"[ERROR] {str(e)}")
         result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — An unexpected error occurred: {e}"
+        LOGGER.result(line)
+        logs.append(line)
 
-    # Print concise final test result status
-    print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+    finally:
+        # Final summary log
+        line = f"[SUMMARY] outcome={result.test_result}, user_validated={user_validated}, test_id={test_id}, device={device_id}"
+        LOGGER.result(line)
+        logs.append(line)
+
     return result
 
 # === Test 10: Screensaver Inactive Check ===
 def run_screensaver_inactive_check(dab_topic, test_category, test_name, tester, device_id):
-    print("\n[Test] Screensaver Inactive Check")
-    print("Objective: Validate screensaver is not actived.")
-
+    """
+    Validates that the screensaver does not activate when disabled. This is a manual test.
+    """
     test_id = to_test_id(f"{dab_topic}/{test_category}")
     logs = []
-    result = TestResult(test_id, device_id, "system/settings/set", json.dumps({"screenSaver": False}), "UNKNOWN", "", logs)
+    result = TestResult(test_id, device_id, "system/settings/set", "{}", "UNKNOWN", "", logs)
+    user_validated = "N/A" # Default for summary
 
     try:
-        screenSaverTimeout = 30
-        print(f"Step 1: Disable screensaver")
-        topic = "system/settings/set"
-        payload = json.dumps({"screenSaver": False})
-        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
-        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
-        if validate_state == False:
+        # Header and description
+        for line in (
+            f"[TEST] Screensaver Inactive Check (Manual) — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: Disable the screensaver, set a timeout, and manually verify that it does NOT activate.",
+            "[DESC] Required operations: system/settings/set.",
+            "[DESC] Pass criteria: User confirmation that the screensaver did NOT appear.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Capability gate
+        if not need(tester, device_id, "ops: system/settings/set", result, logs):
             return result
 
-        print(f"Step 2: Set screensaver timeout to {screenSaverTimeout} seconds")
-        topic = "system/settings/set"
-        payload = json.dumps({"screenSaverTimeout": screenSaverTimeout})
-        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
-        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
-        if validate_state == False:
-            return result
-
-        print(f"Step 3: Waiting for screensaver active.")
-        waiting_for_screensaver(result, logs, screenSaverTimeout, "Ready to wait for screensaver active?")
-
-        validate_state = yes_or_no(result, logs, f"Screensaver is active?")
-
-        if validate_state == False:
-            print(f"Screensaver is not active.")
-            logs.append(f"[PASS] Screen Saver is not active after screenSaver disabled.")
-            result.test_result = "PASS"
-        else:
-            print(f"ScreenSaver is active.")
-            logs.append(f"[FAILED] ScreenSaver is active after screenSaver disabled.")
+        # Step 1: Disable the screensaver
+        payload_disable = json.dumps({"screenSaver": False})
+        line = f"[STEP] Disabling screensaver with payload: {payload_disable}"
+        LOGGER.result(line)
+        logs.append(line)
+        rc, response = execute_cmd_and_log(tester, device_id, "system/settings/set", payload_disable, logs, result)
+        if dab_status_from(response, rc) != 200:
             result.test_result = "FAILED"
+            line = "[RESULT] FAILED — Could not disable screensaver as a precondition."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        # Step 2: Set the screensaver timeout
+        payload_timeout = json.dumps({"screenSaverTimeout": SCREENSAVER_TIMEOUT_WAIT})
+        line = f"[STEP] Setting screensaver timeout to {SCREENSAVER_TIMEOUT_WAIT}s with payload: {payload_timeout}"
+        LOGGER.result(line)
+        logs.append(line)
+        rc, response = execute_cmd_and_log(tester, device_id, "system/settings/set", payload_timeout, logs, result)
+        if dab_status_from(response, rc) != 200:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — Could not set the screensaver timeout."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        # Step 3: Wait for timeout and prompt user for manual verification
+        line = f"[STEP] Do not interact with the device. Waiting {SCREENSAVER_TIMEOUT_WAIT} seconds to see if screensaver activates."
+        LOGGER.result(line)
+        logs.append(line)
+        waiting_for_screensaver(result, logs, SCREENSAVER_TIMEOUT_WAIT, "Ready to begin the idle wait?")
+
+        line = "[STEP] Manual check required."
+        LOGGER.result(line)
+        logs.append(line)
+
+        # Note the inverted logic here
+        user_validated = yes_or_no(result, logs, "Did the screensaver activate on the device?")
+        if not user_validated:
+            result.test_result = "PASS"
+            line = "[RESULT] PASS — User confirmed that the screensaver did NOT activate, as expected."
+        else:
+            result.test_result = "FAILED"
+            line = "[RESULT] FAILED — User reported that the screensaver activated, even though it was disabled."
+
+        LOGGER.result(line)
+        logs.append(line)
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
+        LOGGER.result(line)
+        logs.append(line)
 
     except Exception as e:
-        logs.append(f"[ERROR] {str(e)}")
         result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — An unexpected error occurred: {e}"
+        LOGGER.result(line)
+        logs.append(line)
 
-    # Print concise final test result status
-    print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+    finally:
+        # Final summary log
+        line = f"[SUMMARY] outcome={result.test_result}, user_saw_screensaver={user_validated}, test_id={test_id}, device={device_id}"
+        LOGGER.result(line)
+        logs.append(line)
+
     return result
 
 # === Test 10: Screensaver Active Return Check ===
 def run_screensaver_active_return_check(dab_topic, test_category, test_name, tester, device_id):
-    print("\n[Test] Screensaver Active Return Check")
-    print("Objective: Validate that screen returns previous state after screensaver active.")
-
+    """
+    Validates that the screen returns to its previous state after exiting the screensaver. This is a manual test.
+    """
     test_id = to_test_id(f"{dab_topic}/{test_category}")
     logs = []
-    result = TestResult(test_id, device_id, "system/settings/set", json.dumps({"screenSaver": True}), "UNKNOWN", "", logs)
+    result = TestResult(test_id, device_id, "system/settings/set", "{}", "UNKNOWN", "", logs)
+    user_validated_active = "N/A"
+    user_validated_return = "N/A"
 
     try:
-        screenSaverTimeout = 30
-        print(f"Step 1: Enable screensaver")
-        topic = "system/settings/set"
-        payload = json.dumps({"screenSaver": True})
-        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
-        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
-        if validate_state == False:
+        # Header and description
+        for line in (
+            f"[TEST] Screensaver Active Return Check (Manual) — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: Activate the screensaver, then exit it and manually verify the screen returns to its prior state.",
+            "[DESC] Required operations: system/settings/set.",
+            "[DESC] Pass criteria: User confirmation that the screen returned to the correct state.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Capability gate
+        if not need(tester, device_id, "ops: system/settings/set", result, logs):
             return result
 
-        print(f"Step 2: Set screensaver timeout to {screenSaverTimeout} seconds")
-        topic = "system/settings/set"
-        payload = json.dumps({"screenSaverTimeout": screenSaverTimeout})
-        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
-        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
-        if validate_state == False:
-            return result
+        # Step 1 & 2: Enable screensaver and set a timeout
+        for payload_data in [
+            {"screenSaver": True},
+            {"screenSaverTimeout": SCREENSAVER_TIMEOUT_WAIT}
+        ]:
+            payload = json.dumps(payload_data)
+            setting_key = list(payload_data.keys())[0]
+            line = f"[STEP] Setting '{setting_key}' with payload: {payload}"
+            LOGGER.result(line)
+            logs.append(line)
+            rc, response = execute_cmd_and_log(tester, device_id, "system/settings/set", payload, logs, result)
+            if dab_status_from(response, rc) != 200:
+                result.test_result = "FAILED"
+                line = f"[RESULT] FAILED — Could not set '{setting_key}' as a precondition."
+                LOGGER.result(line)
+                logs.append(line)
+                return result
 
-        print(f"Step 3: Waiting for screensaver active.")
-        waiting_for_screensaver(result, logs, screenSaverTimeout, "Ready to wait for screensaver active?")
+        # Step 3: Wait for the screensaver to activate
+        line = f"[STEP] Do not interact with the device. Waiting {SCREENSAVER_TIMEOUT_WAIT} seconds for the screensaver."
+        LOGGER.result(line)
+        logs.append(line)
+        waiting_for_screensaver(result, logs, SCREENSAVER_TIMEOUT_WAIT, "Ready to begin the idle wait?")
 
-        validate_state = yes_or_no(result, logs, f"Screensaver is active?")
-
-        if validate_state == False:
-            print(f"Screensaver is not active.")
-            logs.append(f"[FAILED] Screensaver is not active after screensaver enabled.")
+        # Step 4: Manually verify activation and then the return state
+        user_validated_active = yes_or_no(result, logs, "Did the screensaver activate on the device?")
+        if not user_validated_active:
             result.test_result = "FAILED"
+            line = "[RESULT] FAILED — Prerequisite failed: User reported that the screensaver did not activate."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
 
-        validate_state = yes_or_no(result, logs, f"Please exit screensaver, does screen return previous state?")
-
-        if validate_state == True:
-            print(f"The screen returns previous state.")
-            logs.append(f"[PASS] The screen returns previous state.")
+        user_validated_return = yes_or_no(result, logs, "Now, press a key to exit the screensaver. Did the screen return to its previous state?")
+        if user_validated_return:
             result.test_result = "PASS"
+            line = "[RESULT] PASS — User confirmed the screen returned to its previous state."
         else:
-            print(f"The screen doesn't return previous state.")
-            logs.append(f"[FAILED] The screen doesn't return previous state.")
             result.test_result = "FAILED"
+            line = "[RESULT] FAILED — User reported the screen did NOT return to its previous state."
+
+        LOGGER.result(line)
+        logs.append(line)
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
+        LOGGER.result(line)
+        logs.append(line)
 
     except Exception as e:
-        logs.append(f"[ERROR] {str(e)}")
         result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — An unexpected error occurred: {e}"
+        LOGGER.result(line)
+        logs.append(line)
 
-    # Print concise final test result status
-    print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+    finally:
+        # Final summary log
+        line = (f"[SUMMARY] outcome={result.test_result}, screensaver_activated={user_validated_active}, "
+                f"screen_returned={user_validated_return}, test_id={test_id}, device={device_id}")
+        LOGGER.result(line)
+        logs.append(line)
+
     return result
 
-# ===Test 11: Screensaver Active Check After Continuous Idle ===
+# === Test 11: Screensaver Active Check After Continuous Idle ===
 def run_screensaver_active_after_continuous_idle_check(dab_topic, test_category, test_name, tester, device_id):
-    print("\n[Test] Screensaver Active Check After Continuous Idle")
-    print("Objective: Validate that screensaver can be actived only after continues idle.")
-
+    """
+    Validates that the screensaver idle timer resets with user activity. This is a manual test.
+    """
     test_id = to_test_id(f"{dab_topic}/{test_category}")
     logs = []
-    result = TestResult(test_id, device_id, "system/settings/set", json.dumps({"screenSaver": True}), "UNKNOWN", "", logs)
+    result = TestResult(test_id, device_id, "system/settings/set", "{}", "UNKNOWN", "", logs)
+    user_validated = "N/A" # Default for summary
 
     try:
-        screenSaverTimeout = 30
-        print(f"Step 1: Enable screensaver")
-        topic = "system/settings/set"
-        payload = json.dumps({"screenSaver": True})
-        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
-        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
-        if validate_state == False:
+        # Header and description
+        for line in (
+            f"[TEST] Screensaver Active After Continuous Idle Check (Manual) — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: Verify that user activity resets the screensaver timer, requiring a continuous idle period to activate.",
+            "[DESC] Required operations: system/settings/set.",
+            "[DESC] Pass criteria: User confirmation that the screensaver activated only after a continuous idle period.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Capability gate
+        if not need(tester, device_id, "ops: system/settings/set", result, logs):
             return result
 
-        print(f"Step 2: Set screensaver timeout to {screenSaverTimeout} seconds")
-        topic = "system/settings/set"
-        payload = json.dumps({"screenSaverTimeout": screenSaverTimeout})
-        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
-        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
-        if validate_state == False:
-            return result
+        # Step 1 & 2: Enable screensaver and set a timeout
+        for payload_data in [
+            {"screenSaver": True},
+            {"screenSaverTimeout": SCREENSAVER_TIMEOUT_WAIT}
+        ]:
+            payload = json.dumps(payload_data)
+            setting_key = list(payload_data.keys())[0]
+            line = f"[STEP] Setting '{setting_key}' with payload: {payload}"
+            LOGGER.result(line)
+            logs.append(line)
+            rc, response = execute_cmd_and_log(tester, device_id, "system/settings/set", payload, logs, result)
+            if dab_status_from(response, rc) != 200:
+                result.test_result = "FAILED"
+                line = f"[RESULT] FAILED — Could not set '{setting_key}' as a precondition."
+                LOGGER.result(line)
+                logs.append(line)
+                return result
 
-        print(f"Step 3: Please press remote keys to simulate user activity, and then waiting for screensaver active.")
-        waiting_for_screensaver(result, logs, screenSaverTimeout, "Finish usre activity and ready to wait for screensaver active?")
+        # Step 3: Prompt user to perform an action to break the idle period, then wait
+        line = "[STEP] Please press any key on your remote now to simulate user activity."
+        LOGGER.result(line)
+        logs.append(line)
 
-        validate_state = yes_or_no(result, logs, f"Screensaver is active after {screenSaverTimeout} seconds?")
+        # This function combines the prompt and the countdown
+        waiting_for_screensaver(result, logs, SCREENSAVER_TIMEOUT_WAIT, "Ready to begin the continuous idle wait?")
 
-        if validate_state == True:
-            print(f"Screensaver is active after continuous idle.")
-            logs.append(f"[PASS] Screensaver is active after continuous idle.")
+        # Step 4: Manually verify if the screensaver activated
+        line = "[STEP] Manual check required."
+        LOGGER.result(line)
+        logs.append(line)
+
+        user_validated = yes_or_no(result, logs, f"Did the screensaver activate after the {SCREENSAVER_TIMEOUT_WAIT}-second continuous idle period?")
+        if user_validated:
             result.test_result = "PASS"
+            line = "[RESULT] PASS — User confirmed the screensaver activated after a continuous idle period, as expected."
         else:
-            print(f"Screensaver is not active after continuous idle.")
-            logs.append(f"[FAILED] Screensaver is not active after continuous idle.")
             result.test_result = "FAILED"
-    except Exception as e:
-        logs.append(f"[ERROR] {str(e)}")
-        result.test_result = "SKIPPED"
+            line = "[RESULT] FAILED — User reported the screensaver did not activate, suggesting the timer may not have reset correctly."
 
-    print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+        LOGGER.result(line)
+        logs.append(line)
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
+        LOGGER.result(line)
+        logs.append(line)
+
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — An unexpected error occurred: {e}"
+        LOGGER.result(line)
+        logs.append(line)
+
+    finally:
+        # Final summary log
+        line = f"[SUMMARY] outcome={result.test_result}, user_validated={user_validated}, test_id={test_id}, device={device_id}"
+        LOGGER.result(line)
+        logs.append(line)
+
     return result
 
 # === Test 12: Screensaver Inactive Check After Reboot ===
 def run_screensaver_inactive_after_reboot_check(dab_topic, test_category, test_name, tester, device_id):
-    print("\n[Test] Screensaver Inactive Check After Reboot")
-    print("Objective: Validate that screenSaver is not actived after reboot with screensaver disabled.")
-
+    """
+    Validates that a disabled screensaver setting persists after a reboot. This is a manual test.
+    """
     test_id = to_test_id(f"{dab_topic}/{test_category}")
     logs = []
-    result = TestResult(test_id, device_id, "system/settings/set", json.dumps({"screenSaver": False}), "UNKNOWN", "", logs)
+    result = TestResult(test_id, device_id, "system/settings/set", "{}", "UNKNOWN", "", logs)
+    user_validated = "N/A"
 
     try:
-        screenSaverTimeout = 30
-        print(f"Step 1: Disable screensaver")
-        topic = "system/settings/set"
-        payload = json.dumps({"screenSaver": False})
-        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
-        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
-        if validate_state == False:
+        # Header and description
+        for line in (
+            f"[TEST] Screensaver Inactive After Reboot Check (Manual) — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: Disable the screensaver, reboot the device, and verify the screensaver does not activate.",
+            "[DESC] Required operations: system/settings/set, system/restart.",
+            "[DESC] Pass criteria: User confirmation that the screensaver did NOT activate after the reboot and idle period.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Capability gate
+        if not need(tester, device_id, "ops: system/settings/set, system/restart", result, logs):
             return result
 
-        print(f"Step 2: Set screensaver timeout to {screenSaverTimeout} seconds")
-        topic = "system/settings/set"
-        payload = json.dumps({"screenSaverTimeout": screenSaverTimeout})
-        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
-        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
-        if validate_state == False:
-            return result
+        # Step 1 & 2: Disable screensaver and set a timeout
+        for payload_data in [
+            {"screenSaver": False},
+            {"screenSaverTimeout": SCREENSAVER_TIMEOUT_WAIT}
+        ]:
+            payload = json.dumps(payload_data)
+            setting_key = list(payload_data.keys())[0]
+            line = f"[STEP] Setting '{setting_key}' with payload: {payload}"
+            LOGGER.result(line)
+            logs.append(line)
+            rc, response = execute_cmd_and_log(tester, device_id, "system/settings/set", payload, logs, result)
+            if dab_status_from(response, rc) != 200:
+                result.test_result = "FAILED"
+                line = f"[RESULT] FAILED — Could not set '{setting_key}' as a precondition."
+                LOGGER.result(line)
+                logs.append(line)
+                return result
 
-        print(f"Step 3: Reboot device.")
-        print("restarting...wait...")
-        execute_cmd_and_log(tester, device_id, "system/restart", json.dumps({}), logs)
+        # Step 3: Reboot the device
+        line = "[STEP] Rebooting the device now."
+        LOGGER.result(line)
+        logs.append(line)
+        execute_cmd_and_log(tester, device_id, "system/restart", "{}", logs)
 
-        while True:
-            validate_state = yes_or_no(result, logs, "Device re-started?")
-            if validate_state:
-                break
-            else:
-                continue
+        # Step 4: Manually confirm reboot completion
+        line = "[STEP] Waiting for manual confirmation that the device has restarted."
+        LOGGER.result(line)
+        logs.append(line)
+        while not yes_or_no(result, logs, "Has the device finished rebooting and is now idle?"):
+            logs.append("Waiting for 'Y' confirmation.")
+            time.sleep(5) # Add a small delay between prompts
 
-        print(f"Step 4: Waiting for screensaver active.")
-        waiting_for_screensaver(result, logs, screenSaverTimeout, "Ready to wait for screensaver active?")
+        # Step 5: Wait for the idle timeout to pass
+        line = f"[STEP] Do not interact with the device. Waiting {SCREENSAVER_TIMEOUT_WAIT} seconds."
+        LOGGER.result(line)
+        logs.append(line)
+        waiting_for_screensaver(result, logs, SCREENSAVER_TIMEOUT_WAIT, "Ready to begin the idle wait?")
 
-        validate_state = yes_or_no(result, logs, f"Screensaver is active after {screenSaverTimeout} seconds?")
-
-        if validate_state == False:
-            print(f"Screensaver is not active after reboot with screensaver disabled.")
-            logs.append(f"[PASS] Screensaver is not active after reboot with screensaver disabled.")
+        # Step 6: Manually verify if the screensaver remained inactive
+        user_validated = yes_or_no(result, logs, "Did the screensaver activate?")
+        if not user_validated:
             result.test_result = "PASS"
+            line = "[RESULT] PASS — User confirmed the screensaver did NOT activate, as expected."
         else:
-            print(f"Screensaver is active after reboot with screensaver disabled.")
-            logs.append(f"[FAILED] Screensaver is active after reboot with screensaver disabled.")
             result.test_result = "FAILED"
+            line = "[RESULT] FAILED — User reported the screensaver activated, even though it was disabled."
+
+        LOGGER.result(line)
+        logs.append(line)
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
+        LOGGER.result(line)
+        logs.append(line)
 
     except Exception as e:
-        logs.append(f"[ERROR] {str(e)}")
         result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — An unexpected error occurred: {e}"
+        LOGGER.result(line)
+        logs.append(line)
 
-    print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+    finally:
+        # Final summary log
+        line = f"[SUMMARY] outcome={result.test_result}, user_saw_screensaver={user_validated}, test_id={test_id}, device={device_id}"
+        LOGGER.result(line)
+        logs.append(line)
+
     return result
 
 # === Test 13: Screensaver Timeout 300 seconds Check ===
 def run_screensavertimeout_300_check(dab_topic, test_category, test_name, tester, device_id):
-    print("\n[Test] Screensaver Timeout Active Check")
-    print("Objective: Validate that screensaver can be actived after screensaver timeout is set 300 seconds.")
-
+    """
+    Validates that the screensaver activates after a 300-second timeout. This is a manual test.
+    """
     test_id = to_test_id(f"{dab_topic}/{test_category}")
     logs = []
-    result = TestResult(test_id, device_id, "system/settings/set", json.dumps({"screenSaverTimeout": 300}), "UNKNOWN", "", logs)
+    result = TestResult(test_id, device_id, "system/settings/set", "{}", "UNKNOWN", "", logs)
+    user_validated = "N/A" # Default for summary
 
     try:
-        screenSaverTimeout = 300
-        print(f"Step 1: Enable screensaver")
-        topic = "system/settings/set"
-        payload = json.dumps({"screenSaver": True})
-        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
-        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
-        if validate_state == False:
+        # Header and description
+        for line in (
+            f"[TEST] Screensaver Timeout 300s Check (Manual) — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: Set a 300-second (5 minute) screensaver timeout and manually verify that it activates.",
+            "[DESC] Required operations: system/settings/set.",
+            "[DESC] Pass criteria: User confirmation that the screensaver appeared after the idle period.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Capability gate
+        if not need(tester, device_id, "ops: system/settings/set", result, logs):
             return result
 
-        print(f"Step 2: Set screensaver timeout to {screenSaverTimeout} seconds")
-        topic = "system/settings/set"
-        payload = json.dumps({"screenSaverTimeout": screenSaverTimeout})
-        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
-        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
-        if validate_state == False:
-            return result
+        # Step 1 & 2: Enable screensaver and set the 300-second timeout
+        timeout_seconds = 300
+        for payload_data in [
+            {"screenSaver": True},
+            {"screenSaverTimeout": timeout_seconds}
+        ]:
+            payload = json.dumps(payload_data)
+            setting_key = list(payload_data.keys())[0]
+            line = f"[STEP] Setting '{setting_key}' with payload: {payload}"
+            LOGGER.result(line)
+            logs.append(line)
+            rc, response = execute_cmd_and_log(tester, device_id, "system/settings/set", payload, logs, result)
+            if dab_status_from(response, rc) != 200:
+                result.test_result = "FAILED"
+                line = f"[RESULT] FAILED — Could not set '{setting_key}' as a precondition."
+                LOGGER.result(line)
+                logs.append(line)
+                return result
 
-        print(f"Step 3: Waiting for screensaver active.")
-        waiting_for_screensaver(result, logs, screenSaverTimeout, "Ready to wait for screensaver active?")
+        # Step 3: Wait for timeout and prompt user for manual verification
+        line = f"[STEP] Do not interact with the device. Waiting {timeout_seconds} seconds (5 minutes) for screensaver."
+        LOGGER.result(line)
+        logs.append(line)
 
-        validate_state = yes_or_no(result, logs, f"Screensaver is active after {screenSaverTimeout} seconds?")
+        # This function combines the user prompt and the countdown
+        waiting_for_screensaver(result, logs, timeout_seconds, "Ready to begin the 5-minute idle wait?")
 
-        if validate_state == True:
-            print(f"Screensaver is active after {screenSaverTimeout} seconds.")
-            logs.append(f"[PASS] Screensaver is active after {screenSaverTimeout} seconds.")
+        line = "[STEP] Manual check required."
+        LOGGER.result(line)
+        logs.append(line)
+
+        user_validated = yes_or_no(result, logs, f"Did the screensaver activate after {timeout_seconds} seconds?")
+        if user_validated:
             result.test_result = "PASS"
+            line = "[RESULT] PASS — User confirmed that the screensaver activated successfully."
         else:
-            print(f"Screensaver it not active after {screenSaverTimeout} seconds.")
-            logs.append(f"[FAILED] Screensaver is not active after {screenSaverTimeout} seconds.")
             result.test_result = "FAILED"
+            line = "[RESULT] FAILED — User reported that the screensaver did not activate."
+
+        LOGGER.result(line)
+        logs.append(line)
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
+        LOGGER.result(line)
+        logs.append(line)
 
     except Exception as e:
-        logs.append(f"[ERROR] {str(e)}")
         result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — An unexpected error occurred: {e}"
+        LOGGER.result(line)
+        logs.append(line)
 
-    # Print concise final test result status
-    print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+    finally:
+        # Final summary log
+        line = f"[SUMMARY] outcome={result.test_result}, user_validated={user_validated}, test_id={test_id}, device={device_id}"
+        LOGGER.result(line)
+        logs.append(line)
+
     return result
 
 # === Test 14: Screensaver Timeout Reboot Check ===
 def run_screensavertimeout_reboot_check(dab_topic, test_category, test_name, tester, device_id):
-    print("\n[Test] Screensaver Timeout Reboot Check")
-    print(f"Objective: Validate that screensaver timeout setting persists after device restart.")
-
+    """
+    Validates that the screensaver timeout setting persists after a device reboot. This is a manual test.
+    """
     test_id = to_test_id(f"{dab_topic}/{test_category}")
     logs = []
-    result = TestResult(test_id, device_id, "system/settings/set", json.dumps({"screenSaverTimeout": 30}), "UNKNOWN", "", logs)
+    result = TestResult(test_id, device_id, "system/settings/set", "{}", "UNKNOWN", "", logs)
+    setting_persisted = "N/A"
+    user_validated_active = "N/A"
 
     try:
-        screenSaverTimeout = 30
-        print(f"Step 1: Set screensaver timeout to {screenSaverTimeout} seconds")
-        topic = "system/settings/set"
-        payload = json.dumps({"screenSaverTimeout": screenSaverTimeout})
-        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
-        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
-        if validate_state == False:
+        # Header and description
+        for line in (
+            f"[TEST] Screensaver Timeout Reboot Check (Manual) — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: Set a screensaver timeout, reboot, verify the setting persists, and then confirm it activates.",
+            "[DESC] Required operations: system/settings/set, system/settings/get, system/restart.",
+            "[DESC] Pass criteria: The setting must persist after reboot, and the user must confirm the screensaver activates.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Capability gate
+        required_ops = "ops: system/settings/set, system/settings/get, system/restart"
+        if not need(tester, device_id, required_ops, result, logs):
             return result
 
-        print(f"Step 2: Reboot device.")
-        print("restarting...wait...")
-        execute_cmd_and_log(tester, device_id, "system/restart", json.dumps({}), logs)
-
-        while True:
-            validate_state = yes_or_no(result, logs, "Device re-started?")
-            if validate_state:
-                break
-            else:
-                continue
-
-        print(f"Step 3: Verify screensaver timeout setting persists after device restart.")
-        topic = "system/settings/get"
-        payload = json.dumps({})
-        _, response = execute_cmd_and_log(tester, device_id, topic, payload)
-        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
-        if validate_state == False:
-            return result
-        validate_state, result = verify_system_setting(tester, json.dumps({"screenSaverTimeout": screenSaverTimeout}), response, result, logs)
-        if validate_state == False:
-            return result
-
-        print(f"Step 4: Enable screensaver")
-        topic = "system/settings/set"
-        payload = json.dumps({"screenSaver": True})
-        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
-        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
-        if validate_state == False:
-            return result
-
-        print(f"Step 5: Waiting for screensaver active.")
-        waiting_for_screensaver(result, logs, screenSaverTimeout, "Ready to wait for screensaver active?")
-
-        validate_state = yes_or_no(result, logs, f"Screensaver is active after {screenSaverTimeout} seconds?")
-
-        if validate_state == True:
-            print(f"Screensaver is active after {screenSaverTimeout} seconds after reboot.")
-            logs.append(f"[PASS] Screensaver is active after {screenSaverTimeout} seconds after reboot..")
-            result.test_result = "PASS"
-        else:
-            print(f"Screensaver is not active after {screenSaverTimeout} seconds after reboot.")
-            logs.append(f"[FAILED] Screensaver is not active after {screenSaverTimeout} seconds after reboot.")
+        # Step 1: Set the screensaver timeout before rebooting
+        payload_timeout = json.dumps({"screenSaverTimeout": SCREENSAVER_TIMEOUT_WAIT})
+        line = f"[STEP] Setting screensaver timeout to {SCREENSAVER_TIMEOUT_WAIT}s with payload: {payload_timeout}"
+        LOGGER.result(line)
+        logs.append(line)
+        rc, response = execute_cmd_and_log(tester, device_id, "system/settings/set", payload_timeout, logs, result)
+        if dab_status_from(response, rc) != 200:
             result.test_result = "FAILED"
+            line = "[RESULT] FAILED — Could not set the screensaver timeout as a precondition."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        # Step 2: Reboot the device
+        line = "[STEP] Rebooting the device now."
+        LOGGER.result(line)
+        logs.append(line)
+        execute_cmd_and_log(tester, device_id, "system/restart", "{}", logs)
+
+        # Step 3: Manually confirm reboot completion
+        line = "[STEP] Waiting for manual confirmation that the device has restarted."
+        LOGGER.result(line)
+        logs.append(line)
+        while not yes_or_no(result, logs, "Has the device finished rebooting and is now idle?"):
+            logs.append("Waiting for 'Y' confirmation.")
+            time.sleep(5)
+
+        # Step 4: Verify the setting persisted across the reboot
+        line = "[STEP] Verifying the screensaver timeout setting persisted after reboot."
+        LOGGER.result(line)
+        logs.append(line)
+        _, response = execute_cmd_and_log(tester, device_id, "system/settings/get", "{}", logs, result)
+        try:
+            settings = json.loads(response) if response else {}
+            persisted_timeout = settings.get("screenSaverTimeout")
+            setting_persisted = (persisted_timeout == SCREENSAVER_TIMEOUT_WAIT)
+            if not setting_persisted:
+                 result.test_result = "FAILED"
+                 line = f"[RESULT] FAILED — Setting did not persist. Expected {SCREENSAVER_TIMEOUT_WAIT}, but got {persisted_timeout}."
+                 LOGGER.result(line)
+                 logs.append(line)
+                 return result
+            line = f"[INFO] Setting successfully persisted. Value is {persisted_timeout}."
+            LOGGER.info(line)
+            logs.append(line)
+        except Exception as e:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — Could not parse settings after reboot: {e}"
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        # Step 5: Enable the screensaver to test the persisted timeout
+        line = "[STEP] Enabling screensaver to test the timeout."
+        LOGGER.result(line)
+        logs.append(line)
+        rc, response = execute_cmd_and_log(tester, device_id, "system/settings/set", json.dumps({"screenSaver": True}), logs, result)
+        if dab_status_from(response, rc) != 200:
+            result.test_result = "FAILED"
+            line = "[RESULT] FAILED — Could not enable the screensaver."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        # Step 6: Wait and manually verify activation
+        line = f"[STEP] Waiting {SCREENSAVER_TIMEOUT_WAIT} seconds for screensaver to activate."
+        LOGGER.result(line)
+        logs.append(line)
+        waiting_for_screensaver(result, logs, SCREENSAVER_TIMEOUT_WAIT, "Ready to begin the idle wait?")
+
+        user_validated_active = yes_or_no(result, logs, "Did the screensaver activate?")
+        if user_validated_active:
+            result.test_result = "PASS"
+            line = "[RESULT] PASS — User confirmed the screensaver activated using the persisted timeout."
+        else:
+            result.test_result = "FAILED"
+            line = "[RESULT] FAILED — User reported the screensaver did not activate."
+
+        LOGGER.result(line)
+        logs.append(line)
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
+        LOGGER.result(line)
+        logs.append(line)
 
     except Exception as e:
-        logs.append(f"[ERROR] {str(e)}")
         result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — An unexpected error occurred: {e}"
+        LOGGER.result(line)
+        logs.append(line)
 
-    print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+    finally:
+        # Final summary log
+        line = (f"[SUMMARY] outcome={result.test_result}, setting_persisted={setting_persisted}, "
+                f"user_saw_screensaver={user_validated_active}, test_id={test_id}, device={device_id}")
+        LOGGER.result(line)
+        logs.append(line)
+
     return result
 
 # === Test 15: ScreenSaver Timeout Guest Mode Check ===
 def run_screensavertimeout_guest_mode_check(dab_topic, test_category, test_name, tester, device_id):
-    print("\n[Test] Screensaver Timeout Check In Guest Mode")
-    print("Objective: Validate that screensaver can be actived in guest mode.")
-
+    """
+    Validates that the screensaver can be activated while the device is in guest mode. This is a manual test.
+    """
     test_id = to_test_id(f"{dab_topic}/{test_category}")
     logs = []
-    result = TestResult(test_id, device_id, "system/settings/set", json.dumps({"screenSaverTimeout": 30}), "UNKNOWN", "", logs)
+    result = TestResult(test_id, device_id, "system/settings/set", "{}", "UNKNOWN", "", logs)
+    supports_guest_mode = "N/A"
+    user_in_guest_mode = "N/A"
+    user_validated_active = "N/A"
 
     try:
-        screenSaverTimeout = 30
-        print(f"Step 1: Switch to guest mode")
-        validate_state = yes_or_no(result, logs, "If device support guest mode, please switch to guest mode and then input 'Y', or 'N'")
-        if validate_state == False:
-            print(f"Device doesn't support guest mode.")
-            logs.append(f"[OPTIONAL_FAILED] Device doesn't support guest mode.")
+        # Header and description
+        for line in (
+            f"[TEST] Screensaver in Guest Mode Check (Manual) — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: Manually switch to guest mode, enable the screensaver, and verify it activates.",
+            "[DESC] Required operations: system/settings/set.",
+            "[DESC] Pass criteria: User confirmation that the screensaver activated while in guest mode.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Capability gate for DAB operations
+        if not need(tester, device_id, "ops: system/settings/set", result, logs):
+            return result
+
+        # Step 1: Manually check if the device supports Guest Mode at all
+        line = "[STEP] Manual check required: Checking for Guest Mode support."
+        LOGGER.result(line)
+        logs.append(line)
+        supports_guest_mode = yes_or_no(result, logs, "Does this device support a Guest Mode feature?")
+        if not supports_guest_mode:
             result.test_result = "OPTIONAL_FAILED"
-            print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+            line = "[RESULT] OPTIONAL_FAILED — Test skipped because the device does not support Guest Mode."
+            LOGGER.result(line)
+            logs.append(line)
             return result
 
-        print(f"Step 2: Enable screensaver")
-        topic = "system/settings/set"
-        payload = json.dumps({"screenSaver": True})
-        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
-        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
-        if validate_state == False:
-            return result
-
-        print(f"Step 3: Set screensaver timeout to {screenSaverTimeout} seconds")
-        topic = "system/settings/set"
-        payload = json.dumps({"screenSaverTimeout": screenSaverTimeout})
-        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
-        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
-        if validate_state == False:
-            return result
-
-        print(f"Step 4: Waiting for screensaver active.")
-        waiting_for_screensaver(result, logs, screenSaverTimeout, "Ready to wait for screensaver active?")
-
-        validate_state = yes_or_no(result, logs, f"Screensaver is active?")
-        if validate_state == True:
-            print(f"Screensaver is active in guest mode.")
-            logs.append(f"[PASS] Screensaver is active in guest mode.")
-            result.test_result = "PASS"
-        else:
-            print(f"Screensaver it not active in guest mode.")
-            logs.append(f"[FAILED] Screensaver is not active in guest mode.")
+        # Step 2: Manually switch to Guest Mode
+        line = "[STEP] Manual action required: Please switch the device to Guest Mode."
+        LOGGER.result(line)
+        logs.append(line)
+        user_in_guest_mode = yes_or_no(result, logs, "Is the device now in Guest Mode? (Answering 'N' will fail this test)")
+        if not user_in_guest_mode:
             result.test_result = "FAILED"
+            line = "[RESULT] FAILED — Test failed because the device was not put into guest mode as required."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        # Step 3 & 4: Enable screensaver and set a timeout
+        for payload_data in [
+            {"screenSaver": True},
+            {"screenSaverTimeout": SCREENSAVER_TIMEOUT_WAIT}
+        ]:
+            payload = json.dumps(payload_data)
+            setting_key = list(payload_data.keys())[0]
+            line = f"[STEP] Setting '{setting_key}' with payload: {payload}"
+            LOGGER.result(line)
+            logs.append(line)
+            rc, response = execute_cmd_and_log(tester, device_id, "system/settings/set", payload, logs, result)
+            if dab_status_from(response, rc) != 200:
+                result.test_result = "FAILED"
+                line = f"[RESULT] FAILED — Could not set '{setting_key}' as a precondition."
+                LOGGER.result(line)
+                logs.append(line)
+                return result
+
+        # Step 5: Wait for the idle timeout to pass
+        line = f"[STEP] Do not interact with the device. Waiting {SCREENSAVER_TIMEOUT_WAIT} seconds for the screensaver."
+        LOGGER.result(line)
+        logs.append(line)
+        waiting_for_screensaver(result, logs, SCREENSAVER_TIMEOUT_WAIT, "Ready to begin the idle wait?")
+
+        # Step 6: Manually verify activation
+        user_validated_active = yes_or_no(result, logs, "Did the screensaver activate while in guest mode?")
+        if user_validated_active:
+            result.test_result = "PASS"
+            line = "[RESULT] PASS — User confirmed the screensaver activated in guest mode."
+        else:
+            result.test_result = "FAILED"
+            line = "[RESULT] FAILED — User reported the screensaver did not activate in guest mode."
+
+        LOGGER.result(line)
+        logs.append(line)
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
+        LOGGER.result(line)
+        logs.append(line)
 
     except Exception as e:
-        logs.append(f"[ERROR] {str(e)}")
         result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — An unexpected error occurred: {e}"
+        LOGGER.result(line)
+        logs.append(line)
 
-    # Print concise final test result status
-    print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+    finally:
+        # Final summary log
+        line = (f"[SUMMARY] outcome={result.test_result}, supports_guest_mode={supports_guest_mode}, "
+                f"in_guest_mode={user_in_guest_mode}, screensaver_activated={user_validated_active}, "
+                f"test_id={test_id}, device={device_id}")
+        LOGGER.result(line)
+        logs.append(line)
+
     return result
 
 # === Test 16: ScreenSaver Min Timeout Check ===
 def run_screensavertimeout_minimum_check(dab_topic, test_category, test_name, tester, device_id):
-    print("\n[Test] Screensaver Minimum Timeout Check")
-    print("Objective: Validate that screensaver can be actived after timeout is set minimum value.")
-
+    """
+    Validates that the screensaver can be activated using the device's reported minimum timeout value.
+    This is a manual test.
+    """
     test_id = to_test_id(f"{dab_topic}/{test_category}")
     logs = []
-    result = TestResult(test_id, device_id, "system/settings/list", json.dumps({}), "UNKNOWN", "", logs)
+    result = TestResult(test_id, device_id, "system/settings/list", "{}", "UNKNOWN", "", logs)
+    min_timeout = "N/A"
+    user_validated = "N/A"
 
     try:
-        print(f"Step 1: Get screensaver min timeout")
-        screenSaverMinTimeout, result = get_supported_setting(tester, device_id, "screenSaverMinTimeout", result, logs)
-        if not screenSaverMinTimeout:
+        # Header and description
+        for line in (
+            f"[TEST] Screensaver Minimum Timeout Check (Manual) — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: Get the minimum screensaver timeout, apply it, and verify the screensaver activates.",
+            "[DESC] Required operations: system/settings/list, system/settings/set.",
+            "[DESC] Pass criteria: User confirmation that the screensaver appeared after the minimum idle period.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Capability gate
+        required_ops = "ops: system/settings/list, system/settings/set"
+        if not need(tester, device_id, required_ops, result, logs):
             return result
 
-        print(f"Step 2: Set screensaver timeout to {screenSaverMinTimeout} seconds")
-        topic = "system/settings/set"
-        payload = json.dumps({"screenSaverTimeout": screenSaverMinTimeout})
-        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
-        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
-        if validate_state == False:
+        # Step 1: Get the minimum supported screensaver timeout
+        line = "[STEP] Getting the device's minimum supported screensaver timeout."
+        LOGGER.result(line)
+        logs.append(line)
+        min_timeout, result = get_supported_setting(tester, device_id, "screenSaverMinTimeout", result, logs)
+        if not min_timeout:
+            # get_supported_setting already logs the failure reason and sets the result
             return result
+        line = f"[INFO] Device reports minimum screensaver timeout is: {min_timeout} seconds."
+        LOGGER.info(line)
+        logs.append(line)
 
-        print(f"Step 3: Enable screensaver")
-        topic = "system/settings/set"
-        payload = json.dumps({"screenSaver": True})
-        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
-        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
-        if validate_state == False:
-            return result
+        # Step 2 & 3: Enable screensaver and set the minimum timeout
+        for payload_data in [
+            {"screenSaver": True},
+            {"screenSaverTimeout": min_timeout}
+        ]:
+            payload = json.dumps(payload_data)
+            setting_key = list(payload_data.keys())[0]
+            line = f"[STEP] Setting '{setting_key}' with payload: {payload}"
+            LOGGER.result(line)
+            logs.append(line)
+            rc, response = execute_cmd_and_log(tester, device_id, "system/settings/set", payload, logs, result)
+            if dab_status_from(response, rc) != 200:
+                result.test_result = "FAILED"
+                line = f"[RESULT] FAILED — Could not set '{setting_key}' as a precondition."
+                LOGGER.result(line)
+                logs.append(line)
+                return result
 
-        print(f"Step 4: Waiting for screensaver active.")
-        waiting_for_screensaver(result, logs, screenSaverMinTimeout, "Ready to wait for screensaver active?")
+        # Step 4: Wait for the idle timeout to pass and get user confirmation
+        line = f"[STEP] Do not interact with the device. Waiting {min_timeout} seconds for the screensaver."
+        LOGGER.result(line)
+        logs.append(line)
+        waiting_for_screensaver(result, logs, min_timeout, "Ready to begin the idle wait?")
 
-        validate_state = yes_or_no(result, logs, f"Screensaver is active?")
-        if validate_state == True:
-            print(f"Screensaver is active.")
-            logs.append(f"[PASS] Screensaver is active after screensaver enabled.")
+        line = "[STEP] Manual check required."
+        LOGGER.result(line)
+        logs.append(line)
+
+        user_validated = yes_or_no(result, logs, f"Did the screensaver activate after {min_timeout} seconds?")
+        if user_validated:
             result.test_result = "PASS"
+            line = "[RESULT] PASS — User confirmed the screensaver activated with the minimum timeout."
         else:
-            print(f"Screensaver it not active.")
-            logs.append(f"[FAILED] Screensaver is not active after screensaver enabled.")
             result.test_result = "FAILED"
+            line = "[RESULT] FAILED — User reported the screensaver did not activate."
+
+        LOGGER.result(line)
+        logs.append(line)
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
+        LOGGER.result(line)
+        logs.append(line)
 
     except Exception as e:
-        logs.append(f"[ERROR] {str(e)}")
         result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — An unexpected error occurred: {e}"
+        LOGGER.result(line)
+        logs.append(line)
 
-    # Print concise final test result status
-    print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+    finally:
+        # Final summary log
+        line = (f"[SUMMARY] outcome={result.test_result}, min_timeout_used={min_timeout}, "
+                f"user_validated={user_validated}, test_id={test_id}, device={device_id}")
+        LOGGER.result(line)
+        logs.append(line)
+
     return result
 
 # === Test 17: ScreenSaver Min Timeout Reboot Check ===
 def run_screensavermintimeout_reboot_check(dab_topic, test_category, test_name, tester, device_id):
-    print("\n[Test] Screensaver Min Timeout After Reboot Check")
-    print("Objective: Verify that the minimum screensaver timeout value is not altered after a device restart.")
-
+    """
+    Verifies that the minimum screensaver timeout value is not altered after a device restart.
+    """
     test_id = to_test_id(f"{dab_topic}/{test_category}")
     logs = []
-    result = TestResult(test_id, device_id, "system/settings/list", json.dumps({}), "UNKNOWN", "", logs)
+    result = TestResult(test_id, device_id, "system/settings/list", "{}", "UNKNOWN", "", logs)
+    min_timeout_before = "N/A"
+    min_timeout_after = "N/A"
 
     try:
-        print(f"Step 1: Get screensaver minimum timeout")
-        screenSaverMinTimeout, result = get_supported_setting(tester, device_id, "screenSaverMinTimeout", result, logs)
-        if not screenSaverMinTimeout:
+        # Header and description
+        for line in (
+            f"[TEST] Screensaver Min Timeout After Reboot Check — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: Get the minimum timeout, reboot, get it again, and verify the value is unchanged.",
+            "[DESC] Required operations: system/settings/list, system/restart.",
+            "[DESC] Pass criteria: The timeout value must be the same before and after the reboot.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Capability gate
+        required_ops = "ops: system/settings/list, system/restart"
+        if not need(tester, device_id, required_ops, result, logs):
             return result
 
-        print(f"Step 2: Reboot device.")
-        print("restarting...wait...")
-        execute_cmd_and_log(tester, device_id, "system/restart", json.dumps({}), logs)
-
-        while True:
-            validate_state = yes_or_no(result, logs, "Device re-started?")
-            if validate_state:
-                break
-            else:
-                continue
-
-        print(f"Step 3: Get screensaver minimum timeout after reboot")
-        screenSaverMinTimeout_reboot, result = get_supported_setting(tester, device_id, "screenSaverMinTimeout", result, logs)
-        if not screenSaverMinTimeout:
+        # Step 1: Get the initial minimum timeout value
+        line = "[STEP] Getting the minimum screensaver timeout before reboot."
+        LOGGER.result(line)
+        logs.append(line)
+        min_timeout_before, result = get_supported_setting(tester, device_id, "screenSaverMinTimeout", result, logs)
+        if not min_timeout_before:
             return result
+        line = f"[INFO] Value before reboot: {min_timeout_before}"
+        LOGGER.info(line)
+        logs.append(line)
 
-        if screenSaverMinTimeout == screenSaverMinTimeout_reboot:
-            print(f"Screensaver minimum timeout is not altered after a device restart.")
-            logs.append(f"[PASS] Screensaver minimum timeout is not altered after a device restart.")
+        # Step 2: Reboot the device
+        line = "[STEP] Rebooting the device now."
+        LOGGER.result(line)
+        logs.append(line)
+        execute_cmd_and_log(tester, device_id, "system/restart", "{}", logs)
+
+        # Step 3: Manually confirm reboot completion
+        line = "[STEP] Waiting for manual confirmation that the device has restarted."
+        LOGGER.result(line)
+        logs.append(line)
+        while not yes_or_no(result, logs, "Has the device finished rebooting and is now idle?"):
+            logs.append("Waiting for 'Y' confirmation.")
+            time.sleep(5)
+
+        # Step 4: Get the minimum timeout again after reboot
+        line = "[STEP] Getting the minimum screensaver timeout after reboot."
+        LOGGER.result(line)
+        logs.append(line)
+        min_timeout_after, result = get_supported_setting(tester, device_id, "screenSaverMinTimeout", result, logs)
+        if not min_timeout_after:
+            return result
+        line = f"[INFO] Value after reboot: {min_timeout_after}"
+        LOGGER.info(line)
+        logs.append(line)
+
+        # Step 5: Compare the values
+        if min_timeout_before == min_timeout_after:
             result.test_result = "PASS"
+            line = "[RESULT] PASS — The minimum timeout value was unchanged after reboot."
         else:
-            print(f"Screensaver minimum timeout is altered after a device restart.")
-            logs.append(f"[FAILED] Screensaver minimum timeout is altered after a device restart.")
             result.test_result = "FAILED"
+            line = "[RESULT] FAILED — The minimum timeout value changed after reboot."
+
+        LOGGER.result(line)
+        logs.append(line)
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
+        LOGGER.result(line)
+        logs.append(line)
 
     except Exception as e:
-        logs.append(f"[ERROR] {str(e)}")
         result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — An unexpected error occurred: {e}"
+        LOGGER.result(line)
+        logs.append(line)
 
-    # Print concise final test result status
-    print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+    finally:
+        # Final summary log
+        line = (f"[SUMMARY] outcome={result.test_result}, timeout_before={min_timeout_before}, "
+                f"timeout_after={min_timeout_after}, test_id={test_id}, device={device_id}")
+        LOGGER.result(line)
+        logs.append(line)
+
     return result
 
 # === Test 18: High Contrast Text Check Text Over Images ===
 def run_highContrastText_text_over_images_check(dab_topic, test_category, test_name, tester, device_id):
-    print("\n[Test] High Contrast Text Check Text Over Images")
-    print("Objective: Verify that enabling high contrast text adjusts text color and background for text over images.")
-
+    """
+    Verifies that enabling high contrast text improves legibility of text over images. This is a manual test.
+    """
     test_id = to_test_id(f"{dab_topic}/{test_category}")
     logs = []
-    result = TestResult(test_id, device_id, "system/settings/set", json.dumps({"highContrastText": True}), "UNKNOWN", "", logs)
+    result = TestResult(test_id, device_id, "system/settings/set", "{}", "UNKNOWN", "", logs)
+    user_navigated = "N/A"
+    user_validated_legible = "N/A"
 
     try:
-        print(f"Step 1: Disable High Contrast Text before the test.")
-        topic = "system/settings/set"
-        payload = json.dumps({"highContrastText": False})
-        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
-        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
-        if validate_state == False:
+        # Header and description
+        for line in (
+            f"[TEST] High Contrast Text Over Images Check (Manual) — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: Manually verify that enabling high contrast text improves the legibility of text over images.",
+            "[DESC] Required operations: system/settings/set.",
+            "[DESC] Pass criteria: User confirmation that text becomes clearly legible after the setting is enabled.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Capability gate
+        if not need(tester, device_id, "ops: system/settings/set", result, logs):
             return result
 
-        print(f"Step 2: Navigate to a screen with text displayed over images.")
-        validate_state = yes_or_no(result, logs, "Navigate to a screen with text displayed over images?")
-        if validate_state == False:
-            print(f"Couldn't Navigate to a screen with text displayed over images.")
-            logs.append(f"[FAILED] Couldn't Navigate to a screen with text displayed over images.")
+        # Step 1: Set a known state by disabling high contrast text first
+        payload_disable = json.dumps({"highContrastText": False})
+        line = f"[STEP] Precondition: Disabling high contrast text with payload: {payload_disable}"
+        LOGGER.result(line)
+        logs.append(line)
+        rc, response = execute_cmd_and_log(tester, device_id, "system/settings/set", payload_disable, logs, result)
+        if dab_status_from(response, rc) != 200:
             result.test_result = "FAILED"
+            line = "[RESULT] FAILED — Could not disable high contrast text as a precondition."
+            LOGGER.result(line)
+            logs.append(line)
             return result
 
-        print(f"Step 3: Enable High Contrast Text.")
-        topic = "system/settings/set"
-        payload = json.dumps({"highContrastText": True})
-        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
-        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
-        if validate_state == False:
+        # Step 2: Manually navigate to the correct screen
+        line = "[STEP] Manual action required: Navigate to a screen where text is displayed over an image."
+        LOGGER.result(line)
+        logs.append(line)
+        user_navigated = yes_or_no(result, logs, "Are you on a screen with text over an image?")
+        if not user_navigated:
+            result.test_result = "FAILED"
+            line = "[RESULT] FAILED — Test failed because the required screen was not navigated to."
+            LOGGER.result(line)
+            logs.append(line)
             return result
 
-        print(f"Step 4: Verify text over images is clearly legible with high contrast applied")
-        validate_state = yes_or_no(result, logs, f"Text over images is clearly legible with high contrast applied?")
-        if validate_state == True:
-            print(f"Text over images is clearly legible.")
-            logs.append(f"[PASS] Text over images is clearly legible with high contrast applied.")
+        # Step 3: Enable High Contrast Text
+        payload_enable = json.dumps({"highContrastText": True})
+        line = f"[STEP] Action: Enabling high contrast text with payload: {payload_enable}"
+        LOGGER.result(line)
+        logs.append(line)
+        rc, response = execute_cmd_and_log(tester, device_id, "system/settings/set", payload_enable, logs, result)
+        if dab_status_from(response, rc) != 200:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — The set command to enable high contrast text failed."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        # Step 4: Manually verify the visual change
+        user_validated_legible = yes_or_no(result, logs, "Is the text over the image now clearly legible with high contrast?")
+        if user_validated_legible:
             result.test_result = "PASS"
+            line = "[RESULT] PASS — User confirmed the text is now legible."
         else:
-            print(f"Text over images is not clearly legible.")
-            logs.append(f"[FAILED] Text over images is not clearly legible with high contrast applied.")
             result.test_result = "FAILED"
+            line = "[RESULT] FAILED — User reported the text is still not clearly legible."
+
+        LOGGER.result(line)
+        logs.append(line)
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
+        LOGGER.result(line)
+        logs.append(line)
 
     except Exception as e:
-        logs.append(f"[ERROR] {str(e)}")
         result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — An unexpected error occurred: {e}"
+        LOGGER.result(line)
+        logs.append(line)
 
-    # Print concise final test result status
-    print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+    finally:
+        # Final summary log
+        line = (f"[SUMMARY] outcome={result.test_result}, user_navigated={user_navigated}, "
+                f"legibility_confirmed={user_validated_legible}, test_id={test_id}, device={device_id}")
+        LOGGER.result(line)
+        logs.append(line)
+
     return result
 
 # === Test 19: High Contrast Text Check During Video Playback ===
 def run_highContrastText_video_playback_check(dab_topic, test_category, test_name, tester, device_id):
-    print("\n[Test] High Contrast Text Check During Video Playback")
-    print("Objective: Verify that toggling high contrast text during video playback does not interrupt video playback.")
-
+    """
+    Verifies that toggling high contrast text does not interrupt video playback. This is a manual test.
+    """
     test_id = to_test_id(f"{dab_topic}/{test_category}")
     logs = []
-    result = TestResult(test_id, device_id, "system/settings/set", json.dumps({"highContrastText": True}), "UNKNOWN", "", logs)
+    result = TestResult(test_id, device_id, "system/settings/set", "{}", "UNKNOWN", "", logs)
+    video_was_playing = "N/A"
+    playback_unaffected = "N/A"
 
     try:
-        print(f"Step 1: Disable High Contrast Text before the test.")
-        topic = "system/settings/set"
-        payload = json.dumps({"highContrastText": False})
-        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
-        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
-        if validate_state == False:
+        # Header and description
+        for line in (
+            f"[TEST] High Contrast Text During Video Check (Manual) — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: Manually verify that toggling high contrast text during video playback does not cause interruptions.",
+            "[DESC] Required operations: system/settings/set.",
+            "[DESC] Pass criteria: User confirmation that video playback was not affected.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Capability gate
+        if not need(tester, device_id, "ops: system/settings/set", result, logs):
             return result
 
-        print(f"Step 2: Play a video in any one application, e.g. YouTube, Netflix, PrimeVideo...")
-        validate_state = yes_or_no(result, logs, "The video is playing?")
-        if validate_state == False:
-            print(f"Play video failed.")
-            logs.append(f"[FAILED] Play video failed.")
+        # Step 1: Set a known state by disabling high contrast text first
+        payload_disable = json.dumps({"highContrastText": False})
+        line = f"[STEP] Precondition: Disabling high contrast text with payload: {payload_disable}"
+        LOGGER.result(line)
+        logs.append(line)
+        rc, response = execute_cmd_and_log(tester, device_id, "system/settings/set", payload_disable, logs, result)
+        if dab_status_from(response, rc) != 200:
             result.test_result = "FAILED"
-
-        print(f"Step 3: Enable High Contrast Text.")
-        topic = "system/settings/set"
-        payload = json.dumps({"highContrastText": True})
-        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
-        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
-        if validate_state == False:
+            line = "[RESULT] FAILED — Could not disable high contrast text as a precondition."
+            LOGGER.result(line)
+            logs.append(line)
             return result
 
-        print(f"Step 4: Verify video playback is not affected by toggling the high contrast text setting")
-        validate_state = yes_or_no(result, logs, f"Video playback is not affected by toggling the high contrast text setting?")
-        if validate_state == True:
-            print(f"Video playback is not affected.")
-            logs.append(f"[PASS] Video playback is not affected.")
+        # Step 2: Manually start video playback
+        line = "[STEP] Manual action required: Start playing any video on the device (e.g., in YouTube)."
+        LOGGER.result(line)
+        logs.append(line)
+        video_was_playing = yes_or_no(result, logs, "Is a video currently playing on the screen?")
+        if not video_was_playing:
+            result.test_result = "FAILED"
+            line = "[RESULT] FAILED — Test failed because video playback was not started as required."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        # Step 3: Enable High Contrast Text while video is playing
+        payload_enable = json.dumps({"highContrastText": True})
+        line = f"[STEP] Action: Enabling high contrast text with payload: {payload_enable}"
+        LOGGER.result(line)
+        logs.append(line)
+        rc, response = execute_cmd_and_log(tester, device_id, "system/settings/set", payload_enable, logs, result)
+        if dab_status_from(response, rc) != 200:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — The set command to enable high contrast text failed."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        # Step 4: Manually verify the video playback was not affected
+        playback_unaffected = yes_or_no(result, logs, "Was the video playback smooth and uninterrupted when the setting was changed?")
+        if playback_unaffected:
             result.test_result = "PASS"
+            line = "[RESULT] PASS — User confirmed video playback was not affected."
         else:
-            print(f"Text over images is affected.")
-            logs.append(f"[FAILED] Text over images is affected.")
             result.test_result = "FAILED"
+            line = "[RESULT] FAILED — User reported that video playback was interrupted or affected."
+
+        LOGGER.result(line)
+        logs.append(line)
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
+        LOGGER.result(line)
+        logs.append(line)
 
     except Exception as e:
-        logs.append(f"[ERROR] {str(e)}")
         result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — An unexpected error occurred: {e}"
+        LOGGER.result(line)
+        logs.append(line)
 
-    # Print concise final test result status
-    print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+    finally:
+        # Final summary log
+        line = (f"[SUMMARY] outcome={result.test_result}, video_was_playing={video_was_playing}, "
+                f"playback_unaffected={playback_unaffected}, test_id={test_id}, device={device_id}")
+        LOGGER.result(line)
+        logs.append(line)
+
     return result
 # === Test 20: SetInvalidVoiceAssistant ===
 def run_set_invalid_voice_assistant_check(dab_topic, test_category, test_name, tester, device_id):
@@ -2923,20 +3538,42 @@ def run_personalized_ads_manual_check(dab_topic, test_category, test_name, teste
 
 # === Test 34: Uninstall An Application Currently Running Foreground Check ===
 def run_uninstall_foreground_app_check(dab_topic, test_category, test_name, tester, device_id):
-    print("\n[Test] Uninstall An Application Currently Running Foreground Check")
-    print("Objective: Validate application currently running foreground can be uninstalled successfully.")
+    """
+    Validates that an application currently running foreground can be uninstalled successfully.
+    """
 
     test_id = to_test_id(f"{dab_topic}/{test_category}")
     logs = []
     result = TestResult(test_id, device_id, "applications/uninstall", json.dumps({"appId": "[appId]"}), "UNKNOWN", "", logs)
 
     try:
-        print(f"Step 1: Select one non-system application in the applications list.")
+        # Header and description
+        for line in (
+            f"[TEST] Uninstall An Application Currently Running Foreground — {test_name} (test_id={test_id}, device={device_id}, appId=[appId])",
+            "[DESC] Goal: Launch an non-system app, then uninstall it while it's in the foreground.",
+            "[DESC] Required ops: applications/list, applications/launch, applications/get-state, applications/uninstall.",
+            "[DESC] Pass criteria: The 'uninstall' command must return status 200.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Capability gate
+        required_ops = "ops: applications/list, applications/launch, applications/get-state, applications/uninstall"
+        if not need(tester, device_id, required_ops, result, logs):
+            return result
+
+        # Step 1: List and select a non-system app.
+        line = f"[STEP] Listing applications for manual selection."
+        LOGGER.result(line)
+        logs.append(line)
         topic = "applications/list"
         payload = json.dumps({})
-        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
-        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
-        if validate_state == False:
+        rc, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
+        if dab_status_from(response, rc) != 200:
+            result.test_result = "FAILED"
+            line = "[RESULT] FAILED — Could not list supported applications as a precondition."
+            LOGGER.result(line)
+            logs.append(line)
             return result
 
         applications = json.loads(response).get("applications")
@@ -2959,12 +3596,18 @@ def run_uninstall_foreground_app_check(dab_topic, test_category, test_name, test
         appId = appId_list[index - 1]
         logs.append(f"Select appId '{appId}'.")
 
-        print(f"Step 2: Launching application '{appId}'.")
+        # Step 2: Launch the app.
+        line = f"[STEP] Launching application '{appId}'."
+        LOGGER.result(line)
+        logs.append(line)
         execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": appId}), logs)
         print(f"Waiting {APP_LAUNCH_WAIT} seconds for application to launch and stabilize.")
         time.sleep(APP_LAUNCH_WAIT)
 
-        print(f"Step 3: Getting state of application '{appId}'.")
+	# Step 3: Get app state.
+        line = f"[STEP] Getting state of application '{appId}'."
+        LOGGER.result(line)
+        logs.append(line)
         _, response = execute_cmd_and_log(tester, device_id, "applications/get-state", json.dumps({"appId": appId}), logs)
         state = json.loads(response).get("state", "").upper() if response else "UNKNOWN"
         print(f"Current application state: {state}.")
@@ -2973,7 +3616,10 @@ def run_uninstall_foreground_app_check(dab_topic, test_category, test_name, test
             logs.append(f"[FAIL] App state is '{state}', expected 'FOREGROUND'.")
             result.test_result = "FAILED"
 
-        print(f"Step 4: Uninstall application '{appId}'.")
+	# Step 4: Uninstall app.
+        line = f"[STEP] Uninstall application '{appId}'."
+        LOGGER.result(line)
+        logs.append(line)
         _, response = execute_cmd_and_log(tester, device_id, "applications/uninstall", json.dumps({"appId": appId}), logs)
         status = json.loads(response).get("status", 0) if response else 0
         print(f"Waiting {APP_UNINSTALL_WAIT} seconds for application to uninstall.")
@@ -3002,20 +3648,42 @@ def run_uninstall_foreground_app_check(dab_topic, test_category, test_name, test
 
 # === Test 35: Uninstall An System Application Check ===
 def run_uninstall_system_app_check(dab_topic, test_category, test_name, tester, device_id):
-    print("\n[Test] Uninstall An System Application Check")
-    print("Objective: Validate system application can not be uninstalled.")
+    """
+    Validates that an system application couldn't be uninstalled successfully.
+    """
 
     test_id = to_test_id(f"{dab_topic}/{test_category}")
     logs = []
     result = TestResult(test_id, device_id, "applications/uninstall", json.dumps({"appId": "[appId]"}), "UNKNOWN", "", logs)
 
     try:
-        print(f"Step 1: Select one system application in the applications list.")
+        # Header and description
+        for line in (
+            f"[TEST] Uninstall An system Application — {test_name} (test_id={test_id}, device={device_id}, appId=[appId])",
+            "[DESC] Goal: Launch an non-system app, then uninstall it while it's in the foreground.",
+            "[DESC] Required ops: applications/list, applications/uninstall.",
+            "[DESC] Pass criteria: The 'uninstall' command must return status 200.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Capability gate
+        required_ops = "ops: applications/list, applications/uninstall"
+        if not need(tester, device_id, required_ops, result, logs):
+            return result
+
+        # Step 1: List and select a non-system app.
+        line = f"[STEP] Listing applications for manual selection."
+        LOGGER.result(line)
+        logs.append(line)
         topic = "applications/list"
         payload = json.dumps({})
-        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
-        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
-        if validate_state == False:
+        rc, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
+        if dab_status_from(response, rc) != 200:
+            result.test_result = "FAILED"
+            line = "[RESULT] FAILED — Could not list supported applications as a precondition."
+            LOGGER.result(line)
+            logs.append(line)
             return result
 
         applications = json.loads(response).get("applications")
@@ -3038,7 +3706,10 @@ def run_uninstall_system_app_check(dab_topic, test_category, test_name, tester, 
         appId = appId_list[index - 1]
         logs.append(f"Select appId '{appId}'.")
 
-        print(f"Step 2: Uninstall application '{appId}'.")
+	# Step 2: Uninstall app.
+        line = f"[STEP] Uninstall application '{appId}'."
+        LOGGER.result(line)
+        logs.append(line)
         _, response = execute_cmd_and_log(tester, device_id, "applications/uninstall", json.dumps({"appId": appId}), logs)
         status = json.loads(response).get("status", 0) if response else 0
         print(f"Waiting {APP_UNINSTALL_WAIT} seconds for application to uninstall.")
@@ -3070,119 +3741,146 @@ def run_uninstall_system_app_check(dab_topic, test_category, test_name, tester, 
 
 # === Test 36: Clear Data For An Application Currently Running Foreground Check ===
 def run_clear_data_foreground_app_check(dab_topic, test_category, test_name, tester, device_id):
-    print("\n[Test] Clear Data For An Application Currently Running Foreground Check")
-    print("Objective: Validate application currently running foreground can be cleared data successfully.")
-
+    """
+    Validates that data for a foreground app can be cleared successfully.
+    """
     test_id = to_test_id(f"{dab_topic}/{test_category}")
     appId = config.apps.get("youtube", "YouTube")
     logs = []
     result = TestResult(test_id, device_id, "applications/clear-data", json.dumps({"appId": appId}), "UNKNOWN", "", logs)
+    clear_status = "N/A"
 
     try:
-        print(f"Step 2: Launching application '{appId}'.")
+        # Header and description
+        for line in (
+            f"[TEST] Clear Data for Foreground App — {test_name} (test_id={test_id}, device={device_id}, appId={appId})",
+            "[DESC] Goal: Launch an app, then clear its data while it's in the foreground.",
+            "[DESC] Required ops: applications/launch, applications/clear-data.",
+            "[DESC] Pass criteria: The 'clear-data' command must return status 200.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Capability gate
+        if not need(tester, device_id, "ops: applications/launch, applications/clear-data", result, logs):
+            return result
+
+        # Step 1: Launch the app
+        line = f"[STEP] Launching '{appId}' to bring it to the foreground."
+        LOGGER.result(line)
+        logs.append(line)
         execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": appId}), logs)
         print(f"Waiting {APP_LAUNCH_WAIT} seconds for application to launch and stabilize.")
         time.sleep(APP_LAUNCH_WAIT)
 
-        print(f"Step 3: Getting state of application '{appId}'.")
-        _, response = execute_cmd_and_log(tester, device_id, "applications/get-state", json.dumps({"appId": appId}), logs)
-        state = json.loads(response).get("state", "").upper() if response else "UNKNOWN"
-        print(f"Current application state: {state}.")
-
-        if state != "FOREGROUND":
-            logs.append(f"[FAIL] App state is '{state}', expected 'FOREGROUND'.")
-            result.test_result = "FAILED"
-
-        print(f"Step 4: Clear application '{appId}' data.")
-        _, response = execute_cmd_and_log(tester, device_id, "applications/clear-data", json.dumps({"appId": appId}), logs)
-        status = json.loads(response).get("status", 0) if response else 0
-        print(f"Waiting {APP_CLEAR_DATA_WAIT} seconds for application to clear data.")
+        # Step 2: Clear the app's data
+        line = f"[STEP] Clearing data for '{appId}'."
+        LOGGER.result(line)
+        logs.append(line)
+        rc, response = execute_cmd_and_log(tester, device_id, "applications/clear-data", json.dumps({"appId": appId}), logs)
+        clear_status = dab_status_from(response, rc)
         time.sleep(APP_CLEAR_DATA_WAIT)
 
-        if status == 200:
-            print(f"Clear data for an application currently running foreground successful.")
-            logs.append(f"[PASS] Clear data for an application currently running foreground successful.")
+        if clear_status == 200:
             result.test_result = "PASS"
+            line = "[RESULT] PASS — 'clear-data' command returned status 200."
         else:
-            print(f"Clear data for an application currently running foreground fail.")
-            logs.append(f"[FAIL] Clear data for an application currently running foreground fail.")
             result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — 'clear-data' returned status {clear_status}."
 
-    except UnsupportedOperationError as e:
-        logs.append(f"[OPTIONAL_FAILED] Unsupported operation: {str(e)}")
-        result.test_result = "OPTIONAL_FAILED"
+        LOGGER.result(line)
+        logs.append(line)
 
     except Exception as e:
-        logs.append(f"[ERROR] {str(e)}")
         result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — An unexpected error occurred: {e}"
+        LOGGER.result(line)
+        logs.append(line)
 
-    # Print concise final test result status
-    print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+    finally:
+        line = f"[SUMMARY] outcome={result.test_result}, clear_status={clear_status}, test_id={test_id}, device={device_id}"
+        LOGGER.result(line)
+        logs.append(line)
+
     return result
 
 # === Test 37: Clear Data For An System Application Check ===
 def run_clear_data_system_app_check(dab_topic, test_category, test_name, tester, device_id):
-    print("\n[Test] Clear Data For An System Application Check")
-    print("Objective: Validate system application can be cleared data successfully.")
-
+    """
+    Validates that data for a system application can be cleared.
+    """
     test_id = to_test_id(f"{dab_topic}/{test_category}")
     logs = []
-    result = TestResult(test_id, device_id, "applications/uninstall", json.dumps({"appId": "[appId]"}), "UNKNOWN", "", logs)
+    result = TestResult(test_id, device_id, "applications/clear-data", "{}", "UNKNOWN", "", logs)
+    app_id = "N/A"
+    clear_status = "N/A"
 
     try:
-        print(f"Step 1: Select one system application in the applications list.")
-        topic = "applications/list"
-        payload = json.dumps({})
-        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
-        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
-        if validate_state == False:
+        # Header and description
+        for line in (
+            f"[TEST] Clear Data for System App (Manual Select) — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: Manually select a system app and clear its data.",
+            "[DESC] Required ops: applications/list, applications/clear-data.",
+            "[DESC] Pass criteria: The 'clear-data' command must return status 200.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Capability gate
+        if not need(tester, device_id, "ops: applications/list, applications/clear-data", result, logs):
             return result
 
-        applications = json.loads(response).get("applications")
-        appId_list = []
+        # Step 1: List and select a system app
+        line = "[STEP] Listing applications for manual selection."
+        LOGGER.result(line)
+        logs.append(line)
+        _, response = execute_cmd_and_log(tester, device_id, "applications/list", "{}", logs)
+        apps = json.loads(response).get("applications", [])
+        app_id_list = [app.get("appId") for app in apps]
 
-        for application in applications:
-            appId = application.get("appId")
-            appId_list.append(appId)
-
-        logs.append(f"Please select one System application in the list.")
-        print(f"Please select one System application in the list.")
-        index = select_input(result, logs, appId_list)
+        line = "Please select one SYSTEM application from the list to clear its data:"
+        LOGGER.prompt(line)
+        logs.append(line)
+        index = select_input(result, logs, app_id_list)
         if index == 0:
-            print(f"There are no system applications in the applications list.")
-            logs.append(f"[OPTIONAL_FAILED] There are no system applications in the applications list.")
             result.test_result = "OPTIONAL_FAILED"
-            print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+            line = "[RESULT] OPTIONAL_FAILED — No system app was selected."
+            LOGGER.result(line)
+            logs.append(line)
             return result
 
-        appId = appId_list[index - 1]
-        logs.append(f"Select appId '{appId}'.")
+        app_id = app_id_list[index - 1]
+        logs.append(f"[INFO] User selected app: {app_id}")
 
-        print(f"Step 4: Clear data for system application '{appId}'.")
-        _, response = execute_cmd_and_log(tester, device_id, "applications/clear-data", json.dumps({"appId": appId}), logs)
-        status = json.loads(response).get("status", 0) if response else 0
-        print(f"Waiting {APP_CLEAR_DATA_WAIT} seconds for application to uninstall.")
+        # Step 2: Clear the app's data
+        line = f"[STEP] Clearing data for system app '{app_id}'."
+        LOGGER.result(line)
+        logs.append(line)
+        rc, response = execute_cmd_and_log(tester, device_id, "applications/clear-data", json.dumps({"appId": app_id}), logs)
+        clear_status = dab_status_from(response, rc)
         time.sleep(APP_CLEAR_DATA_WAIT)
 
-        if status == 200:
-            print(f"Clear data for an system application successful.")
-            logs.append(f"[PASS] Clear data for an system application successful.")
+        if clear_status == 200:
             result.test_result = "PASS"
+            line = "[RESULT] PASS — 'clear-data' command returned status 200."
         else:
-            print(f"Clear data for an system application fail.")
-            logs.append(f"[FAIL] Clear data for an system application fail.")
             result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — 'clear-data' returned status {clear_status}."
 
-    except UnsupportedOperationError as e:
-        logs.append(f"[OPTIONAL_FAILED] Unsupported operation: {str(e)}")
-        result.test_result = "OPTIONAL_FAILED"
+        LOGGER.result(line)
+        logs.append(line)
 
     except Exception as e:
-        logs.append(f"[ERROR] {str(e)}")
         result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — An unexpected error occurred: {e}"
+        LOGGER.result(line)
+        logs.append(line)
 
-    # Print concise final test result status
-    print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+    finally:
+        line = f"[SUMMARY] outcome={result.test_result}, target_app={app_id}, clear_status={clear_status}, test_id={test_id}, device={device_id}"
+        LOGGER.result(line)
+        logs.append(line)
+
     return result
 
 def run_clear_data_user_installed_app_foreground(dab_topic, test_category, test_name, tester, device_id):
@@ -3260,7 +3958,7 @@ def run_clear_data_user_installed_app_foreground(dab_topic, test_category, test_
                 f"test_id={test_id}, device={device_id}, appId={app_id}")
         LOGGER.result(line); logs.append(line)
         return result
-    
+
 def run_install_from_app_store_check(dab_topic, test_category, test_name, tester, device_id):
     """
     Positive: Install a new app from the app store and launch it.
@@ -4779,7 +5477,6 @@ def run_clear_data_session_reset(dab_topic, test_category, test_name, tester, de
         LOGGER.result(msg); logs.append(msg)
         return result
 
-    
 def run_voice_log_collection_check(dab_topic, test_category, test_name, tester, device_id):
     """
     Verifies that voice assistant activity is captured in the system logs. This is a manual verification test.
@@ -5501,6 +6198,721 @@ def run_update_installed_app_check(dab_topic, test_category, test_name, tester, 
 
     return result
 
+# === Test 38: Log Collection Check ===
+def run_logs_collection_check(dab_topic, test_category, test_name, tester, device_id):
+    """
+    Validates that logs can be collected successfully.
+    """
+
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    logs = []
+    result = TestResult(test_id, device_id, "system/logs/start-collection", json.dumps({}), "UNKNOWN", "", logs)
+
+    try:
+        # Header and description
+        for line in (
+            f"[TEST] Log Collection Check — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: Validates that logs can be collected successfully.",
+            "[DESC] Required operations: system/logs/start-collection, system/logs/stop-collection.",
+            "[DESC] Pass criteria: Logs has been collected and include the folder categories follow DAB spec requirement.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Capability gate
+        if not need(tester, device_id, "ops: system/logs/start-collection, system/logs/stop-collection", result, logs):
+            return result
+
+        # Step 1: Start logs collection.
+        line = f"[STEP] Start logs collection."
+        LOGGER.result(line)
+        logs.append(line)
+        topic = "system/logs/start-collection"
+        payload = json.dumps({})
+        rc, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
+        if dab_status_from(response, rc) != 200:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — Could not start logs collection."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        # Step 2: Waiting for 120 seconds to collect logs.
+        log_collection_timeout = 120
+        line = f"[STEP] Waiting for {log_collection_timeout} seconds to collect logs."
+        LOGGER.result(line)
+        logs.append(line)
+        countdown(f"Waiting for 120 seconds to collect logs.", log_collection_timeout)
+
+        # Step 3: Stop logs collection, and generate logs.tar.gz file.
+        line = f"[STEP] Stop logs collection, and generate logs.tar.gz file."
+        LOGGER.result(line)
+        logs.append(line) 
+        topic = "system/logs/stop-collection"
+        payload = json.dumps({})
+        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
+        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
+        if validate_state == False:
+            return result
+        validate_state, result = EnforcementManager().verify_logs_chunk(tester, result, logs)
+        if validate_state == False:
+            return result
+
+        # Step 4: Uncompress logs.tar.gz and verify logs structure.
+        line = f"[STEP] Uncompress logs.tar.gz and verify logs structure."
+        LOGGER.result(line)
+        logs.append(line)
+        validate_state, result = EnforcementManager().verify_logs_structure(result, logs)
+        if validate_state == False:
+            return result
+        else:
+            print(f"The logs structure follows DAB requirement.")
+            logs.append(f"[PASS] The logs structure follows DAB requirement.")
+            result.test_result = "PASS"
+
+    except UnsupportedOperationError as e:
+        logs.append(f"[OPTIONAL_FAILED] Unsupported operation: {str(e)}")
+        result.test_result = "OPTIONAL_FAILED"
+
+    except Exception as e:
+        logs.append(f"[ERROR] {str(e)}")
+        result.test_result = "SKIPPED"
+
+    finally:
+        EnforcementManager().delete_logs_collection_files()
+        # Print concise final test result status
+        print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+
+    return result
+
+# === Test 39: Log Collection For Major System Services Check ===
+def run_logs_collection_for_major_system_services_check(dab_topic, test_category, test_name, tester, device_id):
+    """
+    Validates that logs can be collected successfully for major system services.
+    """
+
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    logs = []
+    result = TestResult(test_id, device_id, "system/logs/start-collection", json.dumps({}), "UNKNOWN", "", logs)
+
+    try:
+        # Header and description
+        for line in (
+            f"[TEST] Log Collection For Major System Services Check — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: Validates that logs can be collected successfully after major system services active.",
+            "[DESC] Required operations: system/logs/start-collection, system/logs/stop-collection.",
+            "[DESC] Pass criteria: Logs has been collected and include major system services active.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Capability gate
+        if not need(tester, device_id, "ops: system/logs/start-collection, system/logs/stop-collection", result, logs):
+            return result
+
+        # Step 1: Start logs collection.
+        line = f"[STEP] Start logs collection."
+        LOGGER.result(line)
+        logs.append(line)
+        topic = "system/logs/start-collection"
+        payload = json.dumps({})
+        rc, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
+        if dab_status_from(response, rc) != 200:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — Could not start logs collection."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        # Step 2: Trigger activity of major system services.
+        line = f"[STEP] Trigger activity of major system services."
+        LOGGER.result(line)
+        logs.append(line)
+        print(f"1. [AV Decoder] Please play a video for a while.\n2. [Power Manager] Please toggle power state.\n3. [Networking Module] Please disable and enable network.")
+
+        validate_state = False
+        while(validate_state == False):
+            validate_state = yes_or_no(result, logs, f"Complete the above operations?")
+
+        # Step 3: Waiting for 10 seconds to collect logs.
+        line = f"[STEP] Waiting for {LOGS_COLLECTION_WAIT} seconds to collect logs."
+        LOGGER.result(line)
+        logs.append(line)
+        countdown(f"Waiting for {LOGS_COLLECTION_WAIT} seconds to collect logs.", LOGS_COLLECTION_WAIT)
+
+        # Step 4: Stop logs collection, and generate logs.tar.gz file.
+        line = f"[STEP] Stop logs collection, and generate logs.tar.gz file."
+        LOGGER.result(line)
+        logs.append(line)
+        topic = "system/logs/stop-collection"
+        payload = json.dumps({})
+        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
+        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
+        if validate_state == False:
+            return result
+        validate_state, result = EnforcementManager().verify_logs_chunk(tester, result, logs)
+        if validate_state == False:
+            return result
+
+        # Step 5: Uncompress logs.tar.gz and verify logs structure.
+        line = f"[STEP] Uncompress logs.tar.gz and verify logs structure."
+        LOGGER.result(line)
+        logs.append(line)
+        validate_state, result = EnforcementManager().verify_logs_structure(result, logs)
+        if validate_state == False:
+            return result
+        else:
+            print(f"The logs structure follows DAB requirement.")
+            logs.append(f"The logs structure follows DAB requirement.")
+
+        # Step 6: Verify logs details.
+        line = f"[STEP] Verify logs details."
+        LOGGER.result(line)
+        logs.append(line)
+        print(f"Please enter logs folder and verify logs about major system services.")
+        validate_state = yes_or_no(result, logs, f"Logs collaction includes AV Decoder, Power Manager, and Networking Module?")
+        if validate_state == True:
+            print(f"Logs collection includes major system services.")
+            logs.append(f"[PASS] Logs collection includes major system services.")
+            result.test_result = "PASS"
+        else:
+            print(f"Logs collection doesn't include major system services.")
+            logs.append(f"[FAILED] Logs collection doesn't include major system services.")
+            result.test_result = "FAILED"
+
+    except UnsupportedOperationError as e:
+        logs.append(f"[OPTIONAL_FAILED] Unsupported operation: {str(e)}")
+        result.test_result = "OPTIONAL_FAILED"
+
+    except Exception as e:
+        logs.append(f"[ERROR] {str(e)}")
+        result.test_result = "SKIPPED"
+
+    finally:
+        EnforcementManager().delete_logs_collection_files()
+        # Print concise final test result status
+        print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+
+    return result
+
+# === Test 40: Log Collection While App Pause Check ===
+def run_logs_collection_app_pause_check(dab_topic, test_category, test_name, tester, device_id):
+    """
+    Validates that logs can be collected successfully while an app pause.
+    """
+
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    logs = []
+    appId = config.apps.get("youtube", "YouTube")
+    result = TestResult(test_id, device_id, "system/logs/start-collection", json.dumps({}), "UNKNOWN", "", logs)
+
+    try:
+        # Header and description
+        for line in (
+            f"[TEST] Log Collection For an app pause Check — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: Validates that logs can be collected successfully after an app pause.",
+            "[DESC] Required operations: system/logs/start-collection, applications/launch, applications/exit, applications/get-state, system/logs/stop-collection.",
+            "[DESC] Pass criteria: Logs has been collected and include log about app pause.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Capability gate
+        if not need(tester, device_id, "ops: system/logs/start-collection, applications/launch, applications/exit, applications/get-state, system/logs/stop-collection", result, logs):
+            return result
+
+        # Step 1: Start logs collection.
+        line = f"[STEP] Start logs collection."
+        LOGGER.result(line)
+        logs.append(line)
+        topic = "system/logs/start-collection"
+        payload = json.dumps({})
+        rc, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
+        if dab_status_from(response, rc) != 200:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — Could not start logs collection."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        # Step 2: Launch an application.
+        line = f"[STEP] Launch application '{appId}'."
+        LOGGER.result(line)
+        logs.append(line)
+        execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": appId}), logs)
+        print(f"Waiting {APP_LAUNCH_WAIT} seconds for application to launch.")
+        time.sleep(APP_LAUNCH_WAIT)
+
+        # Step 3: Pause the application and confirm the state.
+        line = f"[STEP] Pause application '{appId}' and confirm its state is BACKGROUND."
+        LOGGER.result(line)
+        logs.append(line)
+        execute_cmd_and_log(tester, device_id, "applications/exit", json.dumps({"appId": appId, "background": True}), logs)
+        print(f"Waiting {APP_STATE_CHECK_WAIT} seconds after exit.")
+        time.sleep(APP_STATE_CHECK_WAIT)
+        _, response = execute_cmd_and_log(tester, device_id, "applications/get-state", json.dumps({"appId": appId}), logs)
+        state = json.loads(response).get("state", "").upper() if response else "UNKNOWN"
+        if state != "BACKGROUND":
+            print(f"Pause application {appId} Fail.")
+            logs.append(f"[FAILED] Pause application {appId} Fail.")
+            result.test_result = "FAILED"
+            return result
+
+        # Step 4: Waiting for logs collections.
+        line = f"[STEP] Waiting for {LOGS_COLLECTION_WAIT} seconds to collect logs."
+        LOGGER.result(line)
+        logs.append(line)
+        countdown(f"Waiting for {LOGS_COLLECTION_WAIT} seconds to collect logs.", LOGS_COLLECTION_WAIT)
+
+        # Step 5: Stop logs collection, and generate logs.tar.gz file.
+        line = f"[STEP] Stop logs collection, and generate logs.tar.gz file."
+        LOGGER.result(line)
+        logs.append(line) 
+        topic = "system/logs/stop-collection"
+        payload = json.dumps({})
+        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
+        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
+        if validate_state == False:
+            return result
+        validate_state, result = EnforcementManager().verify_logs_chunk(tester, result, logs)
+        if validate_state == False:
+            return result
+
+        # Step 6: Uncompress logs.tar.gz and verify logs structure.
+        line = f"[STEP] Uncompress logs.tar.gz and verify logs structure."
+        LOGGER.result(line)
+        logs.append(line)
+        validate_state, result = EnforcementManager().verify_logs_structure(result, logs)
+        if validate_state == False:
+            return result
+        else:
+            print(f"The logs structure follows DAB requirement.")
+            logs.append(f"The logs structure follows DAB requirement.")
+
+        # Step 7: Verify logs details.
+        line = f"[STEP] Verify logs details."
+        LOGGER.result(line)
+        logs.append(line)
+        print(f"Please enter logs folder and verify logs about application '{appId}'.")
+        validate_state = yes_or_no(result, logs, f"Logs collaction includes pausing application '{appId}'?")
+        if validate_state == True:
+            print(f"Logs collection includes pausing application '{appId}'.")
+            logs.append(f"[PASS] Logs collection includes pausing application '{appId}'.")
+            result.test_result = "PASS"
+        else:
+            print(f"Logs collection doesn't include pausing application '{appId}'.")
+            logs.append(f"[FAILED] Logs collection doesn't incclue pausing application '{appId}'.")
+            result.test_result = "FAILED"
+
+    except UnsupportedOperationError as e:
+        logs.append(f"[OPTIONAL_FAILED] Unsupported operation: {str(e)}")
+        result.test_result = "OPTIONAL_FAILED"
+
+    except Exception as e:
+        logs.append(f"[ERROR] {str(e)}")
+        result.test_result = "SKIPPED"
+
+    finally:
+        EnforcementManager().delete_logs_collection_files()
+        # Print concise final test result status
+        print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+
+    return result
+
+# === Test 41: Log Collection While Background App Is Force-Stopped Check ===
+def run_logs_collection_app_force_stop_check(dab_topic, test_category, test_name, tester, device_id):
+    """
+    Validates that logs can be collected successfully while While Background App Is Force-Stopped.
+    """
+
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    logs = []
+    appId = config.apps.get("youtube", "YouTube")
+    result = TestResult(test_id, device_id, "system/logs/start-collection", json.dumps({}), "UNKNOWN", "", logs)
+
+    try:
+        # Header and description
+        for line in (
+            f"[TEST] Log Collection While Background App Is Force-Stopped — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: Validates that logs can be collected successfully while background app is force-stopped.",
+            "[DESC] Required operations: system/logs/start-collection, applications/launch, applications/exit, applications/get-state, system/logs/stop-collection.",
+            "[DESC] Pass criteria: Logs collection includes the log about a background app is force-stopped.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Capability gate
+        if not need(tester, device_id, "ops: system/logs/start-collection, applications/launch, applications/exit, applications/get-state, system/logs/stop-collection", result, logs):
+            return result
+
+        # Step 1: Start logs collection.
+        line = f"[STEP] Start logs collection."
+        LOGGER.result(line)
+        logs.append(line)
+        topic = "system/logs/start-collection"
+        payload = json.dumps({})
+        rc, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
+        if dab_status_from(response, rc) != 200:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — Could not start logs collection."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        # Step 2: Launch an application.
+        line = f"[STEP] Launch application '{appId}'."
+        LOGGER.result(line)
+        logs.append(line)
+        rc, response = execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": appId}), logs)
+        print(f"Waiting {APP_LAUNCH_WAIT} seconds for application to launch.")
+        time.sleep(APP_LAUNCH_WAIT)
+
+        # Step 3: Exit the application to background, and confirm the state.
+        line = f"[STEP] Pause application '{appId}' and confirm its state is BACKGROUND."
+        LOGGER.result(line)
+        logs.append(line)
+        execute_cmd_and_log(tester, device_id, "applications/exit", json.dumps({"appId": appId, "background": True}), logs)
+        print(f"Waiting {APP_STATE_CHECK_WAIT} seconds after exit.")
+        time.sleep(APP_STATE_CHECK_WAIT)
+        _, response = execute_cmd_and_log(tester, device_id, "applications/get-state", json.dumps({"appId": appId}), logs)
+        state = json.loads(response).get("state", "").upper() if response else "UNKNOWN"
+        if state != "BACKGROUND":
+            print(f"Exit application {appId} to background fail.")
+            logs.append(f"[FAILED] Exit application {appId} to background fail.")
+            result.test_result = "FAILED"
+            return result
+
+        # Step 4: Force stop the application, and confirm the state.
+        line = f"[STEP] Pause application '{appId}' and confirm its state is BACKGROUND."
+        LOGGER.result(line)
+        logs.append(line)
+        execute_cmd_and_log(tester, device_id, "applications/exit", json.dumps({"appId": appId}), logs)
+        print(f"Waiting {APP_STATE_CHECK_WAIT} seconds after exit.")
+        time.sleep(APP_STATE_CHECK_WAIT)
+        _, response = execute_cmd_and_log(tester, device_id, "applications/get-state", json.dumps({"appId": appId}), logs)
+        state = json.loads(response).get("state", "").upper() if response else "UNKNOWN"
+        if state != "STOPPED":
+            print(f"Force stop application {appId} fail.")
+            logs.append(f"[FAILED] Force stop application {appId} fail.")
+            result.test_result = "FAILED"
+            return result
+
+        # Step 5: Waiting for logs collections.
+        line = f"[STEP] Waiting for {LOGS_COLLECTION_WAIT} seconds to collect logs."
+        LOGGER.result(line)
+        logs.append(line)
+        countdown(f"Waiting for {LOGS_COLLECTION_WAIT} seconds to collect logs.", LOGS_COLLECTION_WAIT)
+
+        # Step 6: Stop logs collection, and generate logs.tar.gz file.
+        line = f"[STEP] Stop logs collection, and generate logs.tar.gz file."
+        LOGGER.result(line)
+        logs.append(line) 
+        topic = "system/logs/stop-collection"
+        payload = json.dumps({})
+        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
+        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
+        if validate_state == False:
+            return result
+        validate_state, result = EnforcementManager().verify_logs_chunk(tester, result, logs)
+        if validate_state == False:
+            return result
+
+        # Step 7: Uncompress logs.tar.gz and verify logs structure.
+        line = f"[STEP] Uncompress logs.tar.gz and verify logs structure."
+        LOGGER.result(line)
+        logs.append(line)
+        validate_state, result = EnforcementManager().verify_logs_structure(result, logs)
+        if validate_state == False:
+            return result
+        else:
+            print(f"The logs structure follows DAB requirement.")
+            logs.append(f"The logs structure follows DAB requirement.")
+
+        # Step 8: Verify logs details.
+        line = f"[STEP] Verify logs details."
+        LOGGER.result(line)
+        logs.append(line)
+        print(f"Please enter logs folder and verify logs about application '{appId}'.")
+        validate_state = yes_or_no(result, logs, f"Logs collaction includes force stop application '{appId}'?")
+        if validate_state == True:
+            print(f"Logs collection includes force stop application '{appId}'.")
+            logs.append(f"[PASS] Logs collection includes force stop application '{appId}'.")
+            result.test_result = "PASS"
+        else:
+            print(f"Logs collection doesn't include force stop application '{appId}'.")
+            logs.append(f"[FAILED] Logs collection doesn't incclue force stop application '{appId}'.")
+            result.test_result = "FAILED"
+
+    except UnsupportedOperationError as e:
+        logs.append(f"[OPTIONAL_FAILED] Unsupported operation: {str(e)}")
+        result.test_result = "OPTIONAL_FAILED"
+
+    except Exception as e:
+        logs.append(f"[ERROR] {str(e)}")
+        result.test_result = "SKIPPED"
+
+    finally:
+        EnforcementManager().delete_logs_collection_files()
+        # Print concise final test result status
+        print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+
+    return result
+
+# === Test 42: Log Collection During App Uninstallation Check ===
+def run_logs_collection_app_uninstall_check(dab_topic, test_category, test_name, tester, device_id):
+    """
+    Validates that logs can be collected successfully while App Uninstallation.
+    """
+
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    logs = []
+    appId = config.apps.get("youtube", "YouTube")
+    result = TestResult(test_id, device_id, "system/logs/start-collection", json.dumps({}), "UNKNOWN", "", logs)
+
+    try:
+        # Header and description
+        for line in (
+            f"[TEST] Log Collection During App Uninstallation Check — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: Validates that logs can be collected successfully while app uninstallation.",
+            "[DESC] Required operations: system/logs/start-collection, applications/uninstall, system/logs/stop-collection.",
+            "[DESC] Pass criteria: Logs has been collected and include app uninstallation logs.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Capability gate
+        if not need(tester, device_id, "ops: system/logs/start-collection, applications/uninstall, system/logs/stop-collection", result, logs):
+            return result
+
+        # Step 1: Start logs collection.
+        line = f"[STEP] Start logs collection."
+        LOGGER.result(line)
+        logs.append(line)
+        topic = "system/logs/start-collection"
+        payload = json.dumps({})
+        rc, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
+        if dab_status_from(response, rc) != 200:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — Could not start logs collection."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        # Step 2: Uninstall an application.
+        line = f"[STEP] Uninstall application {appId}."
+        LOGGER.result(line)
+        logs.append(line)
+        rc, response = execute_cmd_and_log(tester, device_id, "applications/uninstall", json.dumps({"appId": appId}), logs)
+        print(f"Waiting {APP_UNINSTALL_WAIT} seconds for application uninstallation.")
+        time.sleep(APP_UNINSTALL_WAIT)
+
+        # Step 3: Waiting for logs collections.
+        line = f"[STEP] Waiting for {LOGS_COLLECTION_WAIT} seconds to collect logs."
+        LOGGER.result(line)
+        logs.append(line)
+        countdown(f"Waiting for {LOGS_COLLECTION_WAIT} seconds to collect logs.", LOGS_COLLECTION_WAIT)
+
+        # Step 4: Stop logs collection, and generate logs.tar.gz file.
+        line = f"[STEP] Stop logs collection, and generate logs.tar.gz file."
+        LOGGER.result(line)
+        logs.append(line)        
+        topic = "system/logs/stop-collection"
+        payload = json.dumps({})
+        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
+        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
+        if validate_state == False:
+            return result
+        validate_state, result = EnforcementManager().verify_logs_chunk(tester, result, logs)
+        if validate_state == False:
+            return result
+
+        # Step 5: Uncompress logs.tar.gz and verify logs structure.
+        line = f"[STEP] Uncompress logs.tar.gz and verify logs structure."
+        LOGGER.result(line)
+        logs.append(line)
+        validate_state, result = EnforcementManager().verify_logs_structure(result, logs)
+        if validate_state == False:
+            return result
+        else:
+            print(f"The logs structure follows DAB requirement.")
+            logs.append(f"The logs structure follows DAB requirement.")
+
+        # Step 6: Verify logs details.
+        line = f"[STEP] Verify logs details."
+        LOGGER.result(line)
+        logs.append(line)
+        print(f"Please enter logs folder and verify logs about application '{appId}'.")
+        validate_state = yes_or_no(result, logs, f"Logs collaction includes application '{appId}' uninstallation log?")
+        if validate_state == True:
+            print(f"Logs collection includes application '{appId}' uninstallation log.")
+            logs.append(f"[PASS] Logs collection includes application '{appId}' uninstallation log.")
+            result.test_result = "PASS"
+        else:
+            print(f"Logs collection doesn't include application '{appId}' uninstallation log.")
+            logs.append(f"[FAILED] Logs collection doesn't incclue application '{appId}' uninstallation log.")
+            result.test_result = "FAILED"
+
+    except UnsupportedOperationError as e:
+        logs.append(f"[OPTIONAL_FAILED] Unsupported operation: {str(e)}")
+        result.test_result = "OPTIONAL_FAILED"
+
+    except Exception as e:
+        logs.append(f"[ERROR] {str(e)}")
+        result.test_result = "SKIPPED"
+
+    finally:
+        EnforcementManager().delete_logs_collection_files()
+        # Print concise final test result status
+        print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+
+    return result
+
+# === Test 43: Log Collection While App Install And Launch Check ===
+def run_logs_collection_app_install_and_launch_check(dab_topic, test_category, test_name, tester, device_id):
+    """
+    Validates that logs can be collected successfully while install and launch App.
+    """
+
+    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    logs = []
+    appId = config.apps.get("store_app", "Store_App")  # valid, not-installed appId
+    payload_app = json.dumps({"appId": appId})
+    result = TestResult(test_id, device_id, "system/logs/start-collection", json.dumps({}), "UNKNOWN", "", logs)
+
+    try:
+        # Header and description
+        for line in (
+            f"[TEST] Log Collection While App install and launch Check — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: Validates that logs can be collected successfully while app install and launch.",
+            "[DESC] Required operations: system/logs/start-collection, applications/install-from-app-store, applications/launch, system/logs/stop-collection.",
+            "[DESC] Pass criteria: Logs has been collected and include app install and launch logs.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Capability gate
+        if not need(tester, device_id, "ops: system/logs/start-collection, applications/install-from-app-store, applications/launch, system/logs/stop-collection", result, logs):
+            return result
+
+        # Step 1: Start logs collection.
+        line = f"[STEP] Start logs collection."
+        LOGGER.result(line)
+        logs.append(line)
+        topic = "system/logs/start-collection"
+        payload = json.dumps({})
+        rc, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
+        if dab_status_from(response, rc) != 200:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — Could not start logs collection."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        # Step 2: Install an application.
+        msg = f"[STEP] Install application {appId}."
+        LOGGER.result(msg)
+        logs.append(msg)
+        rc_install, resp_install = execute_cmd_and_log(
+            tester, device_id, "applications/install-from-app-store", payload_app, logs, result
+        )
+        install_status = dab_status_from(resp_install, rc_install)
+        msg = f"[INFO] install-from-app-store transport_rc={rc_install}, dab_status={install_status}"
+        LOGGER.info(msg); logs.append(msg)
+
+        if install_status != 200:
+            result.test_result = "FAILED"
+            msg = f"[RESULT] FAILED — install-from-app-store returned {install_status} (expected 200)"
+            LOGGER.result(msg); logs.append(msg)
+            msg = (f"[SUMMARY] outcome=FAILED, install_status={install_status}, launch_status=N/A, "
+                   f"test_id={test_id}, device={device_id}, appId={appId}")
+            LOGGER.result(msg); logs.append(msg)
+            return result
+
+        # short wait to allow finalization
+        msg = f"[WAIT] {INSTALL_WAIT}s after install for finalization"
+        LOGGER.info(msg); logs.append(msg)
+        time.sleep(INSTALL_WAIT)
+
+        # Step 3: Launch the newly installed app
+        msg = f"[STEP] applications/launch {payload_app}"
+        LOGGER.result(msg); logs.append(msg)
+        rc_launch, resp_launch = execute_cmd_and_log(
+                tester, device_id, "applications/launch", payload_app, logs, result
+                )
+        launch_status = dab_status_from(resp_launch, rc_launch)
+        msg = f"[INFO] launch transport_rc={rc_launch}, dab_status={launch_status}"
+        LOGGER.info(msg); logs.append(msg)
+
+        if launch_status != 200:
+            result.test_result = "FAILED"
+            msg = f"[RESULT] FAILED — launch returned {launch_status} (expected 200) after install"
+            LOGGER.result(msg); logs.append(msg)
+            msg = (f"[SUMMARY] outcome={result.test_result}, install_status={install_status}, "
+                   f"launch_status={launch_status}, test_id={test_id}, device={device_id}, appId={appId}")
+            LOGGER.result(msg); logs.append(msg)
+            return result
+
+	    # Step 4: Waiting for logs collections.
+        line = f"[STEP] Waiting for {LOGS_COLLECTION_WAIT} seconds to collect logs."
+        LOGGER.result(line)
+        logs.append(line)
+        countdown(f"Waiting for {LOGS_COLLECTION_WAIT} seconds to collect logs.", LOGS_COLLECTION_WAIT)
+
+ 	    # Step 5: Stop logs collection, and generate logs.tar.gz file.
+        line = f"[STEP] Stop logs collection, and generate logs.tar.gz file."
+        LOGGER.result(line)
+        logs.append(line)        
+        topic = "system/logs/stop-collection"
+        payload = json.dumps({})
+        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
+        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
+        if validate_state == False:
+            return result
+        validate_state, result = EnforcementManager().verify_logs_chunk(tester, result, logs)
+        if validate_state == False:
+            return result
+
+        # Step 6: Uncompress logs.tar.gz and verify logs structure.
+        line = f"[STEP] Uncompress logs.tar.gz and verify logs structure."
+        LOGGER.result(line)
+        logs.append(line)
+        validate_state, result = EnforcementManager().verify_logs_structure(result, logs)
+        if validate_state == False:
+            return result
+        else:
+            print(f"The logs structure follows DAB requirement.")
+            logs.append(f"The logs structure follows DAB requirement.")
+
+	    # Step 7: Verify logs details.
+        line = f"[STEP] Verify logs details."
+        LOGGER.result(line)
+        logs.append(line)
+        print(f"Please enter logs folder and verify logs about application '{appId}'.")
+        validate_state = yes_or_no(result, logs, f"Logs collaction includes application '{appId}' install and launch log?")
+        if validate_state == True:
+            print(f"Logs collection includes application '{appId}' install and launch log.")
+            logs.append(f"[PASS] Logs collection includes application '{appId}' install and launch log.")
+            result.test_result = "PASS"
+        else:
+            print(f"Logs collection doesn't include application '{appId}' install and launch log.")
+            logs.append(f"[FAILED] Logs collection doesn't incclue application '{appId}' install and launch log.")
+            result.test_result = "FAILED"
+
+    except UnsupportedOperationError as e:
+        logs.append(f"[OPTIONAL_FAILED] Unsupported operation: {str(e)}")
+        result.test_result = "OPTIONAL_FAILED"
+
+    except Exception as e:
+        logs.append(f"[ERROR] {str(e)}")
+        result.test_result = "SKIPPED"
+
+    finally:
+        EnforcementManager().delete_logs_collection_files()
+        # Print concise final test result status
+        print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+
+    return result
+
 # === Functional Test Case List ===
 FUNCTIONAL_TEST_CASE = [
     ("applications/get-state", "functional", run_app_foreground_check, "AppForegroundCheck", "2.0", False),
@@ -5561,4 +6973,10 @@ FUNCTIONAL_TEST_CASE = [
     ("applications/clear-data", "functional", run_clear_data_preinstalled_app_check, "ClearDataPreinstalledAppCheck", "2.1", False),
     ("applications/install-from-app-store", "functional", run_install_region_specific_app_check, "InstallRegionSpecificAppCheck", "2.1", False),
     ("applications/install-from-app-store", "functional", run_update_installed_app_check, "UpdateInstalledAppCheck", "2.1", False),
+    ("system/logs/start-collection", "functional", run_logs_collection_check, "LogsCollectionCheck", "2.1", False),
+    ("system/logs/start-collection", "functional", run_logs_collection_for_major_system_services_check, "LogsCollectionForMajorSystemServicesCheck", "2.1", False),
+    ("system/logs/start-collection", "functional", run_logs_collection_app_pause_check, "LogsCollectionAppPauseCheck", "2.1", False),
+    ("system/logs/start-collection", "functional", run_logs_collection_app_force_stop_check, "LogsCollectionAppForceStopCheck", "2.1", False),
+    ("system/logs/start-collection", "functional", run_logs_collection_app_uninstall_check, "LogsCollectionAppUninstallCheck", "2.1", False),
+    ("system/logs/start-collection", "functional", run_logs_collection_app_install_and_launch_check, "LogsCollectionAppinstallAndLaunchCheck", "2.1", False),
 ]

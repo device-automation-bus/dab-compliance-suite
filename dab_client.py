@@ -13,23 +13,29 @@ class DabClient:
         self.__lock = Lock()
         self.__lock.acquire()
         self.__client = mqtt.Client("mqtt5_client",protocol=mqtt.MQTTv5)
-        self.metrics_count = 0
+        self.__metrics_count = 0
+        self.__response_chunks = []
 
     def __on_message(self, client, userdata, message):
         self.__response_dic = json.loads(message.payload)
-        self.__lock.release()
+        self.__response_chunks.append(self.__response_dic)
+        if self.__lock.locked():
+            self.__lock.release()
         try:
             self.__code = self.__response_dic['status']
         except:
             self.__code = -1
+
+    def get_response_chunk(self):
+        return self.__response_chunks.pop(0) if self.__response_chunks else None
 
     def __on_message_metrics(self, client, userdata, message):
         if not message.payload:
             return
 
         metrics_response = json.loads(message.payload)
-        if self.metrics_count < METRICS_TIMES:
-            self.metrics_count += 1
+        if self.__metrics_count < METRICS_TIMES:
+            self.__metrics_count += 1
             print(metrics_response)
         else:
             self.__metrics_state = True
@@ -52,6 +58,7 @@ class DabClient:
         self.__client.on_message = self.__on_message
         self.__client.subscribe(response_topic)
         self.__client.publish(topic,msg,properties=properties)
+        self.__response_chunks.clear()
         if not (self.__lock.acquire(timeout = 90)):
             self.__code = 100
         
@@ -63,7 +70,7 @@ class DabClient:
 
     def subscribe_metrics(self, device_id, operation):
         self.__metrics_state = False
-        self.metrics_count = 0
+        self.__metrics_count = 0
         response_topic = "dab/" + device_id+"/" + operation
         self.__client.subscribe(response_topic)
         self.__client.on_message = self.__on_message_metrics

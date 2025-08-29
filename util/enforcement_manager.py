@@ -1,6 +1,12 @@
 from singleton_decorator import singleton
 from typing import List, Dict
 from enum import Enum
+import base64
+import tarfile
+import json
+import os
+import shutil
+import time
 
 class Resolution:
     width: int
@@ -28,6 +34,10 @@ class ValidateCode(Enum):
     SUPPORT = 0
     UNSUPPORT = 1
     UNCERTAIN = 2
+
+LOGS_COLLECTION_CATEGORIES = {"system", "application", "crash"}
+LOGS_COLLECTION_FOLDER = "logs"
+LOGS_COLLECTION_PACKAGE = f"{LOGS_COLLECTION_FOLDER}.tar.gz"
 
 @singleton
 class EnforcementManager:
@@ -126,3 +136,96 @@ class EnforcementManager:
 
     def is_application_supported(self, application):
         return not self.supported_applications or application in self.supported_applications
+
+    def verify_logs_chunk(self, tester, result, logs):
+        previous_remainingChunks = -1
+        all_logArchives = bytearray()
+        validate_state = True
+
+        startTime = time.time()
+        while True:
+            chunkData = tester.dab_client.get_response_chunk()
+            currentTime = time.time()
+            if not chunkData:
+                if currentTime - startTime > 90:
+                    validate_state = False
+                    print(f"More than 90s without receiving logs chunk. Timeout!")
+                    logs.append(f"[FAILED] More than 90s without receiving logs chunk. Timeout!.")
+                    result.test_result = "FAILED"
+                    break
+                else:
+                    continue
+
+            startTime = currentTime
+            remainingChunks = chunkData["remainingChunks"]
+            if previous_remainingChunks != -1 and remainingChunks != previous_remainingChunks - 1:
+                validate_state = False
+                print(f"Lost the logs chunk with 'remainingChunks':{previous_remainingChunks - 1}.")
+                logs.append(f"[FAILED] Lost the logs chunk with 'remainingChunks':{previous_remainingChunks - 1}.")
+                result.test_result = "FAILED"
+                break
+            if remainingChunks != previous_remainingChunks:
+                print(chunkData)
+                all_logArchives.extend(base64.b64decode(chunkData["logArchive"]))
+                logs.append(json.dumps(chunkData))
+                previous_remainingChunks = remainingChunks
+                if remainingChunks == 0:
+                    validate_state = True
+                    break
+
+        if validate_state == True:
+            try:
+                with open(LOGS_COLLECTION_PACKAGE, 'wb') as f:
+                    f.write(all_logArchives)
+                    print(f"Received all log chunks, and combined into log.tar.gz file.")
+                    logs.append(f"Received all log chunks, and combined into log.tar.gz file.")
+            except Exception as e:
+                validate_state = False
+                print(f"[Error] Combine chunks failed: {str(e)}")
+                logs.append(f"[FAILED] Combine chunks failed: {str(e)}")
+                result.test_result = "FAILED"
+
+        return validate_state, result
+
+    def verify_logs_structure(self, result, logs):
+        logs_structure = set()
+        try:
+            with tarfile.open(LOGS_COLLECTION_PACKAGE, 'r:gz') as tar:
+                tar.extractall(LOGS_COLLECTION_FOLDER)
+        except Exception as e:
+            print(f"[Error] Uncompress {LOGS_COLLECTION_PACKAGE}: {str(e)}")
+            logs.append(f"[FAILED] Verify {LOGS_COLLECTION_PACKAGE} failed: {str(e)}")
+            result.test_result = "FAILED"
+            return False, result
+
+        entries = os.listdir(LOGS_COLLECTION_FOLDER)
+        for entry in entries:
+            full_path = os.path.join(LOGS_COLLECTION_FOLDER, entry)
+            if os.path.isdir(full_path):
+                logs_structure.add(entry)
+
+        if logs_structure == LOGS_COLLECTION_CATEGORIES:
+            logs.append(f"The logs structure follow DAB requirement, include folder {LOGS_COLLECTION_CATEGORIES}")
+            validate_state = True
+        else:
+            validate_state = False
+            print(f"The logs structure doesn't follows DAB requirement.")
+            logs.append(f"[FAILED] The logs structure doesn't follows DAB requirement.")
+            result.test_result = "FAILED"
+
+        return validate_state, result
+
+    def delete_logs_collection_files(self):
+        if os.path.exists(LOGS_COLLECTION_FOLDER):
+            try:
+                shutil.rmtree(LOGS_COLLECTION_FOLDER)
+                print(f"Delete logs collection folder '{LOGS_COLLECTION_FOLDER}'.")
+            except Exception as e:
+                print(f"{str(e)}. Please delete logs collection folder {LOGS_COLLECTION_FOLDER} manually.")
+
+        if os.path.exists(LOGS_COLLECTION_PACKAGE):
+            try:
+                os.remove(LOGS_COLLECTION_PACKAGE)
+                print(f"Delete logs collection package '{LOGS_COLLECTION_PACKAGE}'.")
+            except Exception as e:
+                print(f"{str(e)}, Please delete logs collection package '{LOGS_COLLECTION_PACKAGE}' manually.")
