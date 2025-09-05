@@ -8,7 +8,7 @@ This project contains tools and tests for end-to-end validation of Device Automa
 
 The latest DAB Compliance Test Suite can be downloaded from the GitHub Actions workflow.
 
-Download [Link](https://github.com/device-automation-bus/dab-compliance-suite/actions)
+Download the latest artifact here: [Link](https://nightly.link/device-automation-bus/dab-compliance-suite/workflows/update-test-version/main/dab-compliance-suite.zip)
 
 
 ## Test Versioning ##
