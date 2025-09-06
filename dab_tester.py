@@ -816,6 +816,7 @@ class DabTester:
         """
         if not output_path:
             output_path = f"./test_result/{suite_name}.json"
+        os.environ["DAB_RESULTS_JSON"] = os.path.abspath(output_path)
 
         def _outcome_of(r):
             return getattr(r, "test_result", None) or getattr(r, "outcome", None) or ""
