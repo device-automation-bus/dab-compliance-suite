@@ -514,8 +514,8 @@ def fire_and_forget_restart(dab_client, device_id):
     LOGGER.info(f"Sent restart command to {topic} (fire-and-forget)")
 
 # === Test 1: App in FOREGROUND Validate app moves to FOREGROUND after launch ===
-def run_app_foreground_check(dab_topic, test_category, test_name, tester, device_id):
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+def run_app_foreground_check(dab_topic,test_name, tester, device_id):
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id = config.apps.get("youtube", "YouTube")
     logs = []
     result = TestResult(test_id, device_id, "applications/get-state", json.dumps({"appId": app_id}), "UNKNOWN", "", logs)
@@ -601,11 +601,11 @@ def run_app_foreground_check(dab_topic, test_category, test_name, tester, device
         return result
 
 # === Test 2: App in BACKGROUND Validate app moves to BACKGROUND after pressing Home ===
-def run_app_background_check(dab_topic, test_category, test_name, tester, device_id):
+def run_app_background_check(dab_topic,test_name, tester, device_id):
     """
     Checks if an app correctly moves to the background after the Home key is pressed.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id = config.apps.get("youtube", "YouTube")
     logs = []
     result = TestResult(test_id, device_id, "applications/get-state", json.dumps({"appId": app_id}), "UNKNOWN", "", logs)
@@ -718,11 +718,11 @@ def run_app_background_check(dab_topic, test_category, test_name, tester, device
     return result
 
 # === Test 3: App STOPPED Validate app state is STOPPED after exit. ===
-def run_app_stopped_check(dab_topic, test_category, test_name, tester, device_id):
+def run_app_stopped_check(dab_topic,test_name, tester, device_id):
     """
     Checks if an app correctly moves to the STOPPED state after being exited.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id = config.apps.get("youtube", "YouTube")
     logs = []
     result = TestResult(test_id, device_id, "applications/get-state", json.dumps({"appId": app_id}), "UNKNOWN", "", logs)
@@ -833,11 +833,11 @@ def run_app_stopped_check(dab_topic, test_category, test_name, tester, device_id
     return result
 
 # === Test 4: Launch Without Content ID (Negative) Validate error is returned when contentId is missing. ===
-def run_launch_without_content_id(dab_topic, test_category, test_name, tester, device_id):
+def run_launch_without_content_id(dab_topic,test_name, tester, device_id):
     """
     Negative Test: Validates that launch-with-content fails if 'contentId' is missing.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id = config.apps.get("youtube", "YouTube")
     logs = []
     payload = json.dumps({"appId": app_id})
@@ -906,11 +906,11 @@ def run_launch_without_content_id(dab_topic, test_category, test_name, tester, d
     return result
 
 # === Test 5: Exit App After Playing Video ===
-def run_exit_after_video_check(dab_topic, test_category, test_name, tester, device_id):
+def run_exit_after_video_check(dab_topic,test_name, tester, device_id):
     """
     Checks if an app stops cleanly after playing video content and being exited.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id = config.apps.get("youtube", "YouTube")
     video_id = "2ZggAa6LuiM"  # Example video ID
     logs = []
@@ -1015,11 +1015,11 @@ def run_exit_after_video_check(dab_topic, test_category, test_name, tester, devi
     return result
 
 # === Test 6: Relaunch Stability Check ===
-def run_relaunch_stability_check(dab_topic, test_category, test_name, tester, device_id):
+def run_relaunch_stability_check(dab_topic,test_name, tester, device_id):
     """
     Validates that an application can be exited and then immediately relaunched without errors.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id = config.apps.get("youtube", "YouTube")
     logs = []
     result = TestResult(test_id, device_id, "applications/launch", json.dumps({"appId": app_id}), "UNKNOWN", "", logs)
@@ -1108,11 +1108,11 @@ def run_relaunch_stability_check(dab_topic, test_category, test_name, tester, de
     return result
 
 # === Test 7: Screensaver Enable Check ===
-def run_screensaver_enable_check(dab_topic, test_category, test_name, tester, device_id):
+def run_screensaver_enable_check(dab_topic,test_name, tester, device_id):
     """
     Validates that the device's screensaver can be successfully enabled via DAB.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/settings/set", json.dumps({"screenSaver": True}), "UNKNOWN", "", logs)
     final_state = "N/A" # Default state for summary log
@@ -1210,11 +1210,11 @@ def run_screensaver_enable_check(dab_topic, test_category, test_name, tester, de
     return result
 
 # === Test 8: Screensaver Disable Check ===
-def run_screensaver_disable_check(dab_topic, test_category, test_name, tester, device_id):
+def run_screensaver_disable_check(dab_topic,test_name, tester, device_id):
     """
     Validates that the device's screensaver can be successfully disabled via DAB.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/settings/set", json.dumps({"screenSaver": False}), "UNKNOWN", "", logs)
     final_state = "N/A" # Default state for summary log
@@ -1312,11 +1312,11 @@ def run_screensaver_disable_check(dab_topic, test_category, test_name, tester, d
     return result
 
 # === Test 9: Screensaver Active Check ===
-def run_screensaver_active_check(dab_topic, test_category, test_name, tester, device_id):
+def run_screensaver_active_check(dab_topic,test_name, tester, device_id):
     """
     Validates that the screensaver activates after the specified timeout. This is a manual test.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/settings/set", "{}", "UNKNOWN", "", logs)
     user_validated = "N/A" # Default for summary
@@ -1404,11 +1404,11 @@ def run_screensaver_active_check(dab_topic, test_category, test_name, tester, de
     return result
 
 # === Test 10: Screensaver Inactive Check ===
-def run_screensaver_inactive_check(dab_topic, test_category, test_name, tester, device_id):
+def run_screensaver_inactive_check(dab_topic,test_name, tester, device_id):
     """
     Validates that the screensaver does not activate when disabled. This is a manual test.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/settings/set", "{}", "UNKNOWN", "", logs)
     user_validated = "N/A" # Default for summary
@@ -1497,11 +1497,11 @@ def run_screensaver_inactive_check(dab_topic, test_category, test_name, tester, 
     return result
 
 # === Test 10: Screensaver Active Return Check ===
-def run_screensaver_active_return_check(dab_topic, test_category, test_name, tester, device_id):
+def run_screensaver_active_return_check(dab_topic,test_name, tester, device_id):
     """
     Validates that the screen returns to its previous state after exiting the screensaver. This is a manual test.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/settings/set", "{}", "UNKNOWN", "", logs)
     user_validated_active = "N/A"
@@ -1588,11 +1588,11 @@ def run_screensaver_active_return_check(dab_topic, test_category, test_name, tes
     return result
 
 # === Test 11: Screensaver Active Check After Continuous Idle ===
-def run_screensaver_active_after_continuous_idle_check(dab_topic, test_category, test_name, tester, device_id):
+def run_screensaver_active_after_continuous_idle_check(dab_topic,test_name, tester, device_id):
     """
     Validates that the screensaver idle timer resets with user activity. This is a manual test.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/settings/set", "{}", "UNKNOWN", "", logs)
     user_validated = "N/A" # Default for summary
@@ -1675,11 +1675,11 @@ def run_screensaver_active_after_continuous_idle_check(dab_topic, test_category,
     return result
 
 # === Test 12: Screensaver Inactive Check After Reboot ===
-def run_screensaver_inactive_after_reboot_check(dab_topic, test_category, test_name, tester, device_id):
+def run_screensaver_inactive_after_reboot_check(dab_topic,test_name, tester, device_id):
     """
     Validates that a disabled screensaver setting persists after a reboot. This is a manual test.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/settings/set", "{}", "UNKNOWN", "", logs)
     user_validated = "N/A"
@@ -1770,11 +1770,11 @@ def run_screensaver_inactive_after_reboot_check(dab_topic, test_category, test_n
     return result
 
 # === Test 13: Screensaver Timeout 300 seconds Check ===
-def run_screensavertimeout_300_check(dab_topic, test_category, test_name, tester, device_id):
+def run_screensavertimeout_300_check(dab_topic,test_name, tester, device_id):
     """
     Validates that the screensaver activates after a 300-second timeout. This is a manual test.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/settings/set", "{}", "UNKNOWN", "", logs)
     user_validated = "N/A" # Default for summary
@@ -1857,11 +1857,11 @@ def run_screensavertimeout_300_check(dab_topic, test_category, test_name, tester
     return result
 
 # === Test 14: Screensaver Timeout Reboot Check ===
-def run_screensavertimeout_reboot_check(dab_topic, test_category, test_name, tester, device_id):
+def run_screensavertimeout_reboot_check(dab_topic,test_name, tester, device_id):
     """
     Validates that the screensaver timeout setting persists after a device reboot. This is a manual test.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/settings/set", "{}", "UNKNOWN", "", logs)
     setting_persisted = "N/A"
@@ -1986,11 +1986,11 @@ def run_screensavertimeout_reboot_check(dab_topic, test_category, test_name, tes
     return result
 
 # === Test 15: ScreenSaver Timeout Guest Mode Check ===
-def run_screensavertimeout_guest_mode_check(dab_topic, test_category, test_name, tester, device_id):
+def run_screensavertimeout_guest_mode_check(dab_topic,test_name, tester, device_id):
     """
     Validates that the screensaver can be activated while the device is in guest mode. This is a manual test.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/settings/set", "{}", "UNKNOWN", "", logs)
     supports_guest_mode = "N/A"
@@ -2095,12 +2095,12 @@ def run_screensavertimeout_guest_mode_check(dab_topic, test_category, test_name,
     return result
 
 # === Test 16: ScreenSaver Min Timeout Check ===
-def run_screensavertimeout_minimum_check(dab_topic, test_category, test_name, tester, device_id):
+def run_screensavertimeout_minimum_check(dab_topic,test_name, tester, device_id):
     """
     Validates that the screensaver can be activated using the device's reported minimum timeout value.
     This is a manual test.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/settings/list", "{}", "UNKNOWN", "", logs)
     min_timeout = "N/A"
@@ -2195,11 +2195,11 @@ def run_screensavertimeout_minimum_check(dab_topic, test_category, test_name, te
     return result
 
 # === Test 17: ScreenSaver Min Timeout Reboot Check ===
-def run_screensavermintimeout_reboot_check(dab_topic, test_category, test_name, tester, device_id):
+def run_screensavermintimeout_reboot_check(dab_topic,test_name, tester, device_id):
     """
     Verifies that the minimum screensaver timeout value is not altered after a device restart.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/settings/list", "{}", "UNKNOWN", "", logs)
     min_timeout_before = "N/A"
@@ -2290,11 +2290,11 @@ def run_screensavermintimeout_reboot_check(dab_topic, test_category, test_name, 
     return result
 
 # === Test 18: High Contrast Text Check Text Over Images ===
-def run_highContrastText_text_over_images_check(dab_topic, test_category, test_name, tester, device_id):
+def run_highContrastText_text_over_images_check(dab_topic,test_name, tester, device_id):
     """
     Verifies that enabling high contrast text improves legibility of text over images. This is a manual test.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/settings/set", "{}", "UNKNOWN", "", logs)
     user_navigated = "N/A"
@@ -2387,11 +2387,11 @@ def run_highContrastText_text_over_images_check(dab_topic, test_category, test_n
     return result
 
 # === Test 19: High Contrast Text Check During Video Playback ===
-def run_highContrastText_video_playback_check(dab_topic, test_category, test_name, tester, device_id):
+def run_highContrastText_video_playback_check(dab_topic,test_name, tester, device_id):
     """
     Verifies that toggling high contrast text does not interrupt video playback. This is a manual test.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/settings/set", "{}", "UNKNOWN", "", logs)
     video_was_playing = "N/A"
@@ -2483,11 +2483,11 @@ def run_highContrastText_video_playback_check(dab_topic, test_category, test_nam
 
     return result
 # === Test 20: SetInvalidVoiceAssistant ===
-def run_set_invalid_voice_assistant_check(dab_topic, test_category, test_name, tester, device_id):
+def run_set_invalid_voice_assistant_check(dab_topic,test_name, tester, device_id):
     """
     Validates that the system correctly rejects an unsupported voice assistant name. This is a negative test.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     invalid_assistant = "invalid"
     payload = json.dumps({"voiceAssistant": invalid_assistant})
     logs = []
@@ -2562,11 +2562,11 @@ def run_set_invalid_voice_assistant_check(dab_topic, test_category, test_name, t
     return result
 
 # === Test 21: Device Restart and Telemetry Validation ===
-def run_device_restart_and_telemetry_check(dab_topic, test_category, test_name, tester, device_id):
+def run_device_restart_and_telemetry_check(dab_topic,test_name, tester, device_id):
     """
     Validates the full device restart and telemetry workflow.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/restart", "{}", "UNKNOWN", "", logs)
     device_ready = False
@@ -2692,12 +2692,12 @@ def run_device_restart_and_telemetry_check(dab_topic, test_category, test_name, 
     return result
 
 # === Test 22: Stop App Telemetry Without Active Session (Negative) ===
-def run_stop_app_telemetry_without_active_session_check(dab_topic, test_category, test_name, tester, device_id):
+def run_stop_app_telemetry_without_active_session_check(dab_topic,test_name, tester, device_id):
     """
     Ensures the device handles a redundant 'app-telemetry/stop' command gracefully when no session is active.
     This is a negative test case.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id = config.apps.get("youtube", "YouTube")
     payload = json.dumps({"appId": app_id})
     logs = []
@@ -2769,11 +2769,11 @@ def run_stop_app_telemetry_without_active_session_check(dab_topic, test_category
     return result
 
 # === Test23: Launch Video and Verify Health Check ===
-def run_launch_video_and_health_check(dab_topic, test_category, test_name, tester, device_id):
+def run_launch_video_and_health_check(dab_topic,test_name, tester, device_id):
     """
     Launches a video and then performs a health check to ensure the device remains stable under load.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id = config.apps.get("youtube", "YouTube")
     video_id = "2ZggAa6LuiM"  # A standard, reliable test video
     payload = json.dumps({"appId": app_id, "contentId": video_id})
@@ -2873,11 +2873,11 @@ def run_launch_video_and_health_check(dab_topic, test_category, test_name, teste
     return result
 
 # === Test24: Voice List With No Voice Assistant Configured (Negative / Optional) ===
-def run_voice_list_with_no_voice_assistant(dab_topic, test_category, test_name, tester, device_id):
+def run_voice_list_with_no_voice_assistant(dab_topic,test_name, tester, device_id):
     """
     Validates system behavior when requesting the list of voice assistants on a device with none configured.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "voice/list", "{}", "UNKNOWN", "", logs)
     status = "N/A"
@@ -2950,11 +2950,11 @@ def run_voice_list_with_no_voice_assistant(dab_topic, test_category, test_name, 
     return result
 
 # === Test25: Validates that launching an uninstalled app fails with a relevant error. Negative test case. ===
-def run_launch_when_uninstalled_check(dab_topic, test_category, test_name, tester, device_id):
+def run_launch_when_uninstalled_check(dab_topic,test_name, tester, device_id):
     """
     Validates that launching an uninstalled app fails with a relevant error. Negative test case.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id = config.apps.get("removable_app")
     logs = []
     result = TestResult(test_id, device_id, "applications/launch", "{}", "UNKNOWN", "", logs)
@@ -3044,11 +3044,11 @@ def run_launch_when_uninstalled_check(dab_topic, test_category, test_name, teste
     return result
 
 # === Test26: Validates that launching an app while the device is restarting fails. Negative test case. ===
-def run_launch_app_while_restarting_check(dab_topic, test_category, test_name, tester, device_id):
+def run_launch_app_while_restarting_check(dab_topic,test_name, tester, device_id):
     """
     Validates that launching an app while the device is restarting fails. Negative test case.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id = config.apps.get("youtube", "YouTube")
     logs = []
     result = TestResult(test_id, device_id, "applications/launch", json.dumps({"appId": app_id}), "UNKNOWN", "", logs)
@@ -3125,11 +3125,11 @@ def run_launch_app_while_restarting_check(dab_topic, test_category, test_name, t
 
     return result
 
-def run_network_reset_check(dab_topic, test_category, test_name, tester, device_id):
+def run_network_reset_check(dab_topic,test_name, tester, device_id):
     """
     Validates that the device remains responsive to DAB commands after a network reset.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/network-reset", "{}", "UNKNOWN", "", logs)
     info_status = "N/A"
@@ -3201,11 +3201,11 @@ def run_network_reset_check(dab_topic, test_category, test_name, tester, device_
     return result
 
 # === Test26: Validates the device can be factory reset and recovers to a healthy state.
-def run_factory_reset_and_recovery_check(dab_topic, test_category, test_name, tester, device_id):
+def run_factory_reset_and_recovery_check(dab_topic,test_name, tester, device_id):
     """
     Validates the device can be factory reset and recovers to a healthy state.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/factory-reset", "{}", "UNKNOWN", "", logs)
     device_recovered = False
@@ -3283,11 +3283,11 @@ def run_factory_reset_and_recovery_check(dab_topic, test_category, test_name, te
     return result
 
 # === Test27: Validates device behavior for the optional 'personalizedAds' setting when it is NOT supported.
-def run_personalized_ads_response_check(dab_topic, test_category, test_name, tester, device_id):
+def run_personalized_ads_response_check(dab_topic,test_name, tester, device_id):
     """
     Validates device behavior for the optional 'personalizedAds' setting when it is NOT supported.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/settings/set", "{}", "UNKNOWN", "", logs)
     set_status = "N/A"
@@ -3358,11 +3358,11 @@ def run_personalized_ads_response_check(dab_topic, test_category, test_name, tes
 
     return result
 
-def run_personalized_ads_persistence_check(dab_topic, test_category, test_name, tester, device_id):
+def run_personalized_ads_persistence_check(dab_topic,test_name, tester, device_id):
     """
     Verifies that the 'personalizedAds' setting persists after a device restart.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/settings/set", "{}", "UNKNOWN", "", logs)
     persisted_value = "N/A"
@@ -3453,11 +3453,11 @@ def run_personalized_ads_persistence_check(dab_topic, test_category, test_name, 
 # and run_personalized_ads_apply_and_display_check are all covered by the logic in
 # run_personalized_ads_response_check (for unsupported) and a new manual check.
 
-def run_personalized_ads_manual_check(dab_topic, test_category, test_name, tester, device_id):
+def run_personalized_ads_manual_check(dab_topic,test_name, tester, device_id):
     """
     Manually verifies that enabling personalized ads results in tailored ads being shown.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/settings/set", "{}", "UNKNOWN", "", logs)
     user_validated = "N/A"
@@ -3537,12 +3537,12 @@ def run_personalized_ads_manual_check(dab_topic, test_category, test_name, teste
     return result
 
 # === Test 34: Uninstall An Application Currently Running Foreground Check ===
-def run_uninstall_foreground_app_check(dab_topic, test_category, test_name, tester, device_id):
+def run_uninstall_foreground_app_check(dab_topic,test_name, tester, device_id):
     """
     Validates that an application currently running foreground can be uninstalled successfully.
     """
 
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "applications/uninstall", json.dumps({"appId": "[appId]"}), "UNKNOWN", "", logs)
 
@@ -3647,12 +3647,12 @@ def run_uninstall_foreground_app_check(dab_topic, test_category, test_name, test
     return result
 
 # === Test 35: Uninstall An System Application Check ===
-def run_uninstall_system_app_check(dab_topic, test_category, test_name, tester, device_id):
+def run_uninstall_system_app_check(dab_topic,test_name, tester, device_id):
     """
     Validates that an system application couldn't be uninstalled successfully.
     """
 
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "applications/uninstall", json.dumps({"appId": "[appId]"}), "UNKNOWN", "", logs)
 
@@ -3740,11 +3740,11 @@ def run_uninstall_system_app_check(dab_topic, test_category, test_name, tester, 
     return result
 
 # === Test 36: Clear Data For An Application Currently Running Foreground Check ===
-def run_clear_data_foreground_app_check(dab_topic, test_category, test_name, tester, device_id):
+def run_clear_data_foreground_app_check(dab_topic,test_name, tester, device_id):
     """
     Validates that data for a foreground app can be cleared successfully.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     appId = config.apps.get("youtube", "YouTube")
     logs = []
     result = TestResult(test_id, device_id, "applications/clear-data", json.dumps({"appId": appId}), "UNKNOWN", "", logs)
@@ -3805,11 +3805,11 @@ def run_clear_data_foreground_app_check(dab_topic, test_category, test_name, tes
     return result
 
 # === Test 37: Clear Data For An System Application Check ===
-def run_clear_data_system_app_check(dab_topic, test_category, test_name, tester, device_id):
+def run_clear_data_system_app_check(dab_topic,test_name, tester, device_id):
     """
     Validates that data for a system application can be cleared.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "applications/clear-data", "{}", "UNKNOWN", "", logs)
     app_id = "N/A"
@@ -3883,8 +3883,8 @@ def run_clear_data_system_app_check(dab_topic, test_category, test_name, tester,
 
     return result
 
-def run_clear_data_user_installed_app_foreground(dab_topic, test_category, test_name, tester, device_id):
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+def run_clear_data_user_installed_app_foreground(dab_topic,test_name, tester, device_id):
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id = config.apps.get("sample_app", "Sample_App")
     logs = []
     payload_app = json.dumps({"appId": app_id})
@@ -3959,13 +3959,13 @@ def run_clear_data_user_installed_app_foreground(dab_topic, test_category, test_
         LOGGER.result(line); logs.append(line)
         return result
 
-def run_install_from_app_store_check(dab_topic, test_category, test_name, tester, device_id):
+def run_install_from_app_store_check(dab_topic,test_name, tester, device_id):
     """
     Positive: Install a new app from the app store and launch it.
     Minimal flow: install-from-app-store → short wait → launch
     Pass if install returns 200 and launch returns 200.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id = config.apps.get("store_app", "Store_App")  # valid, not-installed appId
     logs = []
     payload_app = json.dumps({"appId": app_id})
@@ -4047,14 +4047,14 @@ def run_install_from_app_store_check(dab_topic, test_category, test_name, tester
         LOGGER.result(msg); logs.append(msg)
         return result
 
-def run_install_youtube_kids_from_store(dab_topic, test_category, test_name, tester, device_id):
+def run_install_youtube_kids_from_store(dab_topic,test_name, tester, device_id):
     """
     Positive: Install YouTube Kids from the app store and confirm it launches.
     Flow: install-from-app-store -> short wait -> (optional) applications/list check -> launch
     Pass if install == 200 and launch == 200.
     Note: "family-friendly settings" visibility is outside DAB scope; log info for manual/OEM validation.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id = config.apps.get("youtube_kids", "YouTubeKids")  # use config.py entry
     logs = []
     payload_app = json.dumps({"appId": app_id})
@@ -4167,13 +4167,13 @@ def run_install_youtube_kids_from_store(dab_topic, test_category, test_name, tes
         LOGGER.result(msg); logs.append(msg)
         return result
 
-def run_uninstall_after_standby_check(dab_topic, test_category, test_name, tester, device_id):
+def run_uninstall_after_standby_check(dab_topic,test_name, tester, device_id):
     """
     Positive: Uninstall a pre-installed removable app when device was in standby (woken for operation).
     Flow: (best-effort) wake via input/key-press -> applications/uninstall -> short wait -> (best-effort) applications/list
     Pass if uninstall returns 200 and (if list is available) the app no longer appears.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id = config.apps.get("sample_app", "Sample_App")
     logs = []
     payload_app = json.dumps({"appId": app_id})
@@ -4296,12 +4296,12 @@ def run_uninstall_after_standby_check(dab_topic, test_category, test_name, teste
         LOGGER.result(msg); logs.append(msg)
         return result
 
-def run_install_bg_uninstall_sample_app(dab_topic, test_category, test_name, tester, device_id):
+def run_install_bg_uninstall_sample_app(dab_topic,test_name, tester, device_id):
     """
     Flow: applications/install (sample_app) -> applications/launch -> background -> applications/uninstall
     Pass if install == 200 and uninstall == 200.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id = config.apps.get("sample_app", "Sample_App")
     logs = []
     payload_app = json.dumps({"appId": app_id})
@@ -4419,13 +4419,13 @@ def run_install_bg_uninstall_sample_app(dab_topic, test_category, test_name, tes
         LOGGER.result(msg); logs.append(msg)
         return result
 
-def run_uninstall_sample_app_with_local_data_check(dab_topic, test_category, test_name, tester, device_id):
+def run_uninstall_sample_app_with_local_data_check(dab_topic,test_name, tester, device_id):
     """
     Positive: Uninstall a third-party app (sample_app) that has local storage data.
     Minimal flow: (optional) launch -> applications/uninstall -> short wait
     Pass if uninstall returns 200.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id = config.apps.get("sample_app", "Sample_App")
     logs = []
     payload_app = json.dumps({"appId": app_id})
@@ -4509,13 +4509,13 @@ def run_uninstall_sample_app_with_local_data_check(dab_topic, test_category, tes
         LOGGER.result(msg); logs.append(msg)
         return result
     
-def run_uninstall_preinstalled_with_local_data_simple(dab_topic, test_category, test_name, tester, device_id):
+def run_uninstall_preinstalled_with_local_data_simple(dab_topic,test_name, tester, device_id):
     """
     Positive: Uninstall a pre-installed removable app (with local data).
     Minimal flow: (optional) launch -> applications/uninstall -> short wait
     Pass if uninstall returns 200.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id = config.apps.get("sample_app", "Sample_App")
     logs = []
     payload_app = json.dumps({"appId": app_id})
@@ -4599,13 +4599,13 @@ def run_uninstall_preinstalled_with_local_data_simple(dab_topic, test_category, 
         LOGGER.result(msg); logs.append(msg)
         return result
 
-def run_install_from_url_during_idle_then_launch(dab_topic, test_category, test_name, tester, device_id):
+def run_install_from_url_during_idle_then_launch(dab_topic,test_name, tester, device_id):
     """
     Positive: Install an app from a valid APK URL during device idle (screen off), then wake and launch.
     Minimal flow: sleep (best-effort) -> applications/install(url) -> short wait -> wake (best-effort) -> applications/launch
     Pass if install == 200 and launch == 200.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id = config.apps.get("sample_app", "Sample_App")
 
     # Try to read APK URL from config; user/project should populate one of these.
@@ -4735,13 +4735,13 @@ def run_install_from_url_during_idle_then_launch(dab_topic, test_category, test_
         LOGGER.result(msg); logs.append(msg)
         return result
 
-def run_install_large_apk_from_url_then_launch(dab_topic, test_category, test_name, tester, device_id):
+def run_install_large_apk_from_url_then_launch(dab_topic,  test_name, tester, device_id):
     """
     Positive: Install a large APK from a valid URL, then launch to verify functionality.
     Minimal flow: applications/install(url) -> long wait -> applications/launch
     Pass if install == 200 and launch == 200.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id = config.apps.get("large_app", "Large_App")
 
     # Provide the APK URL via config (one of these should be set in your repo config)
@@ -4837,13 +4837,13 @@ def run_install_large_apk_from_url_then_launch(dab_topic, test_category, test_na
         LOGGER.result(msg); logs.append(msg)
         return result
     
-def run_install_from_url_while_heavy_app_running(dab_topic, test_category, test_name, tester, device_id):
+def run_install_from_url_while_heavy_app_running(dab_topic,  test_name, tester, device_id):
     """
     Positive: Install an app from a valid APK URL while a resource-intensive app is running, then launch it.
     Flow: launch heavy_app -> applications/install(url) -> long wait -> applications/launch
     Pass if install == 200 and launch == 200.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
 
     # Resource-intensive app to keep pressure on the device
     heavy_app_id = config.apps.get("heavy_app", config.apps.get("youtube", "YouTube"))
@@ -4957,13 +4957,13 @@ def run_install_from_url_while_heavy_app_running(dab_topic, test_category, test_
         LOGGER.result(msg); logs.append(msg)
         return result
 
-def run_install_after_reboot_then_launch(dab_topic, test_category, test_name, tester, device_id):
+def run_install_after_reboot_then_launch(dab_topic,  test_name, tester, device_id):
     """
     Positive: After device restart, install an app from a valid APK URL and launch it.
     Flow: fire_and_forget_restart -> wait -> applications/install(url) -> wait -> applications/launch
     Pass if install == 200 and launch == 200.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
 
     # Target app + URL (configure these in config)
     app_id = config.apps.get("sample_app", "Sample_App")
@@ -5075,7 +5075,7 @@ config.install_sequence = [
     {"key": "app2", "appId": "App2_Id", "url": "https://.../app2.apk"},
 ]
 
-def run_sequential_installs_then_launch(dab_topic, test_category, test_name, tester, device_id):
+def run_sequential_installs_then_launch(dab_topic,  test_name, tester, device_id):
     """
     Positive: Sequentially install N applications from valid URLs, then launch each to confirm functionality.
     Flow per app: applications/install(url) -> wait -> applications/launch
@@ -5084,7 +5084,7 @@ def run_sequential_installs_then_launch(dab_topic, test_category, test_name, tes
       - config.install_sequence: list[{"key": "<cfg-key>", "appId": "<realId>", "url": "<apk-url>"}]
       - config.apps["seq_targets"]: list[str cfg keys]; URL pulled from config using "<key>_url", apk_urls[key], or urls[key]
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
 
     # --- Build target list from config ---
@@ -5213,13 +5213,13 @@ def run_sequential_installs_then_launch(dab_topic, test_category, test_name, tes
         LOGGER.result(msg); logs.append(msg)
         return result
 
-def run_install_from_url_then_launch_simple(dab_topic, test_category, test_name, tester, device_id):
+def run_install_from_url_then_launch_simple(dab_topic,  test_name, tester, device_id):
     """
     Positive: Install an application from a valid APK URL when not already installed, then launch it.
     Minimal flow: applications/install(url) -> wait -> applications/launch
     Pass if install == 200 and launch == 200.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id = config.apps.get("sample_app", "Sample_App")  # target app ID
 
     # Resolve the APK URL for this app from config (set one of these)
@@ -5315,13 +5315,13 @@ def run_install_from_url_then_launch_simple(dab_topic, test_category, test_name,
         LOGGER.result(msg); logs.append(msg)
         return result
     
-def run_clear_data_accessibility_settings_reset(dab_topic, test_category, test_name, tester, device_id):
+def run_clear_data_accessibility_settings_reset(dab_topic,  test_name, tester, device_id):
     """
     Positive: Verify applications/clear-data resets a third-party app's accessibility settings to defaults.
     Flow: applications/launch -> applications/clear-data -> applications/launch
     Pass if clear-data returns 200. (Accessibility reset verification is manual/OEM.)
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id = config.apps.get("sample_app", "Sample_App")
     logs = []
     payload_app = json.dumps({"appId": app_id})
@@ -5396,13 +5396,13 @@ def run_clear_data_accessibility_settings_reset(dab_topic, test_category, test_n
         LOGGER.result(msg); logs.append(msg)
         return result
 
-def run_clear_data_session_reset(dab_topic, test_category, test_name, tester, device_id):
+def run_clear_data_session_reset(dab_topic,  test_name, tester, device_id):
     """
     Positive: Verify applications/clear-data clears a third-party app's user login/session data.
     Flow: applications/launch -> applications/clear-data -> applications/launch
     Pass if clear-data returns 200. (Session reset verification is manual/OEM).
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id = config.apps.get("sample_app", "Sample_App")
     logs = []
     payload_app = json.dumps({"appId": app_id})
@@ -5477,11 +5477,11 @@ def run_clear_data_session_reset(dab_topic, test_category, test_name, tester, de
         LOGGER.result(msg); logs.append(msg)
         return result
 
-def run_voice_log_collection_check(dab_topic, test_category, test_name, tester, device_id):
+def run_voice_log_collection_check(dab_topic,  test_name, tester, device_id):
     """
     Verifies that voice assistant activity is captured in the system logs. This is a manual verification test.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/logs/start-collection", "{}", "UNKNOWN", "", logs)
     # Variables for the final summary log
@@ -5582,11 +5582,11 @@ def run_voice_log_collection_check(dab_topic, test_category, test_name, tester, 
 
     return result
 
-def run_idle_log_collection_check(dab_topic, test_category, test_name, tester, device_id):
+def run_idle_log_collection_check(dab_topic,  test_name, tester, device_id):
     """
     Verifies that system logs are collected correctly during an idle period. This is a manual verification test.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/logs/start-collection", "{}", "UNKNOWN", "", logs)
     # Variable for the final summary log
@@ -5670,12 +5670,12 @@ def run_idle_log_collection_check(dab_topic, test_category, test_name, tester, d
 
     return result
 
-def run_channel_switch_log_check(dab_topic, test_category, test_name, tester, device_id):
+def run_channel_switch_log_check(dab_topic,  test_name, tester, device_id):
     """
     Verifies that system logs are collected correctly during rapid TV channel switching.
     This is a manual verification test.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/logs/start-collection", "{}", "UNKNOWN", "", logs)
     # Variable for the final summary log
@@ -5760,12 +5760,12 @@ def run_channel_switch_log_check(dab_topic, test_category, test_name, tester, de
     return result
 
 
-def run_app_switch_log_check(dab_topic, test_category, test_name, tester, device_id):
+def run_app_switch_log_check(dab_topic,  test_name, tester, device_id):
     """
     Verifies that system logs are collected correctly during an app switch.
     This is a manual verification test.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/logs/start-collection", "{}", "UNKNOWN", "", logs)
     # Variable for the final summary log
@@ -5865,12 +5865,12 @@ def run_app_switch_log_check(dab_topic, test_category, test_name, tester, device
 
     return result
 
-def run_clear_data_preinstalled_app_check(dab_topic, test_category, test_name, tester, device_id):
+def run_clear_data_preinstalled_app_check(dab_topic,  test_name, tester, device_id):
     """
     Verifies that 'applications/clear-data' works on a non-removable, pre-installed app.
     This is a manual verification test.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "applications/clear-data", "{}", "UNKNOWN", "", logs)
     app_id = "N/A"
@@ -5978,12 +5978,12 @@ def run_clear_data_preinstalled_app_check(dab_topic, test_category, test_name, t
 
     return result
 
-def run_install_region_specific_app_check(dab_topic, test_category, test_name, tester, device_id):
+def run_install_region_specific_app_check(dab_topic,  test_name, tester, device_id):
     """
     Verifies that a region-specific app can be installed and shows correct localization.
     This is a manual verification test.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id = "localApp963" # Example App ID for a region-specific app
     logs = []
     result = TestResult(test_id, device_id, "applications/install-from-app-store", "{}", "UNKNOWN", "", logs)
@@ -6088,12 +6088,12 @@ def run_install_region_specific_app_check(dab_topic, test_category, test_name, t
 
     return result
 
-def run_update_installed_app_check(dab_topic, test_category, test_name, tester, device_id):
+def run_update_installed_app_check(dab_topic,  test_name, tester, device_id):
     """
     Verifies that an already installed application can be updated to a newer version.
     This is a manual verification test.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id = "updatableApp123" # Example App ID for an app that has an older version
     logs = []
     result = TestResult(test_id, device_id, "applications/install-from-app-store", "{}", "UNKNOWN", "", logs)
@@ -6199,12 +6199,12 @@ def run_update_installed_app_check(dab_topic, test_category, test_name, tester, 
     return result
 
 # === Test 38: Log Collection Check ===
-def run_logs_collection_check(dab_topic, test_category, test_name, tester, device_id):
+def run_logs_collection_check(dab_topic,  test_name, tester, device_id):
     """
     Validates that logs can be collected successfully.
     """
 
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/logs/start-collection", json.dumps({}), "UNKNOWN", "", logs)
 
@@ -6286,12 +6286,12 @@ def run_logs_collection_check(dab_topic, test_category, test_name, tester, devic
     return result
 
 # === Test 39: Log Collection For Major System Services Check ===
-def run_logs_collection_for_major_system_services_check(dab_topic, test_category, test_name, tester, device_id):
+def run_logs_collection_for_major_system_services_check(dab_topic,  test_name, tester, device_id):
     """
     Validates that logs can be collected successfully for major system services.
     """
 
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/logs/start-collection", json.dumps({}), "UNKNOWN", "", logs)
 
@@ -6396,12 +6396,12 @@ def run_logs_collection_for_major_system_services_check(dab_topic, test_category
     return result
 
 # === Test 40: Log Collection While App Pause Check ===
-def run_logs_collection_app_pause_check(dab_topic, test_category, test_name, tester, device_id):
+def run_logs_collection_app_pause_check(dab_topic,  test_name, tester, device_id):
     """
     Validates that logs can be collected successfully while an app pause.
     """
 
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     appId = config.apps.get("youtube", "YouTube")
     result = TestResult(test_id, device_id, "system/logs/start-collection", json.dumps({}), "UNKNOWN", "", logs)
@@ -6520,12 +6520,12 @@ def run_logs_collection_app_pause_check(dab_topic, test_category, test_name, tes
     return result
 
 # === Test 41: Log Collection While Background App Is Force-Stopped Check ===
-def run_logs_collection_app_force_stop_check(dab_topic, test_category, test_name, tester, device_id):
+def run_logs_collection_app_force_stop_check(dab_topic,  test_name, tester, device_id):
     """
     Validates that logs can be collected successfully while While Background App Is Force-Stopped.
     """
 
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     appId = config.apps.get("youtube", "YouTube")
     result = TestResult(test_id, device_id, "system/logs/start-collection", json.dumps({}), "UNKNOWN", "", logs)
@@ -6659,12 +6659,12 @@ def run_logs_collection_app_force_stop_check(dab_topic, test_category, test_name
     return result
 
 # === Test 42: Log Collection During App Uninstallation Check ===
-def run_logs_collection_app_uninstall_check(dab_topic, test_category, test_name, tester, device_id):
+def run_logs_collection_app_uninstall_check(dab_topic,  test_name, tester, device_id):
     """
     Validates that logs can be collected successfully while App Uninstallation.
     """
 
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     appId = config.apps.get("youtube", "YouTube")
     result = TestResult(test_id, device_id, "system/logs/start-collection", json.dumps({}), "UNKNOWN", "", logs)
@@ -6768,12 +6768,12 @@ def run_logs_collection_app_uninstall_check(dab_topic, test_category, test_name,
     return result
 
 # === Test 43: Log Collection While App Install And Launch Check ===
-def run_logs_collection_app_install_and_launch_check(dab_topic, test_category, test_name, tester, device_id):
+def run_logs_collection_app_install_and_launch_check(dab_topic,  test_name, tester, device_id):
     """
     Validates that logs can be collected successfully while install and launch App.
     """
 
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     appId = config.apps.get("store_app", "Store_App")  # valid, not-installed appId
     payload_app = json.dumps({"appId": appId})

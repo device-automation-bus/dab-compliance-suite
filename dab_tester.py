@@ -669,7 +669,7 @@ class DabTester:
                 if callable(test_func):
                     result = None
                     try:
-                        result = test_func(dab_topic, test_category, pretty_name, self, device_id)
+                        result = test_func(dab_topic, pretty_name, self, device_id)
                         # Ensure we always append a TestResult-like object
                         if result is None:
                             result = TestResult(
