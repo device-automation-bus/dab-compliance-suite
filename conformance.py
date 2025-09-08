@@ -187,7 +187,7 @@ CONFORMANCE_TEST_CASE = [
     ("system/restart",' {}', dab.system.restart, 30000, "Conformance", "2.0", False),
     ("applications/install", lambda: json.dumps(ensure_app_available(app_id="Sample_App", prompt_if_missing=False)), dab.applications.install, 120000, "Install App Conformance", "2.1", False),
     ("applications/install", lambda: json.dumps({"fileLocation": f""}), dab.applications.install, 120000, "Install App Conformance With Blank URL", "2.1", True),
-    ("applications/install", lambda: json.dumps({"fileLocation": f"file://{ensure_app_available('unsupported_format_app.txt')}"}), dab.applications.install, 120000, "Install App Conformance With Incorrect Format", "2.1", True),
+    ("applications/install", lambda: json.dumps({**ensure_app_available(app_id="unsupported_format_app", prompt_if_missing=False)}), dab.applications.install, 120000, "Install App Conformance With Incorrect Format", "2.1", True),
     ("applications/uninstall",lambda: f'{{"appId": "{config.apps["sample_app"]}"}}', dab.applications.uninstall, 50000, "Conformance", "2.1", False),
     ("applications/uninstall",lambda: f'{{"appId": "com.example!@#"}}', dab.applications.uninstall, 50000, "Conformance Bad Request", "2.1", True),
     ("applications/clear-data",lambda: f'{{"appId": "{config.apps["youtube"]}"}}', dab.applications.clear_data, 10000, "Conformance", "2.1", False),

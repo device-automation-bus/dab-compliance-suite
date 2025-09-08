@@ -4,6 +4,7 @@ apps = dict(
     netflix = 'Netflix',
     amazon = 'PrimeVideo',
     sample_app = 'Sample_App',
+    sample_app1 = 'Sample_App1',
     sample_app_url = 'Sample_App_Url',
     removable_app = 'Netflix' 
 )

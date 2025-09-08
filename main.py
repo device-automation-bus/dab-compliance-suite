@@ -20,8 +20,8 @@ import output_image
 import netflix
 import functional
 from logger import LOGGER
-from util.config_loader import init_interactive_setup
-import sys 
+from util.config_loader import get_sample_apps_payloads, init_sample_apps
+import sys
 
 ALL_SUITES = {
     "conformance": conformance.CONFORMANCE_TEST_CASE,
@@ -73,7 +73,7 @@ if __name__ == "__main__":
                         default=None)
 
     parser.add_argument("--init", action="store_true",
-                        help="Interactive setup: prompt for app paths (and optional store URL), then exit.")
+                        help="Interactive setup: prompt for app paths and per-app store URLs, then exit.")
 
     parser.set_defaults(output="")
     parser.set_defaults(case=99999)
@@ -83,7 +83,16 @@ if __name__ == "__main__":
 
     # ---- init mode (interactive) ----
     if args.init:
-        init_interactive_setup(app_ids=("Sample_App",), ask_store_url=True)
+        # Interactive multi-app setup: copies your chosen files into config/apps
+        try:
+            # Optional: let the user choose how many sample apps to configure (ENTER for default = 3)
+            user_count = input("How many sample apps to configure? [default 3]: ").strip()
+            count = int(user_count) if user_count else 3
+        except Exception:
+            count = 3
+        # Prompts per app for artifact + per-app URL map (with global fallback); safe to run repeatedly
+        init_sample_apps(count=count, base_name="sample_app", ask_store_url=True)
+        LOGGER.ok("Initialization complete.")
         sys.exit(0)
 
     Tester = DabTester(args.broker, override_dab_version=args.dab_version)
@@ -120,7 +129,6 @@ if __name__ == "__main__":
                 except Exception as e:
                     LOGGER.warn(f"Skipping malformed test tuple: {type(e).__name__}: {e}")
             LOGGER.ok(f"Listed {listed} case(s) in suite '{suite}'.")
-
     else:
         if ((not isinstance(args.case, (str)) or len(args.case) == 0)):
             LOGGER.result("Testing all cases")

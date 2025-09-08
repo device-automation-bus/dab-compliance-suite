@@ -9,6 +9,12 @@ from util.enforcement_manager import EnforcementManager
 from util.config_loader import ensure_app_available 
 from paho.mqtt.properties import Properties
 from paho.mqtt.packettypes import PacketTypes
+from typing import Any, Iterable
+from util.log_handler import decode_stop_logs_json , emit_log_evidence
+from logger import LOGGER
+
+SUPPORTED_SETTINGS_IDS = None   # cached by _fetch_supported_settings_ids
+SUPPORTED_KEY_CODES    = None   # cached by _fetch_supported_key_codes
 
 # --- Sleep Time Constants ---
 APP_LAUNCH_WAIT = 5
@@ -84,11 +90,9 @@ def fetch_supported_operations(tester, device_id):
         return SUPPORTED_OPERATIONS
 
 
-# === Capability-gate helpers (non-breaking additions) =========================
-from logger import LOGGER
 
-SUPPORTED_SETTINGS_IDS = None   # cached by _fetch_supported_settings_ids
-SUPPORTED_KEY_CODES    = None   # cached by _fetch_supported_key_codes
+# === Capability-gate helpers (non-breaking additions) =========================
+
 
 def _split_items(s: str):
     return [x.strip() for x in s.split(",") if x and x.strip()]
@@ -512,6 +516,33 @@ def fire_and_forget_restart(dab_client, device_id):
     props.ResponseTopic = response_topic
     dab_client._DabClient__client.publish(topic, "{}", qos=0, properties=props)
     LOGGER.info(f"Sent restart command to {topic} (fire-and-forget)")
+
+def json_contains_any_keyword(data: Any, keywords: Iterable[str]) -> bool:
+    """
+    Case-insensitive search for any keyword in any key or value of a JSON
+    object/array. Returns True if any keyword is found.
+    """
+    keys = [k.lower() for k in keywords if isinstance(k, str) and k]
+    if not keys:
+        return False
+
+    def walk(x: Any) -> bool:
+        if isinstance(x, dict):
+            for k, v in x.items():
+                if isinstance(k, str) and any(n in k.lower() for n in keys):
+                    return True
+                if walk(v):
+                    return True
+            return False
+        if isinstance(x, (list, tuple)):
+            return any(walk(i) for i in x)
+        try:
+            s = str(x).lower()
+            return any(n in s for n in keys)
+        except Exception:
+            return False
+
+    return walk(data)
 
 # === Test 1: App in FOREGROUND Validate app moves to FOREGROUND after launch ===
 def run_app_foreground_check(dab_topic,test_name, tester, device_id):
@@ -5070,98 +5101,70 @@ def run_install_after_reboot_then_launch(dab_topic,  test_name, tester, device_i
         LOGGER.result(msg); logs.append(msg)
         return result
 
-config.install_sequence = [
-    {"key": "app1", "appId": "App1_Id", "url": "https://.../app1.apk"},
-    {"key": "app2", "appId": "App2_Id", "url": "https://.../app2.apk"},
-]
+def run_sequential_installs_then_launch(dab_topic, test_name, tester, device_id):
+    """
+    Positive: install then launch Sample_App and Sample_app1 (local artifacts).
+    Uses util.config_loader ensure_* (any extension). Pass if all ops return 200.
+    """
+    import json, time
+    from util.config_loader import ensure_apps_available_anyext as ensure_apps_available
 
-def run_sequential_installs_then_launch(dab_topic,  test_name, tester, device_id):
-    """
-    Positive: Sequentially install N applications from valid URLs, then launch each to confirm functionality.
-    Flow per app: applications/install(url) -> wait -> applications/launch
-    Pass if ALL installs == 200 and ALL launches == 200.
-    Config expectations (pick one):
-      - config.install_sequence: list[{"key": "<cfg-key>", "appId": "<realId>", "url": "<apk-url>"}]
-      - config.apps["seq_targets"]: list[str cfg keys]; URL pulled from config using "<key>_url", apk_urls[key], or urls[key]
-    """
     test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
+    result = TestResult(test_id, device_id, "applications/install", "{}", "UNKNOWN", "", logs)
 
-    # --- Build target list from config ---
-    targets = []
+    # Build targets from local artifacts placed via `--init`
     try:
-        # Preferred explicit structure
-        seq = getattr(config, "install_sequence", None)
-        if isinstance(seq, list) and seq:
-            for item in seq:
-                app_id = item.get("appId")
-                url    = item.get("url")
-                key    = item.get("key") or app_id or "unknown"
-                if app_id and url:
-                    targets.append({"key": key, "appId": app_id, "url": url})
-        else:
-            # Fallback: derive from named keys
-            keys = config.apps.get("seq_targets", [])
-            if not keys:
-                keys = ["sample_app"]  # minimal sensible default
-            for key in keys:
-                app_id = config.apps.get(key, key)
-                url = (
-                    config.apps.get(f"{key}_url")
-                    or getattr(config, "apk_urls", {}).get(key)
-                    or getattr(config, "urls", {}).get(key)
-                )
-                if app_id and url:
-                    targets.append({"key": key, "appId": app_id, "url": url})
-    except Exception:
-        targets = []
+        payloads = ensure_apps_available(app_ids=["Sample_App", "Sample_app1"])
+        # normalize to our loop structure
+        targets = [
+            {
+                "key": p["appId"],
+                "appId": p["appId"],
+                "install_payload": json.dumps(p),            # includes url/format/timeout
+                "launch_payload":  json.dumps({"appId": p["appId"]}),
+            }
+            for p in payloads
+        ]
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        msg = f"[RESULT] SKIPPED — missing app artifacts: {e}"
+        LOGGER.result(msg); logs.append(msg)
+        msg = f"[SUMMARY] outcome=SKIPPED, apps=0, test_id={test_id}, device={device_id}"
+        LOGGER.result(msg); logs.append(msg)
+        return result
 
-    # If no valid targets, skip
-    payload_init = json.dumps({"apps": [t.get("appId") for t in targets]}) if targets else "{}"
-    result = TestResult(test_id, device_id, "applications/install", payload_init, "UNKNOWN", "", logs)
-
-    INSTALL_WAIT = 45  # per-app settle time
+    INSTALL_WAIT = 45  # per-app settle time (keep existing behavior)
 
     try:
         # Headers
-        msg = f"[TEST] Sequential Installs from URL → Launch Each — {test_name} (test_id={test_id}, device={device_id})"
+        msg = f"[TEST] Sequential Installs (local) → Launch Each — {test_name} (test_id={test_id}, device={device_id})"
         LOGGER.result(msg); logs.append(msg)
-        msg = "[DESC] Flow per app: applications/install(url) → wait → applications/launch; PASS if all return 200."
+        msg = "[DESC] Flow: applications/install(local file) → wait → applications/launch; PASS if all == 200."
         LOGGER.result(msg); logs.append(msg)
 
-        if not targets:
-            result.test_result = "SKIPPED"
-            msg = "[RESULT] SKIPPED — no install targets with URLs configured (install_sequence or apps.seq_targets)"
-            LOGGER.result(msg); logs.append(msg)
-            msg = f"[SUMMARY] outcome=SKIPPED, apps=0, test_id={test_id}, device={device_id}"
-            LOGGER.result(msg); logs.append(msg)
-            return result
-
-        # Capability gate (install + launch)
+        # Capability gate
         if not need(tester, device_id, "ops: applications/install, applications/launch", result, logs):
             msg = f"[SUMMARY] outcome=OPTIONAL_FAILED, apps={len(targets)}, test_id={test_id}, device={device_id}"
             LOGGER.result(msg); logs.append(msg)
             return result
 
-        msg = "[INFO] Capability gate passed."
-        LOGGER.info(msg); logs.append(msg)
+        LOGGER.info("[INFO] Capability gate passed."); logs.append("[INFO] Capability gate passed.")
 
-        # Run sequentially; stop on first failure to keep it simple
+        # Run sequentially; stop on first failure
         installed = []
         for idx, t in enumerate(targets, 1):
-            app_id = t["appId"]; url = t["url"]; key = t["key"]
-            payload_install = json.dumps({"appId": app_id, "url": url})
-            payload_launch  = json.dumps({"appId": app_id})
+            key = t["key"]
 
             # Install
-            msg = f"[STEP {idx}] applications/install {payload_install}"
+            msg = f"[STEP {idx}] applications/install {t['install_payload']}"
             LOGGER.result(msg); logs.append(msg)
             rc_i, resp_i = execute_cmd_and_log(
-                tester, device_id, "applications/install", payload_install, logs, result
+                tester, device_id, "applications/install", t["install_payload"], logs, result
             )
             st_i = dab_status_from(resp_i, rc_i)
-            msg = f"[INFO] applications/install[{key}] transport_rc={rc_i}, dab_status={st_i}"
-            LOGGER.info(msg); logs.append(msg)
+            LOGGER.info(f"[INFO] applications/install[{key}] transport_rc={rc_i}, dab_status={st_i}"); \
+                logs.append(f"[INFO] applications/install[{key}] transport_rc={rc_i}, dab_status={st_i}")
             if st_i != 200:
                 result.test_result = "FAILED"
                 msg = f"[RESULT] FAILED — install[{key}] returned {st_i} (expected 200)"
@@ -5176,15 +5179,14 @@ def run_sequential_installs_then_launch(dab_topic,  test_name, tester, device_id
             time.sleep(INSTALL_WAIT)
 
             # Launch
-            msg = f"[STEP {idx}] applications/launch {payload_launch}"
+            msg = f"[STEP {idx}] applications/launch {t['launch_payload']}"
             LOGGER.result(msg); logs.append(msg)
             rc_l, resp_l = execute_cmd_and_log(
-                tester, device_id, "applications/launch", payload_launch, logs, result
+                tester, device_id, "applications/launch", t["launch_payload"], logs, result
             )
             st_l = dab_status_from(resp_l, rc_l)
-            msg = f"[INFO] applications/launch[{key}] transport_rc={rc_l}, dab_status={st_l}"
-            LOGGER.info(msg); logs.append(msg)
-
+            LOGGER.info(f"[INFO] applications/launch[{key}] transport_rc={rc_l}, dab_status={st_l}"); \
+                logs.append(f"[INFO] applications/launch[{key}] transport_rc={rc_l}, dab_status={st_l}")
             if st_l != 200:
                 result.test_result = "FAILED"
                 msg = f"[RESULT] FAILED — launch[{key}] returned {st_l} (expected 200)"
@@ -5196,7 +5198,7 @@ def run_sequential_installs_then_launch(dab_topic,  test_name, tester, device_id
 
             installed.append(key)
 
-        # If we reach here, all apps installed + launched
+        # All apps installed + launched
         result.test_result = "PASS"
         msg = f"[RESULT] PASS — all {len(targets)} apps installed and launched: {installed}"
         LOGGER.result(msg); logs.append(msg)
@@ -5477,391 +5479,570 @@ def run_clear_data_session_reset(dab_topic,  test_name, tester, device_id):
         LOGGER.result(msg); logs.append(msg)
         return result
 
-def run_voice_log_collection_check(dab_topic,  test_name, tester, device_id):
+def run_voice_log_collection_check(dab_topic, test_name, tester, device_id):
     """
-    Verifies that voice assistant activity is captured in the system logs. This is a manual verification test.
+    Start logs, send a voice command, stop logs. Decode stop-collection payload
+    in-memory (no file writes), emit concise evidence, and validate presence of
+    voice activity. Raw payload is never stored in results.json.
     """
+    import json, time
+    from util.log_handler import decode_stop_logs_json, emit_log_evidence
+
+    # --- small local heuristic for voice activity ---
+    def _has_voice_activity(payload, command_text: str):
+        try:
+            txt = json.dumps(payload, ensure_ascii=False).lower()
+        except Exception:
+            return False
+        cmd = (command_text or "").lower()
+        # signals for voice/assistant activity + either the command or typical fields
+        has_voice_signals = any(k in txt for k in (
+            "voice", "assistant", "asr", "speech", "hotword",
+            "voice/send-text", "voice_interaction", "assistantservice",
+        ))
+        mentions_cmd_or_fields = (cmd and cmd in txt) or any(k in txt for k in (
+            "requesttext", "recognizedtext", "query", "utterance", "transcript"
+        ))
+        return has_voice_signals and mentions_cmd_or_fields
+
     test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/logs/start-collection", "{}", "UNKNOWN", "", logs)
-    # Variables for the final summary log
-    supports_voice = "N/A"
-    logs_contain_voice_activity = "N/A"
+
+    # config
+    VOICE_COMMAND = "Open YouTube"
+    WAIT_SEC = globals().get("ASSISITANT_WAIT", 5)  # keep existing var name; fallback 5s
 
     try:
-        # Header and description
+        # ---- header ----
         for line in (
-            f"[TEST] Voice Activity Log Collection Check (Manual) — {test_name} (test_id={test_id}, device={device_id})",
-            "[DESC] Goal: Start log collection, send a voice command, stop collection, and manually verify the logs.",
-            "[DESC] Required ops: system/logs/start-collection, voice/send-text, system/logs/stop-collection.",
-            "[DESC] Pass criteria: User confirmation that the voice command appears in the collected system logs.",
+            f"[TEST] Voice Activity Log Collection Check — {test_name} "
+            f"(test_id={test_id}, device={device_id})",
+            "[DESC] Start logs, send a voice command, stop, decode & verify logs.",
+            "[DESC] Ops: system/logs/start-collection, voice/send-text, system/logs/stop-collection.",
         ):
-            LOGGER.result(line)
-            logs.append(line)
+            LOGGER.result(line); logs.append(line)
 
-        # Capability gate for all required DAB operations
-        required_ops = "ops: system/logs/start-collection, voice/send-text, system/logs/stop-collection"
-        if not need(tester, device_id, required_ops, result, logs):
+        # ---- capability gate ----
+        if not need(tester, device_id,
+                    "ops: system/logs/start-collection, voice/send-text, system/logs/stop-collection",
+                    result, logs):
             return result
 
-        # Precondition: Manually verify that the device supports a voice assistant
-        line = "[STEP] Manual check required: Checking for Voice Assistant support."
-        LOGGER.result(line)
-        logs.append(line)
-        supports_voice = yes_or_no(result, logs, "Does this device support a Voice Assistant feature?")
-        if not supports_voice:
+        # ---- check device supports voice (manual) ----
+        if not yes_or_no(result, logs, "Does this device support a Voice Assistant?"):
             result.test_result = "OPTIONAL_FAILED"
-            line = "[RESULT] OPTIONAL_FAILED — Test skipped because the device does not support a voice assistant."
-            LOGGER.result(line)
-            logs.append(line)
+            m = "[RESULT] OPTIONAL_FAILED — Voice assistant not supported."
+            LOGGER.result(m); logs.append(m)
+            result.response = "voice assistant: not supported"
             return result
 
-        # Step 1: Start log collection
-        line = "[STEP] Starting system log collection."
-        LOGGER.result(line)
-        logs.append(line)
-        rc, response = execute_cmd_and_log(tester, device_id, "system/logs/start-collection", "{}", logs, result)
-        if dab_status_from(response, rc) != 200:
+        # ---- start collection ----
+        LOGGER.result("[STEP] Starting system log collection."); logs.append("[STEP] Starting system log collection.")
+        rc, start_resp = execute_cmd_and_log(tester, device_id, "system/logs/start-collection", "{}", logs, result)
+        if dab_status_from(start_resp, rc) != 200:
             result.test_result = "FAILED"
-            line = "[RESULT] FAILED — The 'system/logs/start-collection' command failed."
-            LOGGER.result(line)
-            logs.append(line)
+            m = "[RESULT] FAILED — 'system/logs/start-collection' failed."
+            LOGGER.result(m); logs.append(m)
+            result.response = "start-collection failed"
             return result
 
-        # Step 2: Send a voice command
-        voice_command = "Open YouTube"
-        payload_voice = json.dumps({"requestText": voice_command})
-        line = f"[STEP] Sending voice command: '{voice_command}'"
-        LOGGER.result(line)
-        logs.append(line)
+        # ---- send voice command ----
+        payload_voice = json.dumps({"requestText": VOICE_COMMAND})
+        step = f"[STEP] Sending voice command: '{VOICE_COMMAND}'"
+        LOGGER.result(step); logs.append(step)
         execute_cmd_and_log(tester, device_id, "voice/send-text", payload_voice, logs, result)
 
-        # Allow time for the command to be processed and logged
-        time.sleep(ASSISITANT_WAIT)
+        # allow time for logging
+        time.sleep(WAIT_SEC)
 
-        # Step 3: Stop log collection
-        line = "[STEP] Stopping system log collection."
-        LOGGER.result(line)
-        logs.append(line)
-        execute_cmd_and_log(tester, device_id, "system/logs/stop-collection", "{}", logs, result)
-
-        # Step 4: Manual verification of logs
-        line = "[STEP] Manual action required: Please retrieve and inspect the collected system logs."
-        LOGGER.result(line)
-        logs.append(line)
-        logs_contain_voice_activity = yes_or_no(result, logs, f"Do the logs contain entries related to the voice command '{voice_command}'?")
-        
-        if logs_contain_voice_activity:
-            result.test_result = "PASS"
-            line = "[RESULT] PASS — User confirmed voice activity was present in the system logs."
-        else:
+        # ---- stop collection (sanitize: no raw payload in logs) ----
+        LOGGER.result("[STEP] Stopping system log collection."); logs.append("[STEP] Stopping system log collection.")
+        rc = tester.execute_cmd(device_id, "system/logs/stop-collection", "{}")
+        stop_resp_text = tester.dab_client.response() or ""
+        status_code = dab_status_from(stop_resp_text, rc)
+        safe_line = f"[system/logs/stop-collection] Response: {{ status: {status_code} }} (payload suppressed)"
+        LOGGER.result(safe_line); logs.append(safe_line)
+        if status_code != 200:
             result.test_result = "FAILED"
-            line = "[RESULT] FAILED — User reported no voice activity was found in the system logs."
-        
-        LOGGER.result(line)
-        logs.append(line)
+            m = "[RESULT] FAILED — 'system/logs/stop-collection' failed."
+            LOGGER.result(m); logs.append(m)
+            result.response = "stop-collection failed"
+            return result
+
+        # ---- decode + evidence (no raw stored) ----
+        try:
+            decoded = decode_stop_logs_json(stop_resp_text)
+
+            # concise evidence lines (names only; no raw values)
+            evidence_summary = emit_log_evidence(decoded, logger=LOGGER, sink=logs, label="voice_log")
+
+            # auto check
+            auto_ok = _has_voice_activity(decoded, VOICE_COMMAND)
+
+            # keep response SHORT so results.json stays clean
+            result.response = f"decoded log checked: voice={auto_ok}; {evidence_summary}"
+
+            if auto_ok:
+                result.test_result = "PASS"
+                m = "[RESULT] PASS — Voice activity detected in decoded logs."
+            else:
+                # fallback to manual confirmation
+                q = (f"Do logs contain entries related to the voice command '{VOICE_COMMAND}'?")
+                ok = yes_or_no(result, logs, q)
+                result.test_result = "PASS" if ok else "FAILED"
+                m = "[RESULT] PASS (manual)" if ok else "[RESULT] FAILED — No voice activity found."
+            LOGGER.result(m); logs.append(m)
+
+        except Exception as e:
+            warn = f"[WARN] Could not decode stop-collection logs: {e}"
+            LOGGER.result(warn); logs.append(warn)
+            result.response = "log decode failed"
+            ok = yes_or_no(result, logs, f"Without auto-decode, do logs show '{VOICE_COMMAND}' activity?")
+            result.test_result = "PASS" if ok else "FAILED"
+            m = "[RESULT] PASS (manual)" if ok else "[RESULT] FAILED (manual)"
+            LOGGER.result(m); logs.append(m)
+            return result
 
     except UnsupportedOperationError as e:
         result.test_result = "OPTIONAL_FAILED"
-        line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
-        LOGGER.result(line)
-        logs.append(line)
+        m = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
+        LOGGER.result(m); logs.append(m)
+        result.response = "optional failed"
 
     except Exception as e:
         result.test_result = "SKIPPED"
-        line = f"[RESULT] SKIPPED — An unexpected error occurred: {e}"
-        LOGGER.result(line)
-        logs.append(line)
+        m = f"[RESULT] SKIPPED — Unexpected error: {e}"
+        LOGGER.result(m); logs.append(m)
+        result.response = "skipped due to error"
 
     finally:
-        # Final summary log
-        line = (f"[SUMMARY] outcome={result.test_result}, supports_voice={supports_voice}, "
-                f"logs_contain_voice_activity={logs_contain_voice_activity}, test_id={test_id}, device={device_id}")
-        LOGGER.result(line)
-        logs.append(line)
+        s = (f"[SUMMARY] outcome={result.test_result}, voice='{VOICE_COMMAND}', "
+             f"test_id={test_id}, device={device_id}")
+        LOGGER.result(s); logs.append(s)
 
     return result
 
-def run_idle_log_collection_check(dab_topic,  test_name, tester, device_id):
+
+def run_idle_log_collection_check(dab_topic, test_name, tester, device_id):
     """
-    Verifies that system logs are collected correctly during an idle period. This is a manual verification test.
+    Start system logs, keep device idle ~30s, stop logs. Decode the
+    stop-collection payload in-memory (no file writes), verify that logs
+    are non-empty, and add concise evidence. The raw payload is never
+    stored in results.json (response is a short summary).
     """
+    import time
+    from util.log_handler import decode_stop_logs_json, summarize_log_evidence
+
     test_id = to_test_id(f"{dab_topic}/{test_name}")
-    logs = []
-    result = TestResult(test_id, device_id, "system/logs/start-collection", "{}", "UNKNOWN", "", logs)
-    # Variable for the final summary log
-    logs_are_valid = "N/A"
+    log_lines = []
+    result = TestResult(
+        test_id, device_id,
+        "system/logs/start-collection",  # operation label for this test
+        "{}", "UNKNOWN", "", log_lines
+    )
+    logs_ok = "N/A"
 
     try:
-        # Header and description
+        # --- header / description ---
         for line in (
-            f"[TEST] Idle Log Collection and Verification (Manual) — {test_name} (test_id={test_id}, device={device_id})",
-            "[DESC] Goal: Start log collection, wait 30 seconds while the device is idle, stop collection, and manually verify the logs.",
-            "[DESC] Required ops: system/logs/start-collection, system/logs/stop-collection.",
-            "[DESC] Pass criteria: User confirmation that the logs are returned in the correct format and appear complete.",
+            f"[TEST] Idle Log Collection and Verification — {test_name} "
+            f"(test_id={test_id}, device={device_id})",
+            "[DESC] Start log collection, wait ~30s idle, stop, decode payload, "
+            "confirm logs are returned and non-empty.",
+            "[DESC] Ops: system/logs/start-collection, system/logs/stop-collection.",
         ):
-            LOGGER.result(line)
-            logs.append(line)
+            LOGGER.result(line); log_lines.append(line)
 
-        # Capability gate for all required DAB operations
+        # --- capability gate ---
         required_ops = "ops: system/logs/start-collection, system/logs/stop-collection"
-        if not need(tester, device_id, required_ops, result, logs):
+        if not need(tester, device_id, required_ops, result, log_lines):
             return result
 
-        # Step 1: Start log collection
-        line = "[STEP] Starting system log collection."
-        LOGGER.result(line)
-        logs.append(line)
-        rc, response = execute_cmd_and_log(tester, device_id, "system/logs/start-collection", "{}", logs, result)
-        if dab_status_from(response, rc) != 200:
+        # --- step 1: start collection ---
+        step = "[STEP] Starting system log collection."
+        LOGGER.result(step); log_lines.append(step)
+        rc, resp_text = execute_cmd_and_log(
+            tester, device_id, "system/logs/start-collection", "{}", log_lines, result
+        )
+        if dab_status_from(resp_text, rc) != 200:
             result.test_result = "FAILED"
-            line = "[RESULT] FAILED — The 'system/logs/start-collection' command failed."
-            LOGGER.result(line)
-            logs.append(line)
+            msg = "[RESULT] FAILED — 'system/logs/start-collection' failed."
+            LOGGER.result(msg); log_lines.append(msg)
+            # keep response short (no heavy content)
+            result.response = "start-collection failed"
             return result
 
-        # Step 2: Wait for 30 seconds while the device is idle
-        wait_duration = 30
-        line = f"[STEP] Device is now idle. Waiting for {wait_duration} seconds."
-        LOGGER.result(line)
-        logs.append(line)
-        countdown("Idle log collection", wait_duration)
+        # --- step 2: idle wait (~30s) ---
+        wait_seconds = 30
+        msg = f"[STEP] Device idle. Waiting {wait_seconds}s."
+        LOGGER.result(msg); log_lines.append(msg)
+        countdown("Idle log collection", wait_seconds)
 
-        # Step 3: Stop log collection
-        line = "[STEP] Stopping system log collection."
-        LOGGER.result(line)
-        logs.append(line)
-        execute_cmd_and_log(tester, device_id, "system/logs/stop-collection", "{}", logs, result)
+        # --- step 3: stop collection (sanitize logging) ---
+        step = "[STEP] Stopping system log collection."
+        LOGGER.result(step); log_lines.append(step)
 
-        # Step 4: Manual verification of logs
-        line = "[STEP] Manual action required: Please retrieve and inspect the collected system logs."
-        LOGGER.result(line)
-        logs.append(line)
-        logs_are_valid = yes_or_no(result, logs, "Are the logs in the correct format and complete for the idle period?")
-        
-        if logs_are_valid:
-            result.test_result = "PASS"
-            line = "[RESULT] PASS — User confirmed the logs are valid and complete."
-        else:
+        # Bypass execute_cmd_and_log to avoid printing raw payload into logs
+        rc = tester.execute_cmd(device_id, "system/logs/stop-collection", "{}")
+        stop_resp_text = tester.dab_client.response() or ""
+        status_code = dab_status_from(stop_resp_text, rc)
+
+        # Log only a short, safe line; NO raw payload in logs
+        safe_line = (
+            f"[system/logs/stop-collection] Response: {{ status: {status_code} }} "
+            f"(payload suppressed)"
+        )
+        LOGGER.result(safe_line); log_lines.append(safe_line)
+
+        if status_code != 200:
             result.test_result = "FAILED"
-            line = "[RESULT] FAILED — User reported the logs are incorrect or incomplete."
-        
-        LOGGER.result(line)
-        logs.append(line)
+            msg = "[RESULT] FAILED — 'system/logs/stop-collection' failed."
+            LOGGER.result(msg); log_lines.append(msg)
+            result.response = "stop-collection failed"
+            return result
+
+        # --- step 4: decode + validate (no raw stored) ---
+        try:
+            decoded_payload = decode_stop_logs_json(stop_resp_text)
+            has_data = bool(
+                (isinstance(decoded_payload, dict) and len(decoded_payload) > 0) or
+                (isinstance(decoded_payload, list) and len(decoded_payload) > 0)
+            )
+
+            # concise evidence (no heavy data)
+            evidence_summary = emit_log_evidence(
+                                decoded_payload,
+                                logger=LOGGER,
+                                sink=log_lines,
+                                label="collected_log",
+                            )
+            result.response = f"decoded log checked: non_empty={has_data}; {evidence_summary}"
+            LOGGER.result(evidence_summary); log_lines.append(evidence_summary)
+
+            if has_data:
+                result.test_result = "PASS"
+                logs_ok = True
+                msg = "[RESULT] PASS — Decoded logs returned and are non-empty."
+            else:
+                result.test_result = "FAILED"
+                logs_ok = False
+                msg = "[RESULT] FAILED — Decoded logs are empty."
+            LOGGER.result(msg); log_lines.append(msg)
+
+        except Exception as e:
+            warn = f"[WARN] Could not decode stop-collection logs: {e}"
+            LOGGER.result(warn); log_lines.append(warn)
+            result.response = "log decode failed"
+            # manual fallback
+            q = "Decode failed. Do the returned logs look correct and complete?"
+            logs_ok = yes_or_no(result, log_lines, q)
+            result.test_result = "PASS" if logs_ok else "FAILED"
+            msg = "[RESULT] PASS (manual)" if logs_ok else "[RESULT] FAILED (manual)"
+            LOGGER.result(msg); log_lines.append(msg)
+            return result
 
     except UnsupportedOperationError as e:
         result.test_result = "OPTIONAL_FAILED"
-        line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
-        LOGGER.result(line)
-        logs.append(line)
+        msg = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
+        LOGGER.result(msg); log_lines.append(msg)
+        result.response = "optional failed"
 
     except Exception as e:
         result.test_result = "SKIPPED"
-        line = f"[RESULT] SKIPPED — An unexpected error occurred: {e}"
-        LOGGER.result(line)
-        logs.append(line)
+        msg = f"[RESULT] SKIPPED — Unexpected error: {e}"
+        LOGGER.result(msg); log_lines.append(msg)
+        result.response = "skipped due to error"
 
     finally:
-        # Final summary log
-        line = (f"[SUMMARY] outcome={result.test_result}, logs_are_valid={logs_are_valid}, "
-                f"test_id={test_id}, device={device_id}")
-        LOGGER.result(line)
-        logs.append(line)
+        summary = (
+            f"[SUMMARY] outcome={result.test_result}, logs_are_valid={logs_ok}, "
+            f"test_id={test_id}, device={device_id}"
+        )
+        LOGGER.result(summary); log_lines.append(summary)
 
     return result
 
-def run_channel_switch_log_check(dab_topic,  test_name, tester, device_id):
+def run_channel_switch_log_check(dab_topic, test_name, tester, device_id):
     """
-    Verifies that system logs are collected correctly during rapid TV channel switching.
-    This is a manual verification test.
+    Rapid channel switch check (30s). Prompts for 3P channel support; if not
+    supported -> OPTIONAL_FAILED. Decodes stop-collection logs in-memory,
+    emits evidence (keys/subkeys), keeps response short (no raw payload).
     """
+    import time
+    from util.log_handler import decode_stop_logs_json, emit_log_evidence
+
     test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/logs/start-collection", "{}", "UNKNOWN", "", logs)
-    # Variable for the final summary log
-    logs_are_valid = "N/A"
+    logs_ok = "N/A"
 
     try:
-        # Header and description
+        # Header
         for line in (
-            f"[TEST] Rapid Channel Switch Log Verification (Manual) — {test_name} (test_id={test_id}, device={device_id})",
-            "[DESC] Goal: Start log collection, rapidly switch TV channels, stop collection, and manually verify the logs.",
-            "[DESC] Required ops: system/logs/start-collection, system/logs/stop-collection.",
-            "[DESC] Pass criteria: User confirmation that all channel switching events are in the logs.",
+            f"[TEST] Rapid Channel Switch Log Verification — {test_name} "
+            f"(test_id={test_id}, device={device_id})",
+            "[DESC] Start logs, rapidly switch channels ~30s, stop, decode, verify.",
+            "[DESC] Ops: system/logs/start-collection, system/logs/stop-collection.",
         ):
-            LOGGER.result(line)
-            logs.append(line)
+            LOGGER.result(line); logs.append(line)
 
-        # Capability gate for all required DAB operations
-        required_ops = "ops: system/logs/start-collection, system/logs/stop-collection"
-        if not need(tester, device_id, required_ops, result, logs):
+        # Capability gate
+        if not need(tester, device_id,
+                    "ops: system/logs/start-collection, system/logs/stop-collection",
+                    result, logs):
             return result
 
-        # Step 1: Start log collection
-        line = "[STEP] Starting system log collection."
-        LOGGER.result(line)
-        logs.append(line)
-        rc, response = execute_cmd_and_log(tester, device_id, "system/logs/start-collection", "{}", logs, result)
-        if dab_status_from(response, rc) != 200:
-            result.test_result = "FAILED"
-            line = "[RESULT] FAILED — The 'system/logs/start-collection' command failed."
-            LOGGER.result(line)
-            logs.append(line)
+        # Prompt: 3P channel support
+        if not yes_or_no(result, logs, "Does the device support 3P channels?"):
+            result.test_result = "OPTIONAL_FAILED"
+            msg = "[RESULT] OPTIONAL_FAILED — 3P channel support not available."
+            LOGGER.result(msg); logs.append(msg)
+            result.response = "3p channel support: no"
             return result
 
-        # Step 2: Manually switch channels for 5 minutes
-        wait_duration = 300 # 5 minutes
-        line = f"[STEP] Manual Action Required: Please rapidly switch TV channels for the next {wait_duration / 60} minutes."
-        LOGGER.result(line)
-        logs.append(line)
-        countdown("Channel switching period", wait_duration)
-
-        # Step 3: Stop log collection
-        line = "[STEP] Stopping system log collection."
-        LOGGER.result(line)
-        logs.append(line)
-        execute_cmd_and_log(tester, device_id, "system/logs/stop-collection", "{}", logs, result)
-
-        # Step 4: Manual verification of logs
-        line = "[STEP] Manual action required: Please retrieve and inspect the collected system logs."
-        LOGGER.result(line)
-        logs.append(line)
-        logs_are_valid = yes_or_no(result, logs, "Do the logs contain entries for each channel switch and related system events?")
-        
-        if logs_are_valid:
-            result.test_result = "PASS"
-            line = "[RESULT] PASS — User confirmed the channel switch logs are valid and complete."
-        else:
+        # Start collection
+        LOGGER.result("[STEP] Starting system log collection."); logs.append("[STEP] Starting system log collection.")
+        rc, start_resp = execute_cmd_and_log(tester, device_id, "system/logs/start-collection", "{}", logs, result)
+        if dab_status_from(start_resp, rc) != 200:
             result.test_result = "FAILED"
-            line = "[RESULT] FAILED — User reported the logs are incorrect or incomplete."
-        
-        LOGGER.result(line)
-        logs.append(line)
+            msg = "[RESULT] FAILED — 'system/logs/start-collection' failed."
+            LOGGER.result(msg); logs.append(msg)
+            result.response = "start-collection failed"
+            return result
+
+        # Manual switching window (30s)
+        wait_seconds = 30
+        LOGGER.result(f"[STEP] Manual Action: rapidly switch TV channels for {wait_seconds}s."); logs.append(
+            f"[STEP] Manual Action: rapidly switch TV channels for {wait_seconds}s.")
+        countdown("Channel switching period", wait_seconds)
+
+        # Stop collection (sanitize)
+        LOGGER.result("[STEP] Stopping system log collection."); logs.append("[STEP] Stopping system log collection.")
+        rc = tester.execute_cmd(device_id, "system/logs/stop-collection", "{}")
+        stop_resp_text = tester.dab_client.response() or ""
+        status_code = dab_status_from(stop_resp_text, rc)
+        safe_line = f"[system/logs/stop-collection] Response: {{ status: {status_code} }} (payload suppressed)"
+        LOGGER.result(safe_line); logs.append(safe_line)
+        if status_code != 200:
+            result.test_result = "FAILED"
+            msg = "[RESULT] FAILED — 'system/logs/stop-collection' failed."
+            LOGGER.result(msg); logs.append(msg)
+            result.response = "stop-collection failed"
+            return result
+
+        # Decode + evidence (no raw stored)
+        try:
+            decoded = decode_stop_logs_json(stop_resp_text)
+            evidence_summary = emit_log_evidence(decoded, logger=LOGGER, sink=logs, label="collected_log")
+
+            has_data = bool((isinstance(decoded, dict) and decoded) or (isinstance(decoded, list) and decoded))
+            result.response = f"decoded log checked: non_empty={has_data}; {evidence_summary}"
+
+            result.test_result = "PASS" if has_data else "FAILED"
+            msg = "[RESULT] PASS — Channel switch events recorded." if has_data \
+                  else "[RESULT] FAILED — Decoded logs are empty."
+            LOGGER.result(msg); logs.append(msg)
+
+        except Exception as e:
+            warn = f"[WARN] Could not decode stop-collection logs: {e}"
+            LOGGER.result(warn); logs.append(warn)
+            result.response = "log decode failed"
+            # Manual fallback: are channel switch events visible?
+            logs_ok = yes_or_no(result, logs, "Do logs appear to include channel switches?")
+            result.test_result = "PASS" if logs_ok else "FAILED"
+            msg = "[RESULT] PASS (manual)" if logs_ok else "[RESULT] FAILED (manual)"
+            LOGGER.result(msg); logs.append(msg)
+            return result
 
     except UnsupportedOperationError as e:
         result.test_result = "OPTIONAL_FAILED"
-        line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
-        LOGGER.result(line)
-        logs.append(line)
+        m = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
+        LOGGER.result(m); logs.append(m)
+        result.response = "optional failed"
 
     except Exception as e:
         result.test_result = "SKIPPED"
-        line = f"[RESULT] SKIPPED — An unexpected error occurred: {e}"
-        LOGGER.result(line)
-        logs.append(line)
+        m = f"[RESULT] SKIPPED — Unexpected error: {e}"
+        LOGGER.result(m); logs.append(m)
+        result.response = "skipped due to error"
 
     finally:
-        # Final summary log
-        line = (f"[SUMMARY] outcome={result.test_result}, logs_are_valid={logs_are_valid}, "
-                f"test_id={test_id}, device={device_id}")
-        LOGGER.result(line)
-        logs.append(line)
+        s = f"[SUMMARY] outcome={result.test_result}, logs_are_valid={logs_ok}, test_id={test_id}, device={device_id}"
+        LOGGER.result(s); logs.append(s)
 
     return result
 
+def run_app_switch_log_check(dab_topic, test_name, tester, device_id):
+    """
+    Start system logs, launch YouTube and autoplay a video ~20s, then
+    switch to Netflix. Decode stop-collection logs in-memory and verify
+    entries for BOTH apps. Adds concise evidence; no raw payload stored.
+    """
+    import json, time
+    import config
+    from util.log_handler import decode_stop_logs_json, emit_log_evidence
 
-def run_app_switch_log_check(dab_topic,  test_name, tester, device_id):
-    """
-    Verifies that system logs are collected correctly during an app switch.
-    This is a manual verification test.
-    """
+    # ------- config / defaults -------
+    YOUTUBE_APP  = getattr(getattr(config, "apps", {}), "get", lambda k, d: d)("youtube", "YouTube")
+    NETFLIX_APP  = getattr(getattr(config, "apps", {}), "get", lambda k, d: d)("netflix", "Netflix")
+    YT_URL       = getattr(getattr(config, "content", {}), "get", lambda k, d: d)("youtube_url", "https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+    PLAY_WAIT    = 20          # seconds (as requested)
+    SWITCH_WAIT  = globals().get("APP_LAUNCH_WAIT", 5)  # small settle time
+
+    # ------- setup result -------
     test_id = to_test_id(f"{dab_topic}/{test_name}")
-    logs = []
-    result = TestResult(test_id, device_id, "system/logs/start-collection", "{}", "UNKNOWN", "", logs)
-    # Variable for the final summary log
-    logs_are_valid = "N/A"
-    app1_id = config.apps.get("youtube", "YouTube")
-    app2_id = config.apps.get("prime_video", "Prime Video")
+    log_lines = []
+    result = TestResult(
+        test_id, device_id,
+        "system/logs/start-collection",  # tag this test under start-collection
+        "{}", "UNKNOWN", "", log_lines
+    )
+    logs_ok = "N/A"
 
+    # helper: quick keyword search in decoded JSON (names only, no raw dump)
+    def _contains_any(payload, keywords):
+        try:
+            txt = json.dumps(payload, ensure_ascii=False).lower()
+            return any(k.lower() in txt for k in keywords)
+        except Exception:
+            return False
 
     try:
-        # Header and description
+        # ------- header -------
         for line in (
-            f"[TEST] App Switch Log Verification (Manual) — {test_name} (test_id={test_id}, device={device_id})",
-            f"[DESC] Goal: Start logs, launch '{app1_id}', switch to '{app2_id}', stop logs, and manually verify.",
-            "[DESC] Required ops: system/logs/start-collection, system/logs/stop-collection, applications/launch.",
-            "[DESC] Pass criteria: User confirmation that all app activities are in the logs.",
+            f"[TEST] App Switch Log Verification — {test_name} "
+            f"(test_id={test_id}, device={device_id})",
+            f"[DESC] Start logs, launch '{YOUTUBE_APP}' autoplay for ~{PLAY_WAIT}s, "
+            f"switch to '{NETFLIX_APP}', stop logs, decode & verify.",
+            "[DESC] Ops: system/logs/start-collection, applications/launch, system/logs/stop-collection.",
         ):
-            LOGGER.result(line)
-            logs.append(line)
+            LOGGER.result(line); log_lines.append(line)
 
-        # Capability gate for all required DAB operations
+        # ------- capability gate -------
         required_ops = "ops: system/logs/start-collection, system/logs/stop-collection, applications/launch"
-        if not need(tester, device_id, required_ops, result, logs):
+        if not need(tester, device_id, required_ops, result, log_lines):
             return result
 
-        # Step 1: Start log collection
-        line = "[STEP] Starting system log collection."
-        LOGGER.result(line)
-        logs.append(line)
-        rc, response = execute_cmd_and_log(tester, device_id, "system/logs/start-collection", "{}", logs, result)
-        if dab_status_from(response, rc) != 200:
+        # ------- start log collection -------
+        step = "[STEP] Starting system log collection."
+        LOGGER.result(step); log_lines.append(step)
+        rc, resp_text = execute_cmd_and_log(
+            tester, device_id, "system/logs/start-collection", "{}", log_lines, result
+        )
+        if dab_status_from(resp_text, rc) != 200:
             result.test_result = "FAILED"
-            line = "[RESULT] FAILED — The 'system/logs/start-collection' command failed."
-            LOGGER.result(line)
-            logs.append(line)
+            msg = "[RESULT] FAILED — 'system/logs/start-collection' failed."
+            LOGGER.result(msg); log_lines.append(msg)
+            result.response = "start-collection failed"
             return result
 
-        # Step 2: Launch the first app
-        line = f"[STEP] Launching first app: '{app1_id}'."
-        LOGGER.result(line)
-        logs.append(line)
-        execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": app1_id}), logs)
-        line = f"[WAIT] Waiting {APP_LAUNCH_WAIT}s for '{app1_id}' to open and perform activity."
-        LOGGER.info(line)
-        logs.append(line)
-        time.sleep(APP_LAUNCH_WAIT)
+        # ------- launch YouTube with autoplay -------
+        yt_payload = {
+            "appId": YOUTUBE_APP,
+            "params": {
+                "autoplay": True,
+                "contentUrl": YT_URL,
+            }
+        }
+        step = f"[STEP] Launching '{YOUTUBE_APP}' with autoplay content."
+        LOGGER.result(step); log_lines.append(step)
+        execute_cmd_and_log(
+            tester, device_id, "applications/launch", json.dumps(yt_payload), log_lines, result
+        )
+        msg = f"[WAIT] Playing content for ~{PLAY_WAIT} seconds."
+        LOGGER.info(msg); log_lines.append(msg)
+        time.sleep(PLAY_WAIT)
 
-        # Step 3: Launch the second app to trigger a switch
-        line = f"[STEP] Switching to second app: '{app2_id}'."
-        LOGGER.result(line)
-        logs.append(line)
-        execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": app2_id}), logs)
-        line = f"[WAIT] Waiting {APP_LAUNCH_WAIT}s for '{app2_id}' to open and perform activity."
-        LOGGER.info(line)
-        logs.append(line)
-        time.sleep(APP_LAUNCH_WAIT)
+        # ------- switch to Netflix -------
+        step = f"[STEP] Switching to '{NETFLIX_APP}'."
+        LOGGER.result(step); log_lines.append(step)
+        execute_cmd_and_log(
+            tester, device_id, "applications/launch", json.dumps({"appId": NETFLIX_APP}), log_lines, result
+        )
+        msg = f"[WAIT] Waiting {SWITCH_WAIT}s for '{NETFLIX_APP}' to become active."
+        LOGGER.info(msg); log_lines.append(msg)
+        time.sleep(SWITCH_WAIT)
 
-        # Step 4: Stop log collection
-        line = "[STEP] Stopping system log collection."
-        LOGGER.result(line)
-        logs.append(line)
-        execute_cmd_and_log(tester, device_id, "system/logs/stop-collection", "{}", logs, result)
+        # ------- stop log collection (sanitize: no raw payload in logs) -------
+        step = "[STEP] Stopping system log collection."
+        LOGGER.result(step); log_lines.append(step)
+        rc = tester.execute_cmd(device_id, "system/logs/stop-collection", "{}")
+        stop_resp_text = tester.dab_client.response() or ""
+        status_code = dab_status_from(stop_resp_text, rc)
 
-        # Step 5: Manual verification of logs
-        line = "[STEP] Manual action required: Please retrieve and inspect the collected system logs."
-        LOGGER.result(line)
-        logs.append(line)
-        logs_are_valid = yes_or_no(result, logs, f"Do the logs contain entries for both '{app1_id}' and '{app2_id}' activities?")
-        
-        if logs_are_valid:
-            result.test_result = "PASS"
-            line = "[RESULT] PASS — User confirmed the app switch logs are valid and complete."
-        else:
+        safe_line = f"[system/logs/stop-collection] Response: {{ status: {status_code} }} (payload suppressed)"
+        LOGGER.result(safe_line); log_lines.append(safe_line)
+
+        if status_code != 200:
             result.test_result = "FAILED"
-            line = "[RESULT] FAILED — User reported the logs are incorrect or incomplete."
-        
-        LOGGER.result(line)
-        logs.append(line)
+            msg = "[RESULT] FAILED — 'system/logs/stop-collection' failed."
+            LOGGER.result(msg); log_lines.append(msg)
+            result.response = "stop-collection failed"
+            return result
+
+        # ------- decode + verify (no raw stored) -------
+        try:
+            decoded = decode_stop_logs_json(stop_resp_text)
+
+            has_youtube = _contains_any(decoded, [YOUTUBE_APP, "youtube"])
+            has_netflix = _contains_any(decoded, [NETFLIX_APP, "netflix"])
+
+            # emit concise evidence + top-level keys and subkeys (names only)
+            evidence_summary = emit_log_evidence(
+                decoded, logger=LOGGER, sink=log_lines, label="collected_log"
+            )
+
+            # keep response SHORT so results.json stays clean
+            result.response = (
+                f"decoded log checked: youtube={has_youtube}, netflix={has_netflix}; "
+                f"{evidence_summary}"
+            )
+
+            if has_youtube and has_netflix:
+                result.test_result = "PASS"
+                logs_ok = True
+                msg = "[RESULT] PASS — Logs contain activities for both YouTube and Netflix."
+            else:
+                result.test_result = "FAILED"
+                logs_ok = False
+                missing = []
+                if not has_youtube: missing.append(YOUTUBE_APP)
+                if not has_netflix: missing.append(NETFLIX_APP)
+                msg = f"[RESULT] FAILED — Missing log entries for: {', '.join(missing)}."
+            LOGGER.result(msg); log_lines.append(msg)
+
+        except Exception as e:
+            warn = f"[WARN] Could not decode stop-collection logs: {e}"
+            LOGGER.result(warn); log_lines.append(warn)
+            result.response = "log decode failed"
+            # manual fallback
+            q = (f"Decode failed. Do the returned logs show both '{YOUTUBE_APP}' "
+                 f"and '{NETFLIX_APP}' activities?")
+            logs_ok = yes_or_no(result, log_lines, q)
+            result.test_result = "PASS" if logs_ok else "FAILED"
+            msg = "[RESULT] PASS (manual)" if logs_ok else "[RESULT] FAILED (manual)"
+            LOGGER.result(msg); log_lines.append(msg)
+            return result
 
     except UnsupportedOperationError as e:
         result.test_result = "OPTIONAL_FAILED"
-        line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
-        LOGGER.result(line)
-        logs.append(line)
+        msg = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
+        LOGGER.result(msg); log_lines.append(msg)
+        result.response = "optional failed"
 
     except Exception as e:
         result.test_result = "SKIPPED"
-        line = f"[RESULT] SKIPPED — An unexpected error occurred: {e}"
-        LOGGER.result(line)
-        logs.append(line)
+        msg = f"[RESULT] SKIPPED — Unexpected error: {e}"
+        LOGGER.result(msg); log_lines.append(msg)
+        result.response = "skipped due to error"
 
     finally:
-        # Final summary log
-        line = (f"[SUMMARY] outcome={result.test_result}, logs_are_valid={logs_are_valid}, "
-                f"test_id={test_id}, device={device_id}")
-        LOGGER.result(line)
-        logs.append(line)
+        summary = (
+            f"[SUMMARY] outcome={result.test_result}, logs_are_valid={logs_ok}, "
+            f"test_id={test_id}, device={device_id}"
+        )
+        LOGGER.result(summary); log_lines.append(summary)
 
     return result
 

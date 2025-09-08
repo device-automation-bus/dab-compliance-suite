@@ -15,6 +15,7 @@ from util.enforcement_manager import ValidateCode
 from util.config_loader import resolve_body_or_raise, PayloadConfigError
 from util.log_handler import handle_stop_log_collection_response
 from util.output_image_handler import handle_output_image_response
+from util.log_handler import decode_stop_logs_json
 from sys import exit as sys_exit
 import re
 import time  
@@ -1162,17 +1163,35 @@ def get_test_tool_version():
 
 def log(test_result, str_print):
     """
-    Normalizes any incoming text (even if it has leading/trailing newlines),
-    prints each non-empty line via the unified LOGGER with a timestamp,
-    and stores the stamped line into test_result.logs.
+    Print with timestamp to console, but store a clean line in result.logs
+    (no leading datetime or [LEVEL] tags) for results.json.
     """
+    import re
+
+    # Matches:
+    #   2025-09-06 17:22:47.784
+    #   2025-09-06T17:22:47
+    #   optional [RESULT]/[INFO]/[OK]/... tag after timestamp
+    ts_re = re.compile(
+        r'^\s*'                                   # leading spaces
+        r'(?:\d{4}-\d{2}-\d{2}[ T]'               # date + space or T
+        r'\d{2}:\d{2}:\d{2}(?:\.\d+)?\s*)?'       # time(.ms) (optional)
+        r'(?:\[[A-Z]+\]\s*)?'                     # optional [LEVEL] tag
+    )
+
     s = str(str_print).replace("\r\n", "\n")
     for raw in s.split("\n"):
         line = raw.strip()
         if not line:
-            continue 
-        LOGGER.result(line)                  # console with timestamp
-        test_result.logs.append(LOGGER.stamp(line))  # persist stamped line
+            continue
+        # Console keeps timestamp (handled by LOGGER)
+        LOGGER.result(line)
+        # JSON keeps a clean message (strip ts + [LEVEL] if present)
+        try:
+            clean = ts_re.sub("", line).strip()
+        except Exception:
+            clean = line
+        test_result.logs.append(clean)
 
 def YesNoQuestion(test_result, question=""):
     positive = ['yes', 'y']
