@@ -6,6 +6,7 @@ import time
 import sys
 from readchar import readchar
 from util.enforcement_manager import EnforcementManager
+from util.config_loader import ensure_app_available_anyext
 from util.config_loader import ensure_app_available 
 from paho.mqtt.properties import Properties
 from paho.mqtt.packettypes import PacketTypes
@@ -499,8 +500,53 @@ def get_supported_setting(tester, device_id, key, result, logs, do_list=True):
     result.test_result = "FAILED"
     return None, result
 
-# === Helper: Restart Device  ===
+# ---- shared helper: build install targets from config or local artifacts ----
+def get_install_targets(default_app_ids=("Sample_App", "Sample_App1")):
+    """
+    Returns a list of targets:
+      [{"key": <label>, "appId": <id>, "install_payload": { ... }}]
+    Prefers config.install_sequence (URL-based). Falls back to local files
+    in config/apps via util.config_loader.ensure_apps_available (any ext).
+    """
+    targets = []
+    try:
+        # 1) Prefer explicit URL list
+        seq = getattr(config, "install_sequence", None)
+        if isinstance(seq, list) and seq:
+            for item in seq:
+                app_id = item.get("appId")
+                url    = item.get("url")
+                key    = item.get("key") or app_id or "unknown"
+                if app_id and url:
+                    targets.append({
+                        "key": key,
+                        "appId": app_id,
+                        "install_payload": {"appId": app_id, "url": url},
+                    })
+            return targets
 
+        # 2) Fallback to local sample apps (any extension)
+        seq_keys = config.apps.get("seq_targets", None)
+        if seq_keys:
+            app_ids = [config.apps.get(k, k) for k in seq_keys]
+        else:
+            app_ids = list(default_app_ids)
+
+        # legacy alias maps to any-extension implementation
+        from util.config_loader import ensure_apps_available as _ensure_many
+        payloads = _ensure_many(app_ids=app_ids)  # [{"appId","url","format","timeout"}, ...]
+        for p in payloads:
+            app_id = p["appId"]
+            targets.append({
+                "key": app_id,
+                "appId": app_id,
+                "install_payload": p,
+            })
+    except Exception:
+        return []
+    return targets
+
+# === Helper: Restart Device  ===
 
 def fire_and_forget_restart(dab_client, device_id):
     """
@@ -514,8 +560,8 @@ def fire_and_forget_restart(dab_client, device_id):
     LOGGER.info(f"Sent restart command to {topic} (fire-and-forget)")
 
 # === Test 1: App in FOREGROUND Validate app moves to FOREGROUND after launch ===
-def run_app_foreground_check(dab_topic, test_category, test_name, tester, device_id):
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+def run_app_foreground_check(dab_topic, test_name, tester, device_id):
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id = config.apps.get("youtube", "YouTube")
     logs = []
     result = TestResult(test_id, device_id, "applications/get-state", json.dumps({"appId": app_id}), "UNKNOWN", "", logs)
@@ -601,11 +647,11 @@ def run_app_foreground_check(dab_topic, test_category, test_name, tester, device
         return result
 
 # === Test 2: App in BACKGROUND Validate app moves to BACKGROUND after pressing Home ===
-def run_app_background_check(dab_topic, test_category, test_name, tester, device_id):
+def run_app_background_check(dab_topic, test_name, tester, device_id):
     """
     Checks if an app correctly moves to the background after the Home key is pressed.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id = config.apps.get("youtube", "YouTube")
     logs = []
     result = TestResult(test_id, device_id, "applications/get-state", json.dumps({"appId": app_id}), "UNKNOWN", "", logs)
@@ -718,11 +764,11 @@ def run_app_background_check(dab_topic, test_category, test_name, tester, device
     return result
 
 # === Test 3: App STOPPED Validate app state is STOPPED after exit. ===
-def run_app_stopped_check(dab_topic, test_category, test_name, tester, device_id):
+def run_app_stopped_check(dab_topic, test_name, tester, device_id):
     """
     Checks if an app correctly moves to the STOPPED state after being exited.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id = config.apps.get("youtube", "YouTube")
     logs = []
     result = TestResult(test_id, device_id, "applications/get-state", json.dumps({"appId": app_id}), "UNKNOWN", "", logs)
@@ -833,11 +879,11 @@ def run_app_stopped_check(dab_topic, test_category, test_name, tester, device_id
     return result
 
 # === Test 4: Launch Without Content ID (Negative) Validate error is returned when contentId is missing. ===
-def run_launch_without_content_id(dab_topic, test_category, test_name, tester, device_id):
+def run_launch_without_content_id(dab_topic, test_name, tester, device_id):
     """
     Negative Test: Validates that launch-with-content fails if 'contentId' is missing.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id = config.apps.get("youtube", "YouTube")
     logs = []
     payload = json.dumps({"appId": app_id})
@@ -906,11 +952,11 @@ def run_launch_without_content_id(dab_topic, test_category, test_name, tester, d
     return result
 
 # === Test 5: Exit App After Playing Video ===
-def run_exit_after_video_check(dab_topic, test_category, test_name, tester, device_id):
+def run_exit_after_video_check(dab_topic, test_name, tester, device_id):
     """
     Checks if an app stops cleanly after playing video content and being exited.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id = config.apps.get("youtube", "YouTube")
     video_id = "2ZggAa6LuiM"  # Example video ID
     logs = []
@@ -1015,11 +1061,11 @@ def run_exit_after_video_check(dab_topic, test_category, test_name, tester, devi
     return result
 
 # === Test 6: Relaunch Stability Check ===
-def run_relaunch_stability_check(dab_topic, test_category, test_name, tester, device_id):
+def run_relaunch_stability_check(dab_topic, test_name, tester, device_id):
     """
     Validates that an application can be exited and then immediately relaunched without errors.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id = config.apps.get("youtube", "YouTube")
     logs = []
     result = TestResult(test_id, device_id, "applications/launch", json.dumps({"appId": app_id}), "UNKNOWN", "", logs)
@@ -1108,11 +1154,11 @@ def run_relaunch_stability_check(dab_topic, test_category, test_name, tester, de
     return result
 
 # === Test 7: Screensaver Enable Check ===
-def run_screensaver_enable_check(dab_topic, test_category, test_name, tester, device_id):
+def run_screensaver_enable_check(dab_topic, test_name, tester, device_id):
     """
     Validates that the device's screensaver can be successfully enabled via DAB.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/settings/set", json.dumps({"screenSaver": True}), "UNKNOWN", "", logs)
     final_state = "N/A" # Default state for summary log
@@ -1210,11 +1256,11 @@ def run_screensaver_enable_check(dab_topic, test_category, test_name, tester, de
     return result
 
 # === Test 8: Screensaver Disable Check ===
-def run_screensaver_disable_check(dab_topic, test_category, test_name, tester, device_id):
+def run_screensaver_disable_check(dab_topic, test_name, tester, device_id):
     """
     Validates that the device's screensaver can be successfully disabled via DAB.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/settings/set", json.dumps({"screenSaver": False}), "UNKNOWN", "", logs)
     final_state = "N/A" # Default state for summary log
@@ -1312,11 +1358,11 @@ def run_screensaver_disable_check(dab_topic, test_category, test_name, tester, d
     return result
 
 # === Test 9: Screensaver Active Check ===
-def run_screensaver_active_check(dab_topic, test_category, test_name, tester, device_id):
+def run_screensaver_active_check(dab_topic, test_name, tester, device_id):
     """
     Validates that the screensaver activates after the specified timeout. This is a manual test.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/settings/set", "{}", "UNKNOWN", "", logs)
     user_validated = "N/A" # Default for summary
@@ -1404,11 +1450,11 @@ def run_screensaver_active_check(dab_topic, test_category, test_name, tester, de
     return result
 
 # === Test 10: Screensaver Inactive Check ===
-def run_screensaver_inactive_check(dab_topic, test_category, test_name, tester, device_id):
+def run_screensaver_inactive_check(dab_topic, test_name, tester, device_id):
     """
     Validates that the screensaver does not activate when disabled. This is a manual test.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/settings/set", "{}", "UNKNOWN", "", logs)
     user_validated = "N/A" # Default for summary
@@ -1497,11 +1543,11 @@ def run_screensaver_inactive_check(dab_topic, test_category, test_name, tester, 
     return result
 
 # === Test 10: Screensaver Active Return Check ===
-def run_screensaver_active_return_check(dab_topic, test_category, test_name, tester, device_id):
+def run_screensaver_active_return_check(dab_topic, test_name, tester, device_id):
     """
     Validates that the screen returns to its previous state after exiting the screensaver. This is a manual test.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/settings/set", "{}", "UNKNOWN", "", logs)
     user_validated_active = "N/A"
@@ -1588,11 +1634,11 @@ def run_screensaver_active_return_check(dab_topic, test_category, test_name, tes
     return result
 
 # === Test 11: Screensaver Active Check After Continuous Idle ===
-def run_screensaver_active_after_continuous_idle_check(dab_topic, test_category, test_name, tester, device_id):
+def run_screensaver_active_after_continuous_idle_check(dab_topic, test_name, tester, device_id):
     """
     Validates that the screensaver idle timer resets with user activity. This is a manual test.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/settings/set", "{}", "UNKNOWN", "", logs)
     user_validated = "N/A" # Default for summary
@@ -1675,11 +1721,11 @@ def run_screensaver_active_after_continuous_idle_check(dab_topic, test_category,
     return result
 
 # === Test 12: Screensaver Inactive Check After Reboot ===
-def run_screensaver_inactive_after_reboot_check(dab_topic, test_category, test_name, tester, device_id):
+def run_screensaver_inactive_after_reboot_check(dab_topic, test_name, tester, device_id):
     """
     Validates that a disabled screensaver setting persists after a reboot. This is a manual test.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/settings/set", "{}", "UNKNOWN", "", logs)
     user_validated = "N/A"
@@ -1770,11 +1816,11 @@ def run_screensaver_inactive_after_reboot_check(dab_topic, test_category, test_n
     return result
 
 # === Test 13: Screensaver Timeout 300 seconds Check ===
-def run_screensavertimeout_300_check(dab_topic, test_category, test_name, tester, device_id):
+def run_screensavertimeout_300_check(dab_topic, test_name, tester, device_id):
     """
     Validates that the screensaver activates after a 300-second timeout. This is a manual test.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/settings/set", "{}", "UNKNOWN", "", logs)
     user_validated = "N/A" # Default for summary
@@ -1857,11 +1903,11 @@ def run_screensavertimeout_300_check(dab_topic, test_category, test_name, tester
     return result
 
 # === Test 14: Screensaver Timeout Reboot Check ===
-def run_screensavertimeout_reboot_check(dab_topic, test_category, test_name, tester, device_id):
+def run_screensavertimeout_reboot_check(dab_topic, test_name, tester, device_id):
     """
     Validates that the screensaver timeout setting persists after a device reboot. This is a manual test.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/settings/set", "{}", "UNKNOWN", "", logs)
     setting_persisted = "N/A"
@@ -1986,11 +2032,11 @@ def run_screensavertimeout_reboot_check(dab_topic, test_category, test_name, tes
     return result
 
 # === Test 15: ScreenSaver Timeout Guest Mode Check ===
-def run_screensavertimeout_guest_mode_check(dab_topic, test_category, test_name, tester, device_id):
+def run_screensavertimeout_guest_mode_check(dab_topic, test_name, tester, device_id):
     """
     Validates that the screensaver can be activated while the device is in guest mode. This is a manual test.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/settings/set", "{}", "UNKNOWN", "", logs)
     supports_guest_mode = "N/A"
@@ -2095,12 +2141,12 @@ def run_screensavertimeout_guest_mode_check(dab_topic, test_category, test_name,
     return result
 
 # === Test 16: ScreenSaver Min Timeout Check ===
-def run_screensavertimeout_minimum_check(dab_topic, test_category, test_name, tester, device_id):
+def run_screensavertimeout_minimum_check(dab_topic, test_name, tester, device_id):
     """
     Validates that the screensaver can be activated using the device's reported minimum timeout value.
     This is a manual test.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/settings/list", "{}", "UNKNOWN", "", logs)
     min_timeout = "N/A"
@@ -2195,11 +2241,11 @@ def run_screensavertimeout_minimum_check(dab_topic, test_category, test_name, te
     return result
 
 # === Test 17: ScreenSaver Min Timeout Reboot Check ===
-def run_screensavermintimeout_reboot_check(dab_topic, test_category, test_name, tester, device_id):
+def run_screensavermintimeout_reboot_check(dab_topic, test_name, tester, device_id):
     """
     Verifies that the minimum screensaver timeout value is not altered after a device restart.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/settings/list", "{}", "UNKNOWN", "", logs)
     min_timeout_before = "N/A"
@@ -2290,11 +2336,11 @@ def run_screensavermintimeout_reboot_check(dab_topic, test_category, test_name, 
     return result
 
 # === Test 18: High Contrast Text Check Text Over Images ===
-def run_highContrastText_text_over_images_check(dab_topic, test_category, test_name, tester, device_id):
+def run_highContrastText_text_over_images_check(dab_topic, test_name, tester, device_id):
     """
     Verifies that enabling high contrast text improves legibility of text over images. This is a manual test.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/settings/set", "{}", "UNKNOWN", "", logs)
     user_navigated = "N/A"
@@ -2387,11 +2433,11 @@ def run_highContrastText_text_over_images_check(dab_topic, test_category, test_n
     return result
 
 # === Test 19: High Contrast Text Check During Video Playback ===
-def run_highContrastText_video_playback_check(dab_topic, test_category, test_name, tester, device_id):
+def run_highContrastText_video_playback_check(dab_topic, test_name, tester, device_id):
     """
     Verifies that toggling high contrast text does not interrupt video playback. This is a manual test.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/settings/set", "{}", "UNKNOWN", "", logs)
     video_was_playing = "N/A"
@@ -2483,11 +2529,11 @@ def run_highContrastText_video_playback_check(dab_topic, test_category, test_nam
 
     return result
 # === Test 20: SetInvalidVoiceAssistant ===
-def run_set_invalid_voice_assistant_check(dab_topic, test_category, test_name, tester, device_id):
+def run_set_invalid_voice_assistant_check(dab_topic, test_name, tester, device_id):
     """
     Validates that the system correctly rejects an unsupported voice assistant name. This is a negative test.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     invalid_assistant = "invalid"
     payload = json.dumps({"voiceAssistant": invalid_assistant})
     logs = []
@@ -2562,11 +2608,11 @@ def run_set_invalid_voice_assistant_check(dab_topic, test_category, test_name, t
     return result
 
 # === Test 21: Device Restart and Telemetry Validation ===
-def run_device_restart_and_telemetry_check(dab_topic, test_category, test_name, tester, device_id):
+def run_device_restart_and_telemetry_check(dab_topic, test_name, tester, device_id):
     """
     Validates the full device restart and telemetry workflow.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/restart", "{}", "UNKNOWN", "", logs)
     device_ready = False
@@ -2692,12 +2738,12 @@ def run_device_restart_and_telemetry_check(dab_topic, test_category, test_name, 
     return result
 
 # === Test 22: Stop App Telemetry Without Active Session (Negative) ===
-def run_stop_app_telemetry_without_active_session_check(dab_topic, test_category, test_name, tester, device_id):
+def run_stop_app_telemetry_without_active_session_check(dab_topic, test_name, tester, device_id):
     """
     Ensures the device handles a redundant 'app-telemetry/stop' command gracefully when no session is active.
     This is a negative test case.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id = config.apps.get("youtube", "YouTube")
     payload = json.dumps({"appId": app_id})
     logs = []
@@ -2769,11 +2815,11 @@ def run_stop_app_telemetry_without_active_session_check(dab_topic, test_category
     return result
 
 # === Test23: Launch Video and Verify Health Check ===
-def run_launch_video_and_health_check(dab_topic, test_category, test_name, tester, device_id):
+def run_launch_video_and_health_check(dab_topic, test_name, tester, device_id):
     """
     Launches a video and then performs a health check to ensure the device remains stable under load.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id = config.apps.get("youtube", "YouTube")
     video_id = "2ZggAa6LuiM"  # A standard, reliable test video
     payload = json.dumps({"appId": app_id, "contentId": video_id})
@@ -2873,11 +2919,11 @@ def run_launch_video_and_health_check(dab_topic, test_category, test_name, teste
     return result
 
 # === Test24: Voice List With No Voice Assistant Configured (Negative / Optional) ===
-def run_voice_list_with_no_voice_assistant(dab_topic, test_category, test_name, tester, device_id):
+def run_voice_list_with_no_voice_assistant(dab_topic, test_name, tester, device_id):
     """
     Validates system behavior when requesting the list of voice assistants on a device with none configured.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "voice/list", "{}", "UNKNOWN", "", logs)
     status = "N/A"
@@ -2950,105 +2996,160 @@ def run_voice_list_with_no_voice_assistant(dab_topic, test_category, test_name, 
     return result
 
 # === Test25: Validates that launching an uninstalled app fails with a relevant error. Negative test case. ===
-def run_launch_when_uninstalled_check(dab_topic, test_category, test_name, tester, device_id):
+def run_launch_when_uninstalled_check(dab_topic, test_name, tester, device_id):
     """
-    Validates that launching an uninstalled app fails with a relevant error. Negative test case.
+    Negative: ensure Sample_App is installed, uninstall it, then launching must fail (non-200).
+    Cleanup: reinstall from local artifact (any extension) via util.config_loader.ensure_app_available.
+    Keeps results.json lean (no raw response lines stored).
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
-    app_id = config.apps.get("removable_app")
+    import json, time
+    from util.config_loader import ensure_app_available  # alias → any-extension payload
+
+    # ---------- ids & setup ----------
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
+    app_id  = config.apps.get("sample_app", "Sample_App")
+
     logs = []
-    result = TestResult(test_id, device_id, "applications/launch", "{}", "UNKNOWN", "", logs)
-    launch_status = "N/A"
+    result = TestResult(
+        test_id,
+        device_id,
+        "applications/launch",
+        json.dumps({"appId": app_id}),
+        "UNKNOWN",
+        "",
+        logs,
+    )
+
+    INSTALL_WAIT   = globals().get("APP_INSTALL_WAIT", 10)
+    UNINSTALL_WAIT = globals().get("APP_UNINSTALL_WAIT", 5)
+    LAUNCH_WAIT    = globals().get("APP_LAUNCH_WAIT", 5)
+
+    install_status   = "N/A"
+    uninstall_status = "N/A"
+    launch_status    = "N/A"
+
+    # send command outputs to a scratch list so huge raw responses don't end up in result.logs
+    scratch = []
+    def _call(topic: str, body_json: str):
+        return execute_cmd_and_log(tester, device_id, topic, body_json, scratch, result)
 
     try:
-        # Header and description
+        # ---------- header ----------
         for line in (
-            f"[TEST] Launch App When Uninstalled (Negative) — {test_name} (test_id={test_id}, device={device_id})",
-            "[DESC] Goal: Uninstall an app, attempt to launch it, and verify the launch fails.",
-            "[DESC] Required ops: applications/uninstall, applications/launch, applications/install (for cleanup).",
-            "[DESC] Pass criteria: The launch attempt must return a non-200 status.",
+            f"[TEST] Launch When Uninstalled (Negative) — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Flow: install Sample_App → uninstall → attempt launch (expect non-200); then reinstall (cleanup).",
+            "[DESC] Ops: applications/install, applications/uninstall, applications/launch.",
         ):
-            LOGGER.result(line)
-            logs.append(line)
+            LOGGER.result(line); logs.append(line)
 
-        # Precondition check
         if not app_id:
             result.test_result = "SKIPPED"
-            line = "[RESULT] SKIPPED — 'removable_app' not defined in config.apps."
-            LOGGER.result(line)
-            logs.append(line)
+            msg = "[RESULT] SKIPPED — config.apps['sample_app'] not set."
+            LOGGER.result(msg); logs.append(msg)
+            result.response = "['no sample_app configured']"
             return result
 
-        # Capability gate
-        required_ops = "ops: applications/uninstall, applications/launch, applications/install"
-        if not need(tester, device_id, required_ops, result, logs):
+        # capability gate
+        if not need(
+            tester, device_id,
+            "ops: applications/install, applications/uninstall, applications/launch",
+            result, logs
+        ):
+            result.response = "['capability gate failed']"
             return result
 
-        # Step 1: Uninstall the app
-        line = f"[STEP] Uninstalling '{app_id}' as a precondition."
-        LOGGER.result(line)
-        logs.append(line)
-        execute_cmd_and_log(tester, device_id, "applications/uninstall", json.dumps({"appId": app_id}), logs)
-        time.sleep(APP_UNINSTALL_WAIT)
+        logs.append("[INFO] Capability gate passed.")
 
-        # Step 2: Attempt to launch the uninstalled app
-        line = f"[STEP] Attempting to launch the uninstalled app '{app_id}'."
-        LOGGER.result(line)
-        logs.append(line)
-        rc, response = execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": app_id}), logs)
-        launch_status = dab_status_from(response, rc)
+        # ---------- 1) Ensure installed (install from local artifact) ----------
+        try:
+            payload_install = ensure_app_available(app_id=app_id)  # {"appId","url","format","timeout"}
+        except Exception as e:
+            result.test_result = "SKIPPED"
+            msg = f"[RESULT] SKIPPED — missing local artifact for '{app_id}': {e}"
+            LOGGER.result(msg); logs.append(msg)
+            result.response = "['missing local artifact']"
+            return result
+
+        LOGGER.result(f"[STEP] Install '{app_id}' from local artifact"); logs.append(
+            f"[STEP] Install '{app_id}' from local artifact")
+        rc_i, resp_i = _call("applications/install", json.dumps(payload_install))
+        install_status = dab_status_from(resp_i, rc_i)
+        logs.append(f"[INFO] install status={install_status}")
+        if install_status != 200:
+            result.test_result = "FAILED"
+            LOGGER.result(f"[RESULT] FAILED — install returned {install_status} (expected 200)"); logs.append(
+                f"[RESULT] FAILED — install returned {install_status} (expected 200)")
+            result.response = f"['install={install_status}']"
+            return result
+
+        logs.append(f"[WAIT] {INSTALL_WAIT}s after install")
+        time.sleep(INSTALL_WAIT)
+
+        # ---------- 2) Uninstall ----------
+        payload_app = json.dumps({"appId": app_id})
+        LOGGER.result(f"[STEP] Uninstall '{app_id}'"); logs.append(f"[STEP] Uninstall '{app_id}'")
+        rc_u, resp_u = _call("applications/uninstall", payload_app)
+        uninstall_status = dab_status_from(resp_u, rc_u)
+        logs.append(f"[INFO] uninstall status={uninstall_status}")
+        if uninstall_status != 200:
+            result.test_result = "FAILED"
+            LOGGER.result(f"[RESULT] FAILED — uninstall returned {uninstall_status} (expected 200)"); logs.append(
+                f"[RESULT] FAILED — uninstall returned {uninstall_status} (expected 200)")
+            result.response = f"['install={install_status}, uninstall={uninstall_status}']"
+            return result
+
+        logs.append(f"[WAIT] {UNINSTALL_WAIT}s after uninstall")
+        time.sleep(UNINSTALL_WAIT)
+
+        # ---------- 3) Attempt launch (should fail) ----------
+        LOGGER.result(f"[STEP] Launch '{app_id}' (expected to fail)"); logs.append(
+            f"[STEP] Launch '{app_id}' (expected to fail)")
+        rc_l, resp_l = _call("applications/launch", payload_app)
+        launch_status = dab_status_from(resp_l, rc_l)
+        logs.append(f"[INFO] launch status={launch_status}")
+        time.sleep(LAUNCH_WAIT)
 
         if launch_status != 200:
             result.test_result = "PASS"
-            line = f"[RESULT] PASS — Launch failed as expected with status {launch_status}."
+            LOGGER.result(f"[RESULT] PASS — launch failed as expected (status {launch_status})."); logs.append(
+                f"[RESULT] PASS — launch failed as expected (status {launch_status}).")
         else:
             result.test_result = "FAILED"
-            line = f"[RESULT] FAILED — Launch succeeded unexpectedly with status 200."
-        
-        LOGGER.result(line)
-        logs.append(line)
+            LOGGER.result("[RESULT] FAILED — launch unexpectedly returned 200."); logs.append(
+                "[RESULT] FAILED — launch unexpectedly returned 200.")
 
     except UnsupportedOperationError as e:
         result.test_result = "OPTIONAL_FAILED"
-        line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
-        LOGGER.result(line)
-        logs.append(line)
-
+        msg = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' not supported."
+        LOGGER.result(msg); logs.append(msg)
     except Exception as e:
         result.test_result = "SKIPPED"
-        line = f"[RESULT] SKIPPED — An unexpected error occurred: {e}"
-        LOGGER.result(line)
-        logs.append(line)
-
+        msg = f"[RESULT] SKIPPED — Unexpected error: {e}"
+        LOGGER.result(msg); logs.append(msg)
     finally:
-        # Cleanup: Reinstall the app so other tests are not affected
-        if app_id:
-            try:
-                line = f"[CLEANUP] Reinstalling '{app_id}' to restore state."
-                LOGGER.info(line)
-                logs.append(line)
-                apk_path = ensure_app_available(app_id)
-                install_payload = json.dumps({"fileLocation": f"file://{apk_path}"})
-                execute_cmd_and_log(tester, device_id, "applications/install", install_payload, logs)
-            except Exception as e:
-                line = f"[CLEANUP] WARNING: Failed to reinstall app '{app_id}': {e}"
-                LOGGER.warn(line)
-                logs.append(line)
-        
-        # Final summary log
-        line = (f"[SUMMARY] outcome={result.test_result}, launch_status_on_uninstalled={launch_status}, "
-                f"test_id={test_id}, device={device_id}")
-        LOGGER.result(line)
-        logs.append(line)
+        # ---------- cleanup: reinstall for test isolation ----------
+        try:
+            payload_install = ensure_app_available(app_id=app_id)
+            logs.append(f"[CLEANUP] Reinstall '{app_id}'")
+            _call("applications/install", json.dumps(payload_install))
+        except Exception as e:
+            logs.append(f"[CLEANUP] WARNING: Failed to reinstall '{app_id}': {e}")
+
+        # compact response for results.json
+        result.response = f"['install={install_status}, uninstall={uninstall_status}, launch_after_uninstall={launch_status}']"
+
+        summary = (f"[SUMMARY] outcome={result.test_result}, launch_status_on_uninstalled={launch_status}, "
+                   f"test_id={test_id}, device={device_id}, appId={app_id}")
+        LOGGER.result(summary); logs.append(summary)
 
     return result
 
 # === Test26: Validates that launching an app while the device is restarting fails. Negative test case. ===
-def run_launch_app_while_restarting_check(dab_topic, test_category, test_name, tester, device_id):
+def run_launch_app_while_restarting_check(dab_topic, test_name, tester, device_id):
     """
     Validates that launching an app while the device is restarting fails. Negative test case.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id = config.apps.get("youtube", "YouTube")
     logs = []
     result = TestResult(test_id, device_id, "applications/launch", json.dumps({"appId": app_id}), "UNKNOWN", "", logs)
@@ -3125,11 +3226,11 @@ def run_launch_app_while_restarting_check(dab_topic, test_category, test_name, t
 
     return result
 
-def run_network_reset_check(dab_topic, test_category, test_name, tester, device_id):
+def run_network_reset_check(dab_topic, test_name, tester, device_id):
     """
     Validates that the device remains responsive to DAB commands after a network reset.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/network-reset", "{}", "UNKNOWN", "", logs)
     info_status = "N/A"
@@ -3201,11 +3302,11 @@ def run_network_reset_check(dab_topic, test_category, test_name, tester, device_
     return result
 
 # === Test26: Validates the device can be factory reset and recovers to a healthy state.
-def run_factory_reset_and_recovery_check(dab_topic, test_category, test_name, tester, device_id):
+def run_factory_reset_and_recovery_check(dab_topic, test_name, tester, device_id):
     """
     Validates the device can be factory reset and recovers to a healthy state.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/factory-reset", "{}", "UNKNOWN", "", logs)
     device_recovered = False
@@ -3283,11 +3384,11 @@ def run_factory_reset_and_recovery_check(dab_topic, test_category, test_name, te
     return result
 
 # === Test27: Validates device behavior for the optional 'personalizedAds' setting when it is NOT supported.
-def run_personalized_ads_response_check(dab_topic, test_category, test_name, tester, device_id):
+def run_personalized_ads_response_check(dab_topic, test_name, tester, device_id):
     """
     Validates device behavior for the optional 'personalizedAds' setting when it is NOT supported.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/settings/set", "{}", "UNKNOWN", "", logs)
     set_status = "N/A"
@@ -3358,11 +3459,11 @@ def run_personalized_ads_response_check(dab_topic, test_category, test_name, tes
 
     return result
 
-def run_personalized_ads_persistence_check(dab_topic, test_category, test_name, tester, device_id):
+def run_personalized_ads_persistence_check(dab_topic, test_name, tester, device_id):
     """
     Verifies that the 'personalizedAds' setting persists after a device restart.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/settings/set", "{}", "UNKNOWN", "", logs)
     persisted_value = "N/A"
@@ -3453,11 +3554,11 @@ def run_personalized_ads_persistence_check(dab_topic, test_category, test_name, 
 # and run_personalized_ads_apply_and_display_check are all covered by the logic in
 # run_personalized_ads_response_check (for unsupported) and a new manual check.
 
-def run_personalized_ads_manual_check(dab_topic, test_category, test_name, tester, device_id):
+def run_personalized_ads_manual_check(dab_topic, test_name, tester, device_id):
     """
     Manually verifies that enabling personalized ads results in tailored ads being shown.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/settings/set", "{}", "UNKNOWN", "", logs)
     user_validated = "N/A"
@@ -3537,12 +3638,12 @@ def run_personalized_ads_manual_check(dab_topic, test_category, test_name, teste
     return result
 
 # === Test 34: Uninstall An Application Currently Running Foreground Check ===
-def run_uninstall_foreground_app_check(dab_topic, test_category, test_name, tester, device_id):
+def run_uninstall_foreground_app_check(dab_topic, test_name, tester, device_id):
     """
     Validates that an application currently running foreground can be uninstalled successfully.
     """
 
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "applications/uninstall", json.dumps({"appId": "[appId]"}), "UNKNOWN", "", logs)
 
@@ -3647,12 +3748,12 @@ def run_uninstall_foreground_app_check(dab_topic, test_category, test_name, test
     return result
 
 # === Test 35: Uninstall An System Application Check ===
-def run_uninstall_system_app_check(dab_topic, test_category, test_name, tester, device_id):
+def run_uninstall_system_app_check(dab_topic, test_name, tester, device_id):
     """
     Validates that an system application couldn't be uninstalled successfully.
     """
 
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "applications/uninstall", json.dumps({"appId": "[appId]"}), "UNKNOWN", "", logs)
 
@@ -3740,11 +3841,11 @@ def run_uninstall_system_app_check(dab_topic, test_category, test_name, tester, 
     return result
 
 # === Test 36: Clear Data For An Application Currently Running Foreground Check ===
-def run_clear_data_foreground_app_check(dab_topic, test_category, test_name, tester, device_id):
+def run_clear_data_foreground_app_check(dab_topic, test_name, tester, device_id):
     """
     Validates that data for a foreground app can be cleared successfully.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     appId = config.apps.get("youtube", "YouTube")
     logs = []
     result = TestResult(test_id, device_id, "applications/clear-data", json.dumps({"appId": appId}), "UNKNOWN", "", logs)
@@ -3805,11 +3906,11 @@ def run_clear_data_foreground_app_check(dab_topic, test_category, test_name, tes
     return result
 
 # === Test 37: Clear Data For An System Application Check ===
-def run_clear_data_system_app_check(dab_topic, test_category, test_name, tester, device_id):
+def run_clear_data_system_app_check(dab_topic, test_name, tester, device_id):
     """
     Validates that data for a system application can be cleared.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "applications/clear-data", "{}", "UNKNOWN", "", logs)
     app_id = "N/A"
@@ -3883,8 +3984,8 @@ def run_clear_data_system_app_check(dab_topic, test_category, test_name, tester,
 
     return result
 
-def run_clear_data_user_installed_app_foreground(dab_topic, test_category, test_name, tester, device_id):
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+def run_clear_data_user_installed_app_foreground(dab_topic, test_name, tester, device_id):
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id = config.apps.get("sample_app", "Sample_App")
     logs = []
     payload_app = json.dumps({"appId": app_id})
@@ -3959,13 +4060,13 @@ def run_clear_data_user_installed_app_foreground(dab_topic, test_category, test_
         LOGGER.result(line); logs.append(line)
         return result
 
-def run_install_from_app_store_check(dab_topic, test_category, test_name, tester, device_id):
+def run_install_from_app_store_check(dab_topic, test_name, tester, device_id):
     """
     Positive: Install a new app from the app store and launch it.
     Minimal flow: install-from-app-store → short wait → launch
     Pass if install returns 200 and launch returns 200.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id = config.apps.get("store_app", "Store_App")  # valid, not-installed appId
     logs = []
     payload_app = json.dumps({"appId": app_id})
@@ -4047,14 +4148,14 @@ def run_install_from_app_store_check(dab_topic, test_category, test_name, tester
         LOGGER.result(msg); logs.append(msg)
         return result
 
-def run_install_youtube_kids_from_store(dab_topic, test_category, test_name, tester, device_id):
+def run_install_youtube_kids_from_store(dab_topic, test_name, tester, device_id):
     """
     Positive: Install YouTube Kids from the app store and confirm it launches.
     Flow: install-from-app-store -> short wait -> (optional) applications/list check -> launch
     Pass if install == 200 and launch == 200.
     Note: "family-friendly settings" visibility is outside DAB scope; log info for manual/OEM validation.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id = config.apps.get("youtube_kids", "YouTubeKids")  # use config.py entry
     logs = []
     payload_app = json.dumps({"appId": app_id})
@@ -4167,13 +4268,13 @@ def run_install_youtube_kids_from_store(dab_topic, test_category, test_name, tes
         LOGGER.result(msg); logs.append(msg)
         return result
 
-def run_uninstall_after_standby_check(dab_topic, test_category, test_name, tester, device_id):
+def run_uninstall_after_standby_check(dab_topic, test_name, tester, device_id):
     """
     Positive: Uninstall a pre-installed removable app when device was in standby (woken for operation).
     Flow: (best-effort) wake via input/key-press -> applications/uninstall -> short wait -> (best-effort) applications/list
     Pass if uninstall returns 200 and (if list is available) the app no longer appears.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id = config.apps.get("sample_app", "Sample_App")
     logs = []
     payload_app = json.dumps({"appId": app_id})
@@ -4203,10 +4304,10 @@ def run_uninstall_after_standby_check(dab_topic, test_category, test_name, teste
 
         # 0) Best-effort wake from standby (optional)
         try:
-            msg = f"[STEP] input/key-press {{\"key\": \"POWER\"}}  # best-effort wake"
+            msg = f"[STEP] input/key-press {{\"keyCode\": \"KEY_POWER\"}}  # best-effort wake"
             LOGGER.result(msg); logs.append(msg)
             rc_wake, resp_wake = execute_cmd_and_log(
-                tester, device_id, "input/key-press", json.dumps({"key": "POWER"}), logs, result
+                tester, device_id, "input/key-press", {"keyCode": "KEY_POWER"}, logs, result
             )
             msg = f"[INFO] input/key-press transport_rc={rc_wake}, response={resp_wake}"
             LOGGER.info(msg); logs.append(msg)
@@ -4296,136 +4397,98 @@ def run_uninstall_after_standby_check(dab_topic, test_category, test_name, teste
         LOGGER.result(msg); logs.append(msg)
         return result
 
-def run_install_bg_uninstall_sample_app(dab_topic, test_category, test_name, tester, device_id):
+def run_install_bg_uninstall_sample_app(dab_topic, test_name, tester, device_id):
     """
-    Flow: applications/install (sample_app) -> applications/launch -> background -> applications/uninstall
-    Pass if install == 200 and uninstall == 200.
+    Flow: applications/install (Sample_App from local path) -> launch -> HOME (background) -> uninstall
+    Pass if install == 200 and uninstall == 200. No launcher fallback; only KEY_HOME.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
-    app_id = config.apps.get("sample_app", "Sample_App")
-    logs = []
-    payload_app = json.dumps({"appId": app_id})
+    import json, time
+    from util.config_loader import ensure_app_available  # alias -> any-extension local payload
 
-    # Core op under validation is uninstall
-    result = TestResult(test_id, device_id, "applications/uninstall", payload_app, "UNKNOWN", "", logs)
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
+    app_id  = config.apps.get("sample_app", "Sample_App")
+    logs    = []
 
-    INSTALL_WAIT = 10   # short padding after install
-    BG_WAIT = 3         # short settle time after backgrounding
+    payload_app_json = json.dumps({"appId": app_id})
+    result = TestResult(test_id, device_id, "applications/uninstall", payload_app_json, "UNKNOWN", "", logs)
+
+    INSTALL_WAIT     = 10
+    APP_LAUNCH_WAIT  = globals().get("APP_LAUNCH_WAIT", 5)
+    BG_WAIT          = 3
 
     try:
         # Header
-        msg = f"[TEST] Install → Background → Uninstall (applications/install) — {test_name} (test_id={test_id}, device={device_id}, appId={app_id})"
-        LOGGER.result(msg); logs.append(msg)
-        msg = "[DESC] Method: install sample_app → open it → keep in background → uninstall (no app-store API used)."
-        LOGGER.result(msg); logs.append(msg)
+        LOGGER.result(f"[TEST] Install → HOME → Uninstall — {test_name} (test_id={test_id}, device={device_id}, appId={app_id})"); logs.append(
+            f"[TEST] Install → HOME → Uninstall — {test_name} (test_id={test_id}, device={device_id}, appId={app_id})")
 
-        # Gate required ops (OPTIONAL_FAILED handled by need)
-        if not need(tester, device_id, "ops: applications/install, applications/launch, applications/uninstall", result, logs):
-            msg = (f"[SUMMARY] outcome=OPTIONAL_FAILED, install_status=N/A, uninstall_status=N/A, "
-                   f"test_id={test_id}, device={device_id}, appId={app_id}")
-            LOGGER.result(msg); logs.append(msg)
+        # Resolve local install payload (absolute path; any extension)
+        try:
+            install_payload = ensure_app_available(app_id=app_id)  # {"appId","url","format","timeout"}
+        except Exception as e:
+            result.test_result = "SKIPPED"
+            LOGGER.result(f"[RESULT] SKIPPED — missing app artifact: {e}"); logs.append(f"[RESULT] SKIPPED — missing app artifact: {e}")
+            LOGGER.result(f"[SUMMARY] outcome=SKIPPED, test_id={test_id}, device={device_id}, appId={app_id}"); logs.append(
+                f"[SUMMARY] outcome=SKIPPED, test_id={test_id}, device={device_id}, appId={app_id}")
             return result
 
-        msg = "[INFO] Capability gate passed."
-        LOGGER.info(msg); logs.append(msg)
+        # Capability gate (include input/key-press explicitly)
+        if not need(tester, device_id,
+                    "ops: applications/install, applications/launch, input/key-press, applications/uninstall",
+                    result, logs):
+            LOGGER.result(f"[SUMMARY] outcome=OPTIONAL_FAILED, test_id={test_id}, device={device_id}, appId={app_id}")
+            return result
 
-        # 1) Install sample_app (applications/install)
-        msg = f"[STEP] applications/install {payload_app}"
-        LOGGER.result(msg); logs.append(msg)
-        rc_install, resp_install = execute_cmd_and_log(
-            tester, device_id, "applications/install", payload_app, logs, result
-        )
-        install_status = dab_status_from(resp_install, rc_install)
-        msg = f"[INFO] applications/install transport_rc={rc_install}, dab_status={install_status}"
-        LOGGER.info(msg); logs.append(msg)
-
-        if install_status != 200:
+        # 1) Install
+        payload_install_json = json.dumps(install_payload)
+        LOGGER.result(f"[STEP] applications/install {payload_install_json}"); logs.append(f"[STEP] applications/install {payload_install_json}")
+        rc_i, resp_i = execute_cmd_and_log(tester, device_id, "applications/install", payload_install_json, logs, result)
+        st_i = dab_status_from(resp_i, rc_i)
+        if st_i != 200:
             result.test_result = "FAILED"
-            msg = f"[RESULT] FAILED — applications/install returned {install_status} (expected 200)"
-            LOGGER.result(msg); logs.append(msg)
-            msg = (f"[SUMMARY] outcome=FAILED, install_status={install_status}, uninstall_status=N/A, "
-                   f"test_id={test_id}, device={device_id}, appId={app_id}")
-            LOGGER.result(msg); logs.append(msg)
+            LOGGER.result(f"[RESULT] FAILED — install returned {st_i} (expected 200)")
+            LOGGER.result(f"[SUMMARY] outcome=FAILED, install_status={st_i}, test_id={test_id}, device={device_id}, appId={app_id}")
             return result
-
-        msg = f"[WAIT] {INSTALL_WAIT}s after install for finalization"
-        LOGGER.info(msg); logs.append(msg)
         time.sleep(INSTALL_WAIT)
 
-        # 2) Launch the app (foreground)
-        msg = f"[STEP] applications/launch {payload_app}"
-        LOGGER.result(msg); logs.append(msg)
-        rc_launch, resp_launch = execute_cmd_and_log(
-            tester, device_id, "applications/launch", payload_app, logs, result
-        )
-        msg = f"[WAIT] {APP_LAUNCH_WAIT}s after launch"
-        LOGGER.info(msg); logs.append(msg)
+        # 2) Launch
+        LOGGER.result(f"[STEP] applications/launch {payload_app_json}"); logs.append(f"[STEP] applications/launch {payload_app_json}")
+        rc_l, resp_l = execute_cmd_and_log(tester, device_id, "applications/launch", payload_app_json, logs, result)
         time.sleep(APP_LAUNCH_WAIT)
 
-        # 3) Background the app (best-effort: HOME key; fallback to launcher)
-        try:
-            msg = '[STEP] input/key-press {"key": "HOME"}  # background app'
-            LOGGER.result(msg); logs.append(msg)
-            rc_home, resp_home = execute_cmd_and_log(
-                tester, device_id, "input/key-press", json.dumps({"key": "HOME"}), logs, result
-            )
-            msg = f"[INFO] input/key-press HOME transport_rc={rc_home}, response={resp_home}"
-            LOGGER.info(msg); logs.append(msg)
-        except Exception:
-            launcher_id = config.apps.get("home_launcher", "com.android.tv.launcher")
-            payload_home = json.dumps({"appId": launcher_id})
-            msg = f"[STEP] applications/launch {payload_home}  # fallback to launcher"
-            LOGGER.result(msg); logs.append(msg)
-            rc_home2, resp_home2 = execute_cmd_and_log(
-                tester, device_id, "applications/launch", payload_home, logs, result
-            )
-            msg = f"[INFO] launcher transport_rc={rc_home2}, response={resp_home2}"
-            LOGGER.info(msg); logs.append(msg)
-
-        msg = f"[WAIT] {BG_WAIT}s after backgrounding"
-        LOGGER.info(msg); logs.append(msg)
+        # 3) Background with HOME (no fallback)
+        payload_home = json.dumps({"keyCode": "KEY_HOME"})
+        LOGGER.result(f'[STEP] input/key-press {payload_home}  # background app'); logs.append(f'[STEP] input/key-press {payload_home}')
+        rc_home, resp_home = execute_cmd_and_log(tester, device_id, "input/key-press", payload_home, logs, result)
         time.sleep(BG_WAIT)
 
-        # 4) Uninstall the app
-        msg = f"[STEP] applications/uninstall {payload_app}"
-        LOGGER.result(msg); logs.append(msg)
-        rc_uninst, resp_uninst = execute_cmd_and_log(
-            tester, device_id, "applications/uninstall", payload_app, logs, result
-        )
-        uninstall_status = dab_status_from(resp_uninst, rc_uninst)
-        msg = f"[INFO] applications/uninstall transport_rc={rc_uninst}, dab_status={uninstall_status}"
-        LOGGER.info(msg); logs.append(msg)
+        # 4) Uninstall
+        LOGGER.result(f"[STEP] applications/uninstall {payload_app_json}"); logs.append(f"[STEP] applications/uninstall {payload_app_json}")
+        rc_u, resp_u = execute_cmd_and_log(tester, device_id, "applications/uninstall", payload_app_json, logs, result)
+        st_u = dab_status_from(resp_u, rc_u)
 
-        if uninstall_status == 200:
+        if st_u == 200:
             result.test_result = "PASS"
-            msg = "[RESULT] PASS — install 200, then uninstall 200 with app backgrounded"
-            LOGGER.result(msg); logs.append(msg)
+            LOGGER.result("[RESULT] PASS — install 200, HOME ok, uninstall 200")
         else:
             result.test_result = "FAILED"
-            msg = f"[RESULT] FAILED — applications/uninstall returned {uninstall_status} (expected 200)"
-            LOGGER.result(msg); logs.append(msg)
+            LOGGER.result(f"[RESULT] FAILED — uninstall returned {st_u} (expected 200)")
 
-        msg = (f"[SUMMARY] outcome={result.test_result}, install_status={install_status}, "
-               f"uninstall_status={uninstall_status}, test_id={test_id}, device={device_id}, appId={app_id}")
-        LOGGER.result(msg); logs.append(msg)
+        LOGGER.result(f"[SUMMARY] outcome={result.test_result}, install_status={st_i}, uninstall_status={st_u}, test_id={test_id}, device={device_id}, appId={app_id}")
         return result
 
     except Exception as e:
         result.test_result = "SKIPPED"
-        msg = f"[RESULT] SKIPPED — internal error: {e} (test_id={test_id}, device={device_id}, appId={app_id})"
-        LOGGER.result(msg); logs.append(msg)
-        msg = (f"[SUMMARY] outcome=SKIPPED, install_status=N/A, uninstall_status=N/A, "
-               f"test_id={test_id}, device={device_id}, appId={app_id}")
-        LOGGER.result(msg); logs.append(msg)
+        LOGGER.result(f"[RESULT] SKIPPED — internal error: {e} (test_id={test_id}, device={device_id})")
+        LOGGER.result(f"[SUMMARY] outcome=SKIPPED, test_id={test_id}, device={device_id}, appId={app_id}")
         return result
 
-def run_uninstall_sample_app_with_local_data_check(dab_topic, test_category, test_name, tester, device_id):
+def run_uninstall_sample_app_with_local_data_check(dab_topic, test_name, tester, device_id):
     """
     Positive: Uninstall a third-party app (sample_app) that has local storage data.
     Minimal flow: (optional) launch -> applications/uninstall -> short wait
     Pass if uninstall returns 200.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id = config.apps.get("sample_app", "Sample_App")
     logs = []
     payload_app = json.dumps({"appId": app_id})
@@ -4509,13 +4572,13 @@ def run_uninstall_sample_app_with_local_data_check(dab_topic, test_category, tes
         LOGGER.result(msg); logs.append(msg)
         return result
     
-def run_uninstall_preinstalled_with_local_data_simple(dab_topic, test_category, test_name, tester, device_id):
+def run_uninstall_preinstalled_with_local_data_simple(dab_topic, test_name, tester, device_id):
     """
     Positive: Uninstall a pre-installed removable app (with local data).
     Minimal flow: (optional) launch -> applications/uninstall -> short wait
     Pass if uninstall returns 200.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id = config.apps.get("sample_app", "Sample_App")
     logs = []
     payload_app = json.dumps({"appId": app_id})
@@ -4599,569 +4662,523 @@ def run_uninstall_preinstalled_with_local_data_simple(dab_topic, test_category, 
         LOGGER.result(msg); logs.append(msg)
         return result
 
-def run_install_from_url_during_idle_then_launch(dab_topic, test_category, test_name, tester, device_id):
+def run_install_from_url_during_idle_then_launch(dab_topic, test_name, tester, device_id):
     """
-    Positive: Install an app from a valid APK URL during device idle (screen off), then wake and launch.
-    Minimal flow: sleep (best-effort) -> applications/install(url) -> short wait -> wake (best-effort) -> applications/launch
+    Positive: Install an app from a LOCAL ARTIFACT during device idle (screen off), then wake and launch.
+    Flow: sleep (best-effort) -> applications/install(<local payload>) -> short wait -> wake (best-effort) -> applications/launch
     Pass if install == 200 and launch == 200.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
-    app_id = config.apps.get("sample_app", "Sample_App")
+    import json, time
+    from util.config_loader import ensure_app_available  # returns {"appId","url","format","timeout"}
 
-    # Try to read APK URL from config; user/project should populate one of these.
-    apk_url = (
-        config.apps.get("sample_app_url") or
-        getattr(config, "apk_urls", {}).get("sample_app") or
-        getattr(config, "urls", {}).get("sample_app")
-    )
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
+    app_id  = config.apps.get("sample_app", "Sample_App")
 
     logs = []
-    payload_install = json.dumps({"appId": app_id, "url": apk_url})
-    payload_launch  = json.dumps({"appId": app_id})
-    result = TestResult(test_id, device_id, "applications/install", payload_install, "UNKNOWN", "", logs)
+    result = TestResult(test_id, device_id, "applications/install", "{}", "UNKNOWN", "", logs)
 
-    INSTALL_WAIT = 10  # short padding for install finalize
-    IDLE_WAIT    = 3   # small delay after sleep press
-    WAKE_WAIT    = 3   # small delay after wake press
+    INSTALL_WAIT = 15
+    IDLE_WAIT    = 3
+    WAKE_WAIT    = 3
+
+    # keep raw device responses out of result.logs
+    scratch = []
+    def _call(topic: str, body_json: str):
+        return execute_cmd_and_log(tester, device_id, topic, body_json, scratch, result)
 
     try:
-        # Headers
-        msg = f"[TEST] Install During Idle (URL) → Wake → Launch — {test_name} (test_id={test_id}, device={device_id}, appId={app_id})"
-        LOGGER.result(msg); logs.append(msg)
-        msg = "[DESC] Flow: sleep (best-effort) → applications/install(url) → short wait → wake (best-effort) → applications/launch; PASS if both return 200."
-        LOGGER.result(msg); logs.append(msg)
+        # Header
+        for line in (
+            f"[TEST] Install During Idle (LOCAL PATH) → Wake → Launch — {test_name} (test_id={test_id}, device={device_id}, appId={app_id})",
+            "[DESC] Flow: sleep → install from local path → wait → wake → launch; PASS if both return 200.",
+        ):
+            LOGGER.result(line); logs.append(line)
 
-        # Validate URL presence (precondition)
-        if not apk_url:
-            result.test_result = "SKIPPED"
-            msg = "[RESULT] SKIPPED — missing APK URL in config (sample_app_url / apk_urls['sample_app'] / urls['sample_app'])."
-            LOGGER.result(msg); logs.append(msg)
-            msg = f"[SUMMARY] outcome=SKIPPED, install_status=N/A, launch_status=N/A, test_id={test_id}, device={device_id}, appId={app_id}"
-            LOGGER.result(msg); logs.append(msg)
-            return result
-
-        # Gate required operations (OPTIONAL_FAILED handled by need)
-        if not need(tester, device_id, "ops: applications/install, applications/launch", result, logs):
-            msg = f"[SUMMARY] outcome=OPTIONAL_FAILED, install_status=N/A, launch_status=N/A, test_id={test_id}, device={device_id}, appId={app_id}"
-            LOGGER.result(msg); logs.append(msg)
-            return result
-
-        msg = "[INFO] Capability gate passed."
-        LOGGER.info(msg); logs.append(msg)
-
-        # 0) Best-effort put device into idle (screen off)
+        # Resolve local artifact (any extension)
         try:
-            msg = '[STEP] input/key-press {"key": "POWER"}  # best-effort to enter idle/screen-off'
+            install_payload = ensure_app_available(app_id=app_id)  # {"appId","url","format","timeout"}
+        except Exception as e:
+            result.test_result = "SKIPPED"
+            msg = f"[RESULT] SKIPPED — missing local artifact for '{app_id}': {e}"
             LOGGER.result(msg); logs.append(msg)
-            rc_sleep, resp_sleep = execute_cmd_and_log(
-                tester, device_id, "input/key-press", json.dumps({"key": "POWER"}), logs, result
-            )
-            msg = f"[INFO] input/key-press POWER transport_rc={rc_sleep}, response={resp_sleep}"
-            LOGGER.info(msg); logs.append(msg)
-            msg = f"[WAIT] {IDLE_WAIT}s after sleep attempt"
-            LOGGER.info(msg); logs.append(msg)
+            result.response = "['missing local artifact']"
+            return result
+
+        # Capability gate
+        if not need(tester, device_id, "ops: applications/install, applications/launch", result, logs):
+            LOGGER.result(f"[SUMMARY] outcome=OPTIONAL_FAILED, install_status=N/A, launch_status=N/A, test_id={test_id}, device={device_id}, appId={app_id}")
+            return result
+        logs.append("[INFO] Capability gate passed.")
+
+        # 0) Best-effort: enter idle/screen off
+        try:
+            LOGGER.result('[STEP] input/key-press {"keyCode": "KEY_POWER"}  # enter idle'); logs.append(
+                '[STEP] input/key-press {"keyCode": "KEY_POWER"}')
+            rc_sleep, _ = _call("input/key-press", json.dumps({"keyCode": "KEY_POWER"}))
+            logs.append(f"[INFO] input/key-press KEY_POWER transport_rc={rc_sleep}")
             time.sleep(IDLE_WAIT)
         except Exception:
-            msg = "[INFO] Skipping sleep attempt (input/key-press unavailable or failed)"
-            LOGGER.info(msg); logs.append(msg)
+            logs.append("[INFO] Skipping sleep attempt (input/key-press unavailable or failed)")
 
-        # 1) Install from URL while device is idle
-        msg = f"[STEP] applications/install {payload_install}"
-        LOGGER.result(msg); logs.append(msg)
-        rc_install, resp_install = execute_cmd_and_log(
-            tester, device_id, "applications/install", payload_install, logs, result
-        )
-        install_status = dab_status_from(resp_install, rc_install)
-        msg = f"[INFO] applications/install transport_rc={rc_install}, dab_status={install_status}"
-        LOGGER.info(msg); logs.append(msg)
+        # 1) Install from LOCAL PATH (send full payload, not a string URL)
+        LOGGER.result(f"[STEP] applications/install {install_payload}"); logs.append(
+            f"[STEP] applications/install {install_payload}")
+        rc_i, resp_i = _call("applications/install", json.dumps(install_payload))
+        install_status = dab_status_from(resp_i, rc_i)
+        logs.append(f"[INFO] applications/install status={install_status}")
 
         if install_status != 200:
             result.test_result = "FAILED"
-            msg = f"[RESULT] FAILED — applications/install returned {install_status} (expected 200)"
-            LOGGER.result(msg); logs.append(msg)
-            msg = f"[SUMMARY] outcome=FAILED, install_status={install_status}, launch_status=N/A, test_id={test_id}, device={device_id}, appId={app_id}"
-            LOGGER.result(msg); logs.append(msg)
+            LOGGER.result(f"[RESULT] FAILED — applications/install returned {install_status} (expected 200)"); logs.append(
+                f"[RESULT] FAILED — applications/install returned {install_status} (expected 200)")
+            result.response = f"['install={install_status}']"
             return result
 
-        # short wait to finalize install
-        msg = f"[WAIT] {INSTALL_WAIT}s after install for finalization"
-        LOGGER.info(msg); logs.append(msg)
-        time.sleep(INSTALL_WAIT)
+        logs.append(f"[WAIT] {INSTALL_WAIT}s after install"); time.sleep(INSTALL_WAIT)
 
-        # 2) Best-effort wake device
+        # 2) Best-effort: wake device
         try:
-            msg = '[STEP] input/key-press {"key": "POWER"}  # wake device'
-            LOGGER.result(msg); logs.append(msg)
-            rc_wake, resp_wake = execute_cmd_and_log(
-                tester, device_id, "input/key-press", json.dumps({"key": "POWER"}), logs, result
-            )
-            msg = f"[INFO] input/key-press POWER transport_rc={rc_wake}, response={resp_wake}"
-            LOGGER.info(msg); logs.append(msg)
-            msg = f"[WAIT] {WAKE_WAIT}s after wake attempt"
-            LOGGER.info(msg); logs.append(msg)
+            LOGGER.result('[STEP] input/key-press {"keyCode": "KEY_POWER"}  # wake'); logs.append(
+                '[STEP] input/key-press {"keyCode": "KEY_POWER"}')
+            rc_wake, _ = _call("input/key-press", json.dumps({"keyCode": "KEY_POWER"}))
+            logs.append(f"[INFO] input/key-press KEY_POWER transport_rc={rc_wake}")
             time.sleep(WAKE_WAIT)
         except Exception:
-            msg = "[INFO] Skipping wake attempt (input/key-press unavailable or failed)"
-            LOGGER.info(msg); logs.append(msg)
+            logs.append("[INFO] Skipping wake attempt (input/key-press unavailable or failed)")
 
-        # 3) Launch to verify availability after wake
-        msg = f"[STEP] applications/launch {payload_launch}"
-        LOGGER.result(msg); logs.append(msg)
-        rc_launch, resp_launch = execute_cmd_and_log(
-            tester, device_id, "applications/launch", payload_launch, logs, result
-        )
-        launch_status = dab_status_from(resp_launch, rc_launch)
-        msg = f"[INFO] applications/launch transport_rc={rc_launch}, dab_status={launch_status}"
-        LOGGER.info(msg); logs.append(msg)
+        # 3) Launch
+        payload_launch = json.dumps({"appId": app_id})
+        LOGGER.result(f"[STEP] applications/launch {payload_launch}"); logs.append(
+            f"[STEP] applications/launch {payload_launch}")
+        rc_l, resp_l = _call("applications/launch", payload_launch)
+        launch_status = dab_status_from(resp_l, rc_l)
+        logs.append(f"[INFO] applications/launch status={launch_status}")
 
         if launch_status == 200:
             result.test_result = "PASS"
-            msg = "[RESULT] PASS — install (idle) 200 and launch (post-wake) 200"
-            LOGGER.result(msg); logs.append(msg)
+            LOGGER.result("[RESULT] PASS — install (idle) 200 and launch (post-wake) 200"); logs.append(
+                "[RESULT] PASS — install (idle) 200 and launch (post-wake) 200")
         else:
             result.test_result = "FAILED"
-            msg = f"[RESULT] FAILED — applications/launch returned {launch_status} (expected 200)"
-            LOGGER.result(msg); logs.append(msg)
+            LOGGER.result(f"[RESULT] FAILED — applications/launch returned {launch_status} (expected 200)"); logs.append(
+                f"[RESULT] FAILED — applications/launch returned {launch_status} (expected 200)")
 
-        msg = f"[SUMMARY] outcome={result.test_result}, install_status={install_status}, launch_status={launch_status}, test_id={test_id}, device={device_id}, appId={app_id}"
-        LOGGER.result(msg); logs.append(msg)
+        result.response = f"['install={install_status}, launch={launch_status}']"
+        summary = (f"[SUMMARY] outcome={result.test_result}, install_status={install_status}, "
+                   f"launch_status={launch_status}, test_id={test_id}, device={device_id}, appId={app_id}")
+        LOGGER.result(summary); logs.append(summary)
         return result
 
     except Exception as e:
         result.test_result = "SKIPPED"
-        msg = f"[RESULT] SKIPPED — internal error: {e} (test_id={test_id}, device={device_id}, appId={app_id})"
-        LOGGER.result(msg); logs.append(msg)
-        msg = f"[SUMMARY] outcome=SKIPPED, install_status=N/A, launch_status=N/A, test_id={test_id}, device={device_id}, appId={app_id}"
-        LOGGER.result(msg); logs.append(msg)
+        LOGGER.result(f"[RESULT] SKIPPED — internal error: {e} (test_id={test_id}, device={device_id}, appId={app_id})"); logs.append(
+            f"[RESULT] SKIPPED — internal error: {e} (test_id={test_id}, device={device_id}, appId={app_id})")
+        LOGGER.result(f"[SUMMARY] outcome=SKIPPED, install_status=N/A, launch_status=N/A, test_id={test_id}, device={device_id}, appId={app_id}"); logs.append(
+            f"[SUMMARY] outcome=SKIPPED, install_status=N/A, launch_status=N/A, test_id={test_id}, device={device_id}, appId={app_id}")
         return result
 
-def run_install_large_apk_from_url_then_launch(dab_topic, test_category, test_name, tester, device_id):
+
+def run_install_large_apk_from_url_then_launch(dab_topic, test_name, tester, device_id):
     """
-    Positive: Install a large APK from a valid URL, then launch to verify functionality.
-    Minimal flow: applications/install(url) -> long wait -> applications/launch
+    Positive: Install a large app (prefer local path; fallback to configured URL), then launch.
+    Flow: applications/install -> long wait -> applications/launch
     Pass if install == 200 and launch == 200.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id = config.apps.get("large_app", "Large_App")
 
-    # Provide the APK URL via config (one of these should be set in your repo config)
-    apk_url = (
-        config.apps.get("large_app_url") or
-        getattr(config, "apk_urls", {}).get("large_app") or
-        getattr(config, "urls", {}).get("large_app")
-    )
-
     logs = []
-    payload_install = json.dumps({"appId": app_id, "url": apk_url})
-    payload_launch  = json.dumps({"appId": app_id})
-    result = TestResult(test_id, device_id, "applications/install", payload_install, "UNKNOWN", "", logs)
+    # keep response tiny in results.json (avoid raw blobs)
+    result = TestResult(test_id, device_id, "applications/install", "{}", "UNKNOWN", "", logs)
 
-    LARGE_INSTALL_WAIT = 180  # seconds; larger buffer for big APK download+install
+    # ----- header -----
+    for line in (
+        f"[TEST] Large App Install → Launch — {test_name} (test_id={test_id}, device={device_id}, appId={app_id})",
+        "[DESC] Prefer local artifact from config/apps; if missing, use configured App Store URL.",
+        "[DESC] Flow: applications/install → long wait → applications/launch; PASS if both return 200.",
+    ):
+        LOGGER.result(line); logs.append(line)
+
+    # ----- build install payload (path first, url fallback) -----
+    try:
+        install_body = ensure_app_available(app_id=app_id)  # {"appId","url","format","timeout"}
+    except Exception as e_path:
+        try:
+            url = ensure_app_available_anyext(app_id)               # per-app or global URL from config
+            install_body = {"appId": app_id, "url": url}
+        except Exception as e_url:
+            result.test_result = "SKIPPED"
+            msg = (f"[RESULT] SKIPPED — missing app artifact and URL for '{app_id}'. "
+                   f"Hint: place file in config/apps or set URL via --init.")
+            LOGGER.result(msg); logs.append(msg)
+            LOGGER.result(f"[SUMMARY] outcome=SKIPPED, install_status=N/A, launch_status=N/A, "
+                          f"test_id={test_id}, device={device_id}, appId={app_id}"); logs.append(msg)
+            # keep results.json compact
+            result.response = "['install/launch not attempted: no path or url']"
+            return result
+
+    payload_install = json.dumps(install_body)
+    payload_launch  = json.dumps({"appId": app_id})
+    result.request  = payload_install  # minimal; no raw response stored
 
     try:
-        # Headers
-        msg = f"[TEST] Large APK Install from URL → Launch — {test_name} (test_id={test_id}, device={device_id}, appId={app_id})"
-        LOGGER.result(msg); logs.append(msg)
-        msg = "[DESC] Flow: applications/install(url) → long wait → applications/launch; PASS if both return 200."
-        LOGGER.result(msg); logs.append(msg)
-
-        # Validate URL precondition
-        if not apk_url:
-            result.test_result = "SKIPPED"
-            msg = "[RESULT] SKIPPED — missing large APK URL in config (large_app_url / apk_urls['large_app'] / urls['large_app'])."
-            LOGGER.result(msg); logs.append(msg)
-            msg = f"[SUMMARY] outcome=SKIPPED, install_status=N/A, launch_status=N/A, test_id={test_id}, device={device_id}, appId={app_id}"
-            LOGGER.result(msg); logs.append(msg)
-            return result
-
-        # Capability gate (install + launch). If unsupported, need(...) fills result/logs and returns False.
+        # ----- capability gate -----
         if not need(tester, device_id, "ops: applications/install, applications/launch", result, logs):
-            msg = f"[SUMMARY] outcome=OPTIONAL_FAILED, install_status=N/A, launch_status=N/A, test_id={test_id}, device={device_id}, appId={app_id}"
-            LOGGER.result(msg); logs.append(msg)
+            LOGGER.result(f"[SUMMARY] outcome=OPTIONAL_FAILED, install_status=N/A, launch_status=N/A, "
+                          f"test_id={test_id}, device={device_id}, appId={app_id}"); logs.append(
+                          f"[SUMMARY] outcome=OPTIONAL_FAILED, install_status=N/A, launch_status=N/A, "
+                          f"test_id={test_id}, device={device_id}, appId={app_id}")
+            result.response = "['capability gate failed']"
             return result
 
-        msg = "[INFO] Capability gate passed."
-        LOGGER.info(msg); logs.append(msg)
+        LOGGER.info("[INFO] Capability gate passed."); logs.append("[INFO] Capability gate passed.")
 
-        # 1) Install from URL (large APK)
-        msg = f"[STEP] applications/install {payload_install}"
-        LOGGER.result(msg); logs.append(msg)
-        rc_install, resp_install = execute_cmd_and_log(
-            tester, device_id, "applications/install", payload_install, logs, result
-        )
-        install_status = dab_status_from(resp_install, rc_install)
-        msg = f"[INFO] applications/install transport_rc={rc_install}, dab_status={install_status}"
-        LOGGER.info(msg); logs.append(msg)
+        # ----- install -----
+        LOGGER.result(f"[STEP] applications/install {payload_install}"); logs.append(
+            f"[STEP] applications/install {payload_install}")
+        rc_i, resp_i = execute_cmd_and_log(tester, device_id, "applications/install", payload_install, logs, result)
+        st_i = dab_status_from(resp_i, rc_i)
+        LOGGER.info(f"[INFO] applications/install transport_rc={rc_i}, dab_status={st_i}"); logs.append(
+            f"[INFO] applications/install transport_rc={rc_i}, dab_status={st_i}")
 
-        if install_status != 200:
+        if st_i != 200:
             result.test_result = "FAILED"
-            msg = f"[RESULT] FAILED — applications/install returned {install_status} (expected 200)"
-            LOGGER.result(msg); logs.append(msg)
-            msg = f"[SUMMARY] outcome=FAILED, install_status={install_status}, launch_status=N/A, test_id={test_id}, device={device_id}, appId={app_id}"
-            LOGGER.result(msg); logs.append(msg)
+            LOGGER.result(f"[RESULT] FAILED — applications/install returned {st_i} (expected 200)"); logs.append(
+                f"[RESULT] FAILED — applications/install returned {st_i} (expected 200)")
+            result.response = f"['install={st_i}, launch=N/A']"
+            LOGGER.result(f"[SUMMARY] outcome=FAILED, install_status={st_i}, launch_status=N/A, "
+                          f"test_id={test_id}, device={device_id}, appId={app_id}"); logs.append(
+                          f"[SUMMARY] outcome=FAILED, install_status={st_i}, launch_status=N/A, "
+                          f"test_id={test_id}, device={device_id}, appId={app_id}")
             return result
 
-        # Long wait to accommodate big APK download/installation finalization
-        msg = f"[WAIT] {LARGE_INSTALL_WAIT}s after install for finalization (large APK)"
-        LOGGER.info(msg); logs.append(msg)
-        time.sleep(LARGE_INSTALL_WAIT)
+        # ----- launch -----
+        LOGGER.result(f"[STEP] applications/launch {payload_launch}"); logs.append(
+            f"[STEP] applications/launch {payload_launch}")
+        rc_l, resp_l = execute_cmd_and_log(tester, device_id, "applications/launch", payload_launch, logs, result)
+        st_l = dab_status_from(resp_l, rc_l)
+        LOGGER.info(f"[INFO] applications/launch transport_rc={rc_l}, dab_status={st_l}"); logs.append(
+            f"[INFO] applications/launch transport_rc={rc_l}, dab_status={st_l}")
 
-        # 2) Launch to verify app is functional post-install
-        msg = f"[STEP] applications/launch {payload_launch}"
-        LOGGER.result(msg); logs.append(msg)
-        rc_launch, resp_launch = execute_cmd_and_log(
-            tester, device_id, "applications/launch", payload_launch, logs, result
-        )
-        launch_status = dab_status_from(resp_launch, rc_launch)
-        msg = f"[INFO] applications/launch transport_rc={rc_launch}, dab_status={launch_status}"
-        LOGGER.info(msg); logs.append(msg)
-
-        if launch_status == 200:
+        if st_l == 200:
             result.test_result = "PASS"
-            msg = "[RESULT] PASS — large APK install and launch both returned 200"
-            LOGGER.result(msg); logs.append(msg)
+            LOGGER.result("[RESULT] PASS — install 200 and launch 200"); logs.append("[RESULT] PASS — install 200 and launch 200")
         else:
             result.test_result = "FAILED"
-            msg = f"[RESULT] FAILED — applications/launch returned {launch_status} (expected 200)"
-            LOGGER.result(msg); logs.append(msg)
+            LOGGER.result(f"[RESULT] FAILED — applications/launch returned {st_l} (expected 200)"); logs.append(
+                f"[RESULT] FAILED — applications/launch returned {st_l} (expected 200)")
 
-        msg = f"[SUMMARY] outcome={result.test_result}, install_status={install_status}, launch_status={launch_status}, test_id={test_id}, device={device_id}, appId={app_id}"
-        LOGGER.result(msg); logs.append(msg)
+        # compact response in results.json
+        result.response = f"['install={st_i}, launch={st_l}']"
+
+        LOGGER.result(f"[SUMMARY] outcome={result.test_result}, install_status={st_i}, launch_status={st_l}, "
+                      f"test_id={test_id}, device={device_id}, appId={app_id}")
+        logs.append(f"[SUMMARY] outcome={result.test_result}, install_status={st_i}, launch_status={st_l}, "
+                    f"test_id={test_id}, device={device_id}, appId={app_id}")
         return result
 
     except Exception as e:
         result.test_result = "SKIPPED"
-        msg = f"[RESULT] SKIPPED — internal error: {e} (test_id={test_id}, device={device_id}, appId={app_id})"
-        LOGGER.result(msg); logs.append(msg)
-        msg = f"[SUMMARY] outcome=SKIPPED, install_status=N/A, launch_status=N/A, test_id={test_id}, device={device_id}, appId={app_id}"
-        LOGGER.result(msg); logs.append(msg)
+        LOGGER.result(f"[RESULT] SKIPPED — internal error: {e} (test_id={test_id}, device={device_id}, appId={app_id})"); logs.append(
+            f"[RESULT] SKIPPED — internal error: {e} (test_id={test_id}, device={device_id}, appId={app_id})")
+        result.response = "['install/launch not completed due to internal error']"
+        LOGGER.result(f"[SUMMARY] outcome=SKIPPED, install_status=N/A, launch_status=N/A, "
+                      f"test_id={test_id}, device={device_id}, appId={app_id}")
+        logs.append(f"[SUMMARY] outcome=SKIPPED, install_status=N/A, launch_status=N/A, "
+                    f"test_id={test_id}, device={device_id}, appId={app_id}")
         return result
     
-def run_install_from_url_while_heavy_app_running(dab_topic, test_category, test_name, tester, device_id):
+def run_install_from_url_while_heavy_app_running(dab_topic, test_name, tester, device_id):
     """
-    Positive: Install an app from a valid APK URL while a resource-intensive app is running, then launch it.
-    Flow: launch heavy_app -> applications/install(url) -> long wait -> applications/launch
+    Positive: Install an app from a LOCAL FILE while a heavy app is running, then launch it.
+    Flow: launch heavy_app -> applications/install(<local path>) -> wait -> applications/launch
     Pass if install == 200 and launch == 200.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
 
-    # Resource-intensive app to keep pressure on the device
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
+
+    # Heavy app to load the system (fallback to YouTube)
     heavy_app_id = config.apps.get("heavy_app", config.apps.get("youtube", "YouTube"))
-    # Target app to install from URL (use your existing sample_app config)
+    # Target app to install from local path
     app_id = config.apps.get("sample_app", "Sample_App")
 
-    # APK URL for the target app (set one of these in your config)
-    apk_url = (
-        config.apps.get("sample_app_url")
-        or getattr(config, "apk_urls", {}).get("sample_app")
-        or getattr(config, "urls", {}).get("sample_app")
-    )
-
     logs = []
-    payload_install = json.dumps({"appId": app_id, "url": apk_url})
+    result = TestResult(test_id, device_id, "applications/install", "{}", "UNKNOWN", "", logs)
+
+    # Resolve local artifact → {"appId","url":"/abs/path/file","format":"ext","timeout":int}
+    try:
+        local_payload_dict = ensure_app_available(app_id=app_id)  # path-based install payload
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        msg = (f"[RESULT] SKIPPED — missing local artifact for '{app_id}': {e}. "
+               "Place the file under config/apps or run --init to configure.")
+        LOGGER.result(msg); logs.append(msg)
+        msg = (f"[SUMMARY] outcome=SKIPPED, install_status=N/A, launch_status=N/A, "
+               f"test_id={test_id}, device={device_id}, targetApp={app_id}")
+        LOGGER.result(msg); logs.append(msg)
+        return result
+
+    payload_install = json.dumps(local_payload_dict)      # path-based install
     payload_launch  = json.dumps({"appId": app_id})
     payload_heavy   = json.dumps({"appId": heavy_app_id})
-    result = TestResult(test_id, device_id, "applications/install", payload_install, "UNKNOWN", "", logs)
-
-    HEAVY_WAIT         = 5    # let heavy app start streaming/processing
-    LARGE_INSTALL_WAIT = 120  # allow time for download+install under load
+ # allow time for copy/verify under load
 
     try:
         # Headers
-        msg = f"[TEST] Install From URL While Heavy App Running — {test_name} (test_id={test_id}, device={device_id}, targetApp={app_id}, heavyApp={heavy_app_id})"
+        msg = (f"[TEST] Install From LOCAL Path While Heavy App Running — {test_name} "
+               f"(test_id={test_id}, device={device_id}, targetApp={app_id}, heavyApp={heavy_app_id})")
         LOGGER.result(msg); logs.append(msg)
-        msg = "[DESC] Flow: launch heavy_app → applications/install(url) → long wait → applications/launch; PASS if both return 200."
+        msg = "[DESC] Flow: launch heavy_app → install(local-path) → wait → launch; PASS if both return 200."
         LOGGER.result(msg); logs.append(msg)
 
-        # Precondition: URL available
-        if not apk_url:
-            result.test_result = "SKIPPED"
-            msg = "[RESULT] SKIPPED — missing APK URL (sample_app_url / apk_urls['sample_app'] / urls['sample_app'])."
-            LOGGER.result(msg); logs.append(msg)
-            msg = f"[SUMMARY] outcome=SKIPPED, install_status=N/A, launch_status=N/A, test_id={test_id}, device={device_id}, targetApp={app_id}"
-            LOGGER.result(msg); logs.append(msg)
-            return result
-
-        # Capability gate for required ops (install + launch)
+        # Capability gate (install + launch)
         if not need(tester, device_id, "ops: applications/install, applications/launch", result, logs):
-            msg = f"[SUMMARY] outcome=OPTIONAL_FAILED, install_status=N/A, launch_status=N/A, test_id={test_id}, device={device_id}, targetApp={app_id}"
+            msg = (f"[SUMMARY] outcome=OPTIONAL_FAILED, install_status=N/A, launch_status=N/A, "
+                   f"test_id={test_id}, device={device_id}, targetApp={app_id}")
             LOGGER.result(msg); logs.append(msg)
             return result
 
-        msg = "[INFO] Capability gate passed."
-        LOGGER.info(msg); logs.append(msg)
+        LOGGER.info("[INFO] Capability gate passed."); logs.append("[INFO] Capability gate passed.")
 
-        # 0) Launch resource-intensive app
-        msg = f"[STEP] applications/launch {payload_heavy}  # start heavy workload"
-        LOGGER.result(msg); logs.append(msg)
-        rc_heavy, resp_heavy = execute_cmd_and_log(
+        # 0) Launch heavy app
+        LOGGER.result(f"[STEP] applications/launch {payload_heavy}  # start heavy workload"); logs.append(
+            f"[STEP] applications/launch {payload_heavy}  # start heavy workload"
+        )
+        rc_heavy, _resp_heavy = execute_cmd_and_log(
             tester, device_id, "applications/launch", payload_heavy, logs, result
         )
-        msg = f"[INFO] heavy_app launch transport_rc={rc_heavy}, response={resp_heavy}"
-        LOGGER.info(msg); logs.append(msg)
-        msg = f"[WAIT] {HEAVY_WAIT}s to let heavy_app stabilize"
-        LOGGER.info(msg); logs.append(msg)
-        time.sleep(HEAVY_WAIT)
+        LOGGER.info(f"[INFO] heavy_app launch transport_rc={rc_heavy}"); logs.append(
+            f"[INFO] heavy_app launch transport_rc={rc_heavy}"
+        )
 
-        # 1) Install target app from URL while heavy app is running
-        msg = f"[STEP] applications/install {payload_install}"
-        LOGGER.result(msg); logs.append(msg)
+        # 1) Install target app from LOCAL PATH while heavy app is running
+        LOGGER.result(f"[STEP] applications/install {payload_install}"); logs.append(
+            f"[STEP] applications/install {payload_install}"
+        )
         rc_install, resp_install = execute_cmd_and_log(
             tester, device_id, "applications/install", payload_install, logs, result
         )
         install_status = dab_status_from(resp_install, rc_install)
-        msg = f"[INFO] applications/install transport_rc={rc_install}, dab_status={install_status}"
-        LOGGER.info(msg); logs.append(msg)
+        LOGGER.info(f"[INFO] applications/install transport_rc={rc_install}, dab_status={install_status}"); logs.append(
+            f"[INFO] applications/install transport_rc={rc_install}, dab_status={install_status}"
+        )
 
         if install_status != 200:
             result.test_result = "FAILED"
             msg = f"[RESULT] FAILED — applications/install returned {install_status} (expected 200)"
             LOGGER.result(msg); logs.append(msg)
-            msg = f"[SUMMARY] outcome=FAILED, install_status={install_status}, launch_status=N/A, test_id={test_id}, device={device_id}, targetApp={app_id}"
+            msg = (f"[SUMMARY] outcome=FAILED, install_status={install_status}, launch_status=N/A, "
+                   f"test_id={test_id}, device={device_id}, targetApp={app_id}")
             LOGGER.result(msg); logs.append(msg)
             return result
 
-        # Long wait to accommodate big install under system load
-        msg = f"[WAIT] {LARGE_INSTALL_WAIT}s after install for finalization (under load)"
-        LOGGER.info(msg); logs.append(msg)
-        time.sleep(LARGE_INSTALL_WAIT)
-
-        # 2) Launch the newly installed target app to confirm it's functional
-        msg = f"[STEP] applications/launch {payload_launch}"
-        LOGGER.result(msg); logs.append(msg)
+        # 2) Launch the newly installed app
+        LOGGER.result(f"[STEP] applications/launch {payload_launch}"); logs.append(
+            f"[STEP] applications/launch {payload_launch}"
+        )
         rc_launch, resp_launch = execute_cmd_and_log(
             tester, device_id, "applications/launch", payload_launch, logs, result
         )
         launch_status = dab_status_from(resp_launch, rc_launch)
-        msg = f"[INFO] applications/launch transport_rc={rc_launch}, dab_status={launch_status}"
-        LOGGER.info(msg); logs.append(msg)
+        LOGGER.info(f"[INFO] applications/launch transport_rc={rc_launch}, dab_status={launch_status}"); logs.append(
+            f"[INFO] applications/launch transport_rc={rc_launch}, dab_status={launch_status}"
+        )
 
         if launch_status == 200:
             result.test_result = "PASS"
-            msg = "[RESULT] PASS — install during heavy load (200) and post-install launch (200) succeeded"
-            LOGGER.result(msg); logs.append(msg)
+            msg = "[RESULT] PASS — local install under load (200) and post-install launch (200) succeeded"
         else:
             result.test_result = "FAILED"
             msg = f"[RESULT] FAILED — applications/launch returned {launch_status} (expected 200)"
-            LOGGER.result(msg); logs.append(msg)
+        LOGGER.result(msg); logs.append(msg)
 
-        msg = f"[SUMMARY] outcome={result.test_result}, install_status={install_status}, launch_status={launch_status}, test_id={test_id}, device={device_id}, targetApp={app_id}, heavyApp={heavy_app_id}"
+        msg = (f"[SUMMARY] outcome={result.test_result}, install_status={install_status}, "
+               f"launch_status={launch_status}, test_id={test_id}, device={device_id}, "
+               f"targetApp={app_id}, heavyApp={heavy_app_id}")
         LOGGER.result(msg); logs.append(msg)
         return result
 
     except Exception as e:
         result.test_result = "SKIPPED"
-        msg = f"[RESULT] SKIPPED — internal error: {e} (test_id={test_id}, device={device_id}, targetApp={app_id})"
+        msg = (f"[RESULT] SKIPPED — internal error: {e} "
+               f"(test_id={test_id}, device={device_id}, targetApp={app_id})")
         LOGGER.result(msg); logs.append(msg)
-        msg = f"[SUMMARY] outcome=SKIPPED, install_status=N/A, launch_status=N/A, test_id={test_id}, device={device_id}, targetApp={app_id}"
+        msg = (f"[SUMMARY] outcome=SKIPPED, install_status=N/A, launch_status=N/A, "
+               f"test_id={test_id}, device={device_id}, targetApp={app_id}")
         LOGGER.result(msg); logs.append(msg)
         return result
 
-def run_install_after_reboot_then_launch(dab_topic, test_category, test_name, tester, device_id):
+def run_install_after_reboot_then_launch(dab_topic, test_name, tester, device_id):
     """
-    Positive: After device restart, install an app from a valid APK URL and launch it.
-    Flow: fire_and_forget_restart -> wait -> applications/install(url) -> wait -> applications/launch
-    Pass if install == 200 and launch == 200.
+    Positive: After device restart, install Sample_App from local artifact (any extension) and launch it.
+    Flow: restart -> wait -> applications/install(local path) -> wait -> applications/launch
+    PASS if install == 200 and launch == 200.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    import json, time
+    from util.config_loader import ensure_app_available  # alias → any-extension local artifact
 
-    # Target app + URL (configure these in config)
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id = config.apps.get("sample_app", "Sample_App")
-    apk_url = (
-        config.apps.get("sample_app_url")
-        or getattr(config, "apk_urls", {}).get("sample_app")
-        or getattr(config, "urls", {}).get("sample_app")
-    )
 
     logs = []
-    payload_install = json.dumps({"appId": app_id, "url": apk_url})
-    payload_launch  = json.dumps({"appId": app_id})
-    result = TestResult(test_id, device_id, "applications/install", payload_install, "UNKNOWN", "", logs)
+    result = TestResult(test_id, device_id, "applications/install", "{}", "UNKNOWN", "", logs)
 
-    # Waits tuned for reboot + network + package manager settle
-    RESTART_WAIT = 60   # device restart window
-    STABLE_WAIT  = 15   # extra stabilization
-    INSTALL_WAIT = 60   # finalize install
+    RESTART_WAIT = 60
+    STABLE_WAIT  = 15
+    POST_INSTALL_WAIT = 10
+
+    install_status = "N/A"
+    launch_status  = "N/A"
 
     try:
-        # Headers
-        msg = f"[TEST] Install After Restart → Launch — {test_name} (test_id={test_id}, device={device_id}, appId={app_id})"
-        LOGGER.result(msg); logs.append(msg)
-        msg = "[DESC] Flow: restart → wait → applications/install(url) → wait → applications/launch; PASS if both return 200."
-        LOGGER.result(msg); logs.append(msg)
+        # Header
+        for line in (
+            f"[TEST] Install After Restart → Launch — {test_name} (test_id={test_id}, device={device_id}, appId={app_id})",
+            "[DESC] Using local artifact from config/apps/<appId>.<anyext> (no URL).",
+        ):
+            LOGGER.result(line); logs.append(line)
 
-        # Precondition: URL present
-        if not apk_url:
+        # Resolve local artifact (any extension). If missing → SKIPPED with guidance.
+        try:
+            payload_install_dict = ensure_app_available(app_id=app_id)  # {"appId","url","format","timeout"}
+        except Exception as e:
             result.test_result = "SKIPPED"
-            msg = "[RESULT] SKIPPED — missing APK URL in config (sample_app_url / apk_urls['sample_app'] / urls['sample_app'])."
+            msg = (f"[RESULT] SKIPPED — local artifact for '{app_id}' not found. "
+                   f"Place a file named '{app_id}.*' in config/apps or run --init. ({e})")
             LOGGER.result(msg); logs.append(msg)
-            msg = f"[SUMMARY] outcome=SKIPPED, install_status=N/A, launch_status=N/A, test_id={test_id}, device={device_id}, appId={app_id}"
-            LOGGER.result(msg); logs.append(msg)
+            LOGGER.result(f"[SUMMARY] outcome=SKIPPED, install_status=N/A, launch_status=N/A, "
+                          f"test_id={test_id}, device={device_id}, appId={app_id}")
             return result
 
-        # 0) Use the built-in restart op (fire-and-forget)
-        msg = "[STEP] system/restart (fire-and-forget helper)"
-        LOGGER.result(msg); logs.append(msg)
-        fire_and_forget_restart(tester.dab_client, device_id)
+        payload_install = json.dumps(payload_install_dict)
+        payload_launch  = json.dumps({"appId": app_id})
+        result.request  = payload_install  # keep small; no raw responses below
 
-        msg = f"[WAIT] {RESTART_WAIT}s for restart + {STABLE_WAIT}s stabilize"
-        LOGGER.info(msg); logs.append(msg)
+        # Restart (fire-and-forget best-effort)
+        LOGGER.result("[STEP] system/restart (fire-and-forget)"); logs.append("[STEP] system/restart (fire-and-forget)")
+        try:
+            fire_and_forget_restart(tester.dab_client, device_id)  # preferred helper if available
+        except Exception:
+            try:
+                execute_cmd_and_log(tester, device_id, "system/restart", "{}", logs, result)
+            except Exception:
+                LOGGER.warn("[WARN] Restart command fallback failed; proceeding after wait."); logs.append("[WARN] Restart fallback failed; proceeding.")
+
+        LOGGER.info(f"[WAIT] {RESTART_WAIT}s for reboot + {STABLE_WAIT}s stabilize"); logs.append(
+            f"[WAIT] {RESTART_WAIT}s + {STABLE_WAIT}s")
         time.sleep(RESTART_WAIT + STABLE_WAIT)
 
-        # Gate required ops (install + launch). If unsupported, need() marks OPTIONAL_FAILED and returns False.
+        # Capability gate
         if not need(tester, device_id, "ops: applications/install, applications/launch", result, logs):
-            msg = f"[SUMMARY] outcome=OPTIONAL_FAILED, install_status=N/A, launch_status=N/A, test_id={test_id}, device={device_id}, appId={app_id}"
-            LOGGER.result(msg); logs.append(msg)
+            result.response = "['capability gate failed']"
             return result
 
-        msg = "[INFO] Capability gate passed."
-        LOGGER.info(msg); logs.append(msg)
+        LOGGER.info("[INFO] Capability gate passed."); logs.append("[INFO] Capability gate passed.")
 
-        # 1) Install from URL
-        msg = f"[STEP] applications/install {payload_install}"
-        LOGGER.result(msg); logs.append(msg)
-        rc_install, resp_install = execute_cmd_and_log(
-            tester, device_id, "applications/install", payload_install, logs, result
-        )
-        install_status = dab_status_from(resp_install, rc_install)
-        msg = f"[INFO] applications/install transport_rc={rc_install}, dab_status={install_status}"
-        LOGGER.info(msg); logs.append(msg)
+        # Install from local path
+        LOGGER.result(f"[STEP] applications/install {payload_install}"); logs.append(
+            f"[STEP] applications/install {payload_install}")
+        rc_i, resp_i = execute_cmd_and_log(tester, device_id, "applications/install",
+                                           payload_install, logs, result)
+        install_status = dab_status_from(resp_i, rc_i)
+        LOGGER.info(f"[INFO] install rc={rc_i}, status={install_status}"); logs.append(
+            f"[INFO] install rc={rc_i}, status={install_status}")
 
         if install_status != 200:
             result.test_result = "FAILED"
-            msg = f"[RESULT] FAILED — applications/install returned {install_status} (expected 200)"
-            LOGGER.result(msg); logs.append(msg)
-            msg = f"[SUMMARY] outcome=FAILED, install_status={install_status}, launch_status=N/A, test_id={test_id}, device={device_id}, appId={app_id}"
-            LOGGER.result(msg); logs.append(msg)
+            LOGGER.result(f"[RESULT] FAILED — install returned {install_status} (expected 200)"); logs.append(
+                f"[RESULT] FAILED — install returned {install_status}")
+            result.response = f"['install={install_status}, launch=N/A']"
+            LOGGER.result(f"[SUMMARY] outcome=FAILED, install_status={install_status}, launch_status=N/A, "
+                          f"test_id={test_id}, device={device_id}, appId={app_id}")
             return result
 
-        msg = f"[WAIT] {INSTALL_WAIT}s after install for finalization"
-        LOGGER.info(msg); logs.append(msg)
-        time.sleep(INSTALL_WAIT)
+        LOGGER.info(f"[WAIT] {POST_INSTALL_WAIT}s post-install"); logs.append(f"[WAIT] {POST_INSTALL_WAIT}s post-install")
+        time.sleep(POST_INSTALL_WAIT)
 
-        # 2) Launch to verify functional post-restart
-        msg = f"[STEP] applications/launch {payload_launch}"
-        LOGGER.result(msg); logs.append(msg)
-        rc_launch, resp_launch = execute_cmd_and_log(
-            tester, device_id, "applications/launch", payload_launch, logs, result
-        )
-        launch_status = dab_status_from(resp_launch, rc_launch)
-        msg = f"[INFO] applications/launch transport_rc={rc_launch}, dab_status={launch_status}"
-        LOGGER.info(msg); logs.append(msg)
+        # Launch to verify
+        LOGGER.result(f"[STEP] applications/launch {payload_launch}"); logs.append(
+            f"[STEP] applications/launch {payload_launch}")
+        rc_l, resp_l = execute_cmd_and_log(tester, device_id, "applications/launch",
+                                           payload_launch, logs, result)
+        launch_status = dab_status_from(resp_l, rc_l)
+        LOGGER.info(f"[INFO] launch rc={rc_l}, status={launch_status}"); logs.append(
+            f"[INFO] launch rc={rc_l}, status={launch_status}")
 
         if launch_status == 200:
             result.test_result = "PASS"
-            msg = "[RESULT] PASS — install (post-restart) 200 and launch 200"
-            LOGGER.result(msg); logs.append(msg)
+            LOGGER.result("[RESULT] PASS — install 200 and launch 200"); logs.append("[RESULT] PASS — install 200 and launch 200")
         else:
             result.test_result = "FAILED"
-            msg = f"[RESULT] FAILED — applications/launch returned {launch_status} (expected 200)"
-            LOGGER.result(msg); logs.append(msg)
+            LOGGER.result(f"[RESULT] FAILED — launch returned {launch_status} (expected 200)"); logs.append(
+                f"[RESULT] FAILED — launch returned {launch_status}")
 
-        msg = f"[SUMMARY] outcome={result.test_result}, install_status={install_status}, launch_status={launch_status}, test_id={test_id}, device={device_id}, appId={app_id}"
-        LOGGER.result(msg); logs.append(msg)
+        # Keep results.json lean
+        result.response = f"['install={install_status}, launch={launch_status}']"
+
+        LOGGER.result(f"[SUMMARY] outcome={result.test_result}, install_status={install_status}, "
+                      f"launch_status={launch_status}, test_id={test_id}, device={device_id}, appId={app_id}")
         return result
 
     except Exception as e:
         result.test_result = "SKIPPED"
-        msg = f"[RESULT] SKIPPED — internal error: {e} (test_id={test_id}, device={device_id}, appId={app_id})"
-        LOGGER.result(msg); logs.append(msg)
-        msg = f"[SUMMARY] outcome=SKIPPED, install_status=N/A, launch_status=N/A, test_id={test_id}, device={device_id}, appId={app_id}"
-        LOGGER.result(msg); logs.append(msg)
+        result.response = "['internal error']"
+        LOGGER.result(f"[RESULT] SKIPPED — internal error: {e} (test_id={test_id}, device={device_id}, appId={app_id})"); logs.append(
+            f"[RESULT] SKIPPED — internal error: {e}")
+        LOGGER.result(f"[SUMMARY] outcome=SKIPPED, install_status=N/A, launch_status=N/A, "
+                      f"test_id={test_id}, device={device_id}, appId={app_id}")
         return result
 
-config.install_sequence = [
-    {"key": "app1", "appId": "App1_Id", "url": "https://.../app1.apk"},
-    {"key": "app2", "appId": "App2_Id", "url": "https://.../app2.apk"},
-]
 
-def run_sequential_installs_then_launch(dab_topic, test_category, test_name, tester, device_id):
+def run_sequential_installs_then_launch(dab_topic, test_name, tester, device_id):
     """
-    Positive: Sequentially install N applications from valid URLs, then launch each to confirm functionality.
-    Flow per app: applications/install(url) -> wait -> applications/launch
-    Pass if ALL installs == 200 and ALL launches == 200.
-    Config expectations (pick one):
-      - config.install_sequence: list[{"key": "<cfg-key>", "appId": "<realId>", "url": "<apk-url>"}]
-      - config.apps["seq_targets"]: list[str cfg keys]; URL pulled from config using "<key>_url", apk_urls[key], or urls[key]
+    Positive: Sequentially install N applications then launch each.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    import json, time
+
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
 
-    # --- Build target list from config ---
-    targets = []
-    try:
-        # Preferred explicit structure
-        seq = getattr(config, "install_sequence", None)
-        if isinstance(seq, list) and seq:
-            for item in seq:
-                app_id = item.get("appId")
-                url    = item.get("url")
-                key    = item.get("key") or app_id or "unknown"
-                if app_id and url:
-                    targets.append({"key": key, "appId": app_id, "url": url})
-        else:
-            # Fallback: derive from named keys
-            keys = config.apps.get("seq_targets", [])
-            if not keys:
-                keys = ["sample_app"]  # minimal sensible default
-            for key in keys:
-                app_id = config.apps.get(key, key)
-                url = (
-                    config.apps.get(f"{key}_url")
-                    or getattr(config, "apk_urls", {}).get(key)
-                    or getattr(config, "urls", {}).get(key)
-                )
-                if app_id and url:
-                    targets.append({"key": key, "appId": app_id, "url": url})
-    except Exception:
-        targets = []
+    # --- Build targets via shared helper ---
+    targets = get_install_targets()
 
-    # If no valid targets, skip
-    payload_init = json.dumps({"apps": [t.get("appId") for t in targets]}) if targets else "{}"
+    payload_init = json.dumps({"apps": [t["appId"] for t in targets]}) if targets else "{}"
     result = TestResult(test_id, device_id, "applications/install", payload_init, "UNKNOWN", "", logs)
 
-    INSTALL_WAIT = 45  # per-app settle time
-
     try:
-        # Headers
         msg = f"[TEST] Sequential Installs from URL → Launch Each — {test_name} (test_id={test_id}, device={device_id})"
         LOGGER.result(msg); logs.append(msg)
-        msg = "[DESC] Flow per app: applications/install(url) → wait → applications/launch; PASS if all return 200."
+        msg = "[DESC] Flow per app: applications/install → wait → applications/launch; PASS if all return 200."
         LOGGER.result(msg); logs.append(msg)
 
         if not targets:
             result.test_result = "SKIPPED"
-            msg = "[RESULT] SKIPPED — no install targets with URLs configured (install_sequence or apps.seq_targets)"
+            msg = "[RESULT] SKIPPED — missing app artifacts or no targets configured"
             LOGGER.result(msg); logs.append(msg)
             msg = f"[SUMMARY] outcome=SKIPPED, apps=0, test_id={test_id}, device={device_id}"
             LOGGER.result(msg); logs.append(msg)
             return result
 
-        # Capability gate (install + launch)
         if not need(tester, device_id, "ops: applications/install, applications/launch", result, logs):
             msg = f"[SUMMARY] outcome=OPTIONAL_FAILED, apps={len(targets)}, test_id={test_id}, device={device_id}"
             LOGGER.result(msg); logs.append(msg)
             return result
 
-        msg = "[INFO] Capability gate passed."
-        LOGGER.info(msg); logs.append(msg)
+        LOGGER.info("[INFO] Capability gate passed."); logs.append("[INFO] Capability gate passed.")
 
-        # Run sequentially; stop on first failure to keep it simple
         installed = []
         for idx, t in enumerate(targets, 1):
-            app_id = t["appId"]; url = t["url"]; key = t["key"]
-            payload_install = json.dumps({"appId": app_id, "url": url})
-            payload_launch  = json.dumps({"appId": app_id})
+            app_id = t["appId"]; key = t["key"]
+            inst_payload = t["install_payload"]
+            payload_install = json.dumps(inst_payload) if isinstance(inst_payload, dict) else str(inst_payload)
 
-            # Install
             msg = f"[STEP {idx}] applications/install {payload_install}"
             LOGGER.result(msg); logs.append(msg)
-            rc_i, resp_i = execute_cmd_and_log(
-                tester, device_id, "applications/install", payload_install, logs, result
-            )
+            rc_i, resp_i = execute_cmd_and_log(tester, device_id, "applications/install", payload_install, logs, result)
             st_i = dab_status_from(resp_i, rc_i)
-            msg = f"[INFO] applications/install[{key}] transport_rc={rc_i}, dab_status={st_i}"
-            LOGGER.info(msg); logs.append(msg)
+            LOGGER.info(f"[INFO] applications/install[{key}] transport_rc={rc_i}, dab_status={st_i}")
+            logs.append(f"[INFO] applications/install[{key}] transport_rc={rc_i}, dab_status={st_i}")
             if st_i != 200:
                 result.test_result = "FAILED"
                 msg = f"[RESULT] FAILED — install[{key}] returned {st_i} (expected 200)"
@@ -5171,19 +5188,13 @@ def run_sequential_installs_then_launch(dab_topic, test_category, test_name, tes
                 LOGGER.result(msg); logs.append(msg)
                 return result
 
-            msg = f"[WAIT] {INSTALL_WAIT}s after install[{key}]"
-            LOGGER.info(msg); logs.append(msg)
-            time.sleep(INSTALL_WAIT)
-
-            # Launch
+            payload_launch = json.dumps({"appId": app_id})
             msg = f"[STEP {idx}] applications/launch {payload_launch}"
             LOGGER.result(msg); logs.append(msg)
-            rc_l, resp_l = execute_cmd_and_log(
-                tester, device_id, "applications/launch", payload_launch, logs, result
-            )
+            rc_l, resp_l = execute_cmd_and_log(tester, device_id, "applications/launch", payload_launch, logs, result)
             st_l = dab_status_from(resp_l, rc_l)
-            msg = f"[INFO] applications/launch[{key}] transport_rc={rc_l}, dab_status={st_l}"
-            LOGGER.info(msg); logs.append(msg)
+            LOGGER.info(f"[INFO] applications/launch[{key}] transport_rc={rc_l}, dab_status={st_l}")
+            logs.append(f"[INFO] applications/launch[{key}] transport_rc={rc_l}, dab_status={st_l}")
 
             if st_l != 200:
                 result.test_result = "FAILED"
@@ -5196,7 +5207,6 @@ def run_sequential_installs_then_launch(dab_topic, test_category, test_name, tes
 
             installed.append(key)
 
-        # If we reach here, all apps installed + launched
         result.test_result = "PASS"
         msg = f"[RESULT] PASS — all {len(targets)} apps installed and launched: {installed}"
         LOGGER.result(msg); logs.append(msg)
@@ -5205,6 +5215,13 @@ def run_sequential_installs_then_launch(dab_topic, test_category, test_name, tes
         LOGGER.result(msg); logs.append(msg)
         return result
 
+    except FileNotFoundError as e:
+        result.test_result = "SKIPPED"
+        msg = f"[RESULT] SKIPPED — missing app artifacts: {e}"
+        LOGGER.result(msg); logs.append(msg)
+        msg = f"[SUMMARY] outcome=SKIPPED, apps={len(targets)}, test_id={test_id}, device={device_id}"
+        LOGGER.result(msg); logs.append(msg)
+        return result
     except Exception as e:
         result.test_result = "SKIPPED"
         msg = f"[RESULT] SKIPPED — internal error: {e} (test_id={test_id}, device={device_id})"
@@ -5213,115 +5230,106 @@ def run_sequential_installs_then_launch(dab_topic, test_category, test_name, tes
         LOGGER.result(msg); logs.append(msg)
         return result
 
-def run_install_from_url_then_launch_simple(dab_topic, test_category, test_name, tester, device_id):
+def run_install_from_url_then_launch_simple(dab_topic, test_name, tester, device_id):
     """
-    Positive: Install an application from a valid APK URL when not already installed, then launch it.
-    Minimal flow: applications/install(url) -> wait -> applications/launch
+    Positive: install an application from a LOCAL ARTIFACT (any extension), then launch it.
+    Flow: applications/install(<local path payload>) -> wait -> applications/launch
     Pass if install == 200 and launch == 200.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
-    app_id = config.apps.get("sample_app", "Sample_App")  # target app ID
+    import json, time
+    from util.config_loader import ensure_app_available  # alias -> any-extension local payload
 
-    # Resolve the APK URL for this app from config (set one of these)
-    apk_url = (
-        config.apps.get("sample_app_url")
-        or getattr(config, "apk_urls", {}).get("sample_app")
-        or getattr(config, "urls", {}).get("sample_app")
-    )
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
+    app_id  = config.apps.get("sample_app", "Sample_App")  # target app ID
 
     logs = []
-    payload_install = json.dumps({"appId": app_id, "url": apk_url})
-    payload_launch  = json.dumps({"appId": app_id})
-    result = TestResult(test_id, device_id, "applications/install", payload_install, "UNKNOWN", "", logs)
+    result = TestResult(test_id, device_id, "applications/install", "{}", "UNKNOWN", "", logs)
 
-    INSTALL_WAIT = 45  # seconds to allow download + package manager finalize
+    INSTALL_WAIT = globals().get("APP_INSTALL_WAIT", 30)  # shorter since it's local, not a download
+
+    # keep raw device responses out of result.logs
+    scratch = []
+    def _call(topic: str, body_json: str):
+        return execute_cmd_and_log(tester, device_id, topic, body_json, scratch, result)
 
     try:
-        # Headers
-        msg = f"[TEST] Install From URL → Launch (Not Pre-Installed) — {test_name} (test_id={test_id}, device={device_id}, appId={app_id})"
-        LOGGER.result(msg); logs.append(msg)
-        msg = "[DESC] Flow: applications/install(url) → wait → applications/launch; PASS if both return 200."
-        LOGGER.result(msg); logs.append(msg)
+        # Header
+        for line in (
+            f"[TEST] Install From Local Path → Launch — {test_name} (test_id={test_id}, device={device_id}, appId={app_id})",
+            "[DESC] Flow: applications/install(local path payload) → wait → applications/launch; PASS if both return 200.",
+        ):
+            LOGGER.result(line); logs.append(line)
 
-        # Precondition: URL must be configured
-        if not apk_url:
+        # Resolve local artifact (returns {"appId","url","format","timeout"} with absolute path)
+        try:
+            install_payload = ensure_app_available(app_id=app_id)
+        except Exception as e:
             result.test_result = "SKIPPED"
-            msg = "[RESULT] SKIPPED — missing APK URL (sample_app_url / apk_urls['sample_app'] / urls['sample_app'])."
+            msg = f"[RESULT] SKIPPED — missing local artifact for '{app_id}': {e}"
             LOGGER.result(msg); logs.append(msg)
-            msg = f"[SUMMARY] outcome=SKIPPED, install_status=N/A, launch_status=N/A, test_id={test_id}, device={device_id}, appId={app_id}"
-            LOGGER.result(msg); logs.append(msg)
+            result.response = "['missing local artifact']"
             return result
 
-        # Capability gate (install + launch). If unsupported, need() fills result/logs and returns False.
+        # Capability gate
         if not need(tester, device_id, "ops: applications/install, applications/launch", result, logs):
-            msg = f"[SUMMARY] outcome=OPTIONAL_FAILED, install_status=N/A, launch_status=N/A, test_id={test_id}, device={device_id}, appId={app_id}"
-            LOGGER.result(msg); logs.append(msg)
+            LOGGER.result(f"[SUMMARY] outcome=OPTIONAL_FAILED, install_status=N/A, launch_status=N/A, test_id={test_id}, device={device_id}, appId={app_id}")
             return result
 
-        msg = "[INFO] Capability gate passed."
-        LOGGER.info(msg); logs.append(msg)
+        logs.append("[INFO] Capability gate passed.")
 
-        # 1) Install from URL
-        msg = f"[STEP] applications/install {payload_install}"
-        LOGGER.result(msg); logs.append(msg)
-        rc_install, resp_install = execute_cmd_and_log(
-            tester, device_id, "applications/install", payload_install, logs, result
-        )
-        install_status = dab_status_from(resp_install, rc_install)
-        msg = f"[INFO] applications/install transport_rc={rc_install}, dab_status={install_status}"
-        LOGGER.info(msg); logs.append(msg)
+        # 1) Install from local path (pass the WHOLE payload, not a string URL)
+        LOGGER.result(f"[STEP] Install '{app_id}' from local artifact"); logs.append(f"[STEP] Install '{app_id}' from local artifact")
+        rc_i, resp_i = _call("applications/install", json.dumps(install_payload))
+        install_status = dab_status_from(resp_i, rc_i)
+        logs.append(f"[INFO] install status={install_status}")
 
         if install_status != 200:
             result.test_result = "FAILED"
-            msg = f"[RESULT] FAILED — applications/install returned {install_status} (expected 200)"
-            LOGGER.result(msg); logs.append(msg)
-            msg = f"[SUMMARY] outcome=FAILED, install_status={install_status}, launch_status=N/A, test_id={test_id}, device={device_id}, appId={app_id}"
-            LOGGER.result(msg); logs.append(msg)
+            LOGGER.result(f"[RESULT] FAILED — install returned {install_status} (expected 200)"); logs.append(
+                f"[RESULT] FAILED — install returned {install_status} (expected 200)")
+            result.response = f"['install={install_status}']"
             return result
 
-        # Allow install to finalize
-        msg = f"[WAIT] {INSTALL_WAIT}s after install for finalization"
-        LOGGER.info(msg); logs.append(msg)
+        logs.append(f"[WAIT] {INSTALL_WAIT}s after install")
         time.sleep(INSTALL_WAIT)
 
-        # 2) Launch to confirm availability and basic functionality
-        msg = f"[STEP] applications/launch {payload_launch}"
-        LOGGER.result(msg); logs.append(msg)
-        rc_launch, resp_launch = execute_cmd_and_log(
-            tester, device_id, "applications/launch", payload_launch, logs, result
-        )
-        launch_status = dab_status_from(resp_launch, rc_launch)
-        msg = f"[INFO] applications/launch transport_rc={rc_launch}, dab_status={launch_status}"
-        LOGGER.info(msg); logs.append(msg)
+        # 2) Launch to confirm
+        payload_launch = json.dumps({"appId": app_id})
+        LOGGER.result(f"[STEP] Launch '{app_id}'"); logs.append(f"[STEP] Launch '{app_id}'")
+        rc_l, resp_l = _call("applications/launch", payload_launch)
+        launch_status = dab_status_from(resp_l, rc_l)
+        logs.append(f"[INFO] launch status={launch_status}")
 
         if launch_status == 200:
             result.test_result = "PASS"
-            msg = "[RESULT] PASS — install 200 and launch 200"
-            LOGGER.result(msg); logs.append(msg)
+            LOGGER.result("[RESULT] PASS — install 200 and launch 200"); logs.append("[RESULT] PASS — install 200 and launch 200")
         else:
             result.test_result = "FAILED"
-            msg = f"[RESULT] FAILED — applications/launch returned {launch_status} (expected 200)"
-            LOGGER.result(msg); logs.append(msg)
+            LOGGER.result(f"[RESULT] FAILED — launch returned {launch_status} (expected 200)"); logs.append(
+                f"[RESULT] FAILED — launch returned {launch_status} (expected 200)")
 
-        msg = f"[SUMMARY] outcome={result.test_result}, install_status={install_status}, launch_status={launch_status}, test_id={test_id}, device={device_id}, appId={app_id}"
-        LOGGER.result(msg); logs.append(msg)
+        result.response = f"['install={install_status}, launch={launch_status}']"
+        summary = (f"[SUMMARY] outcome={result.test_result}, install_status={install_status}, "
+                   f"launch_status={launch_status}, test_id={test_id}, device={device_id}, appId={app_id}")
+        LOGGER.result(summary); logs.append(summary)
         return result
 
     except Exception as e:
         result.test_result = "SKIPPED"
-        msg = f"[RESULT] SKIPPED — internal error: {e} (test_id={test_id}, device={device_id}, appId={app_id})"
-        LOGGER.result(msg); logs.append(msg)
-        msg = f"[SUMMARY] outcome=SKIPPED, install_status=N/A, launch_status=N/A, test_id={test_id}, device={device_id}, appId={app_id}"
-        LOGGER.result(msg); logs.append(msg)
+        LOGGER.result(f"[RESULT] SKIPPED — internal error: {e} (test_id={test_id}, device={device_id}, appId={app_id})"); logs.append(
+            f"[RESULT] SKIPPED — internal error: {e} (test_id={test_id}, device={device_id}, appId={app_id})")
+        LOGGER.result(f"[SUMMARY] outcome=SKIPPED, install_status=N/A, launch_status=N/A, test_id={test_id}, device={device_id}, appId={app_id}"); logs.append(
+            f"[SUMMARY] outcome=SKIPPED, install_status=N/A, launch_status=N/A, test_id={test_id}, device={device_id}, appId={app_id}")
         return result
+
     
-def run_clear_data_accessibility_settings_reset(dab_topic, test_category, test_name, tester, device_id):
+def run_clear_data_accessibility_settings_reset(dab_topic, test_name, tester, device_id):
     """
     Positive: Verify applications/clear-data resets a third-party app's accessibility settings to defaults.
     Flow: applications/launch -> applications/clear-data -> applications/launch
     Pass if clear-data returns 200. (Accessibility reset verification is manual/OEM.)
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id = config.apps.get("sample_app", "Sample_App")
     logs = []
     payload_app = json.dumps({"appId": app_id})
@@ -5396,13 +5404,13 @@ def run_clear_data_accessibility_settings_reset(dab_topic, test_category, test_n
         LOGGER.result(msg); logs.append(msg)
         return result
 
-def run_clear_data_session_reset(dab_topic, test_category, test_name, tester, device_id):
+def run_clear_data_session_reset(dab_topic, test_name, tester, device_id):
     """
     Positive: Verify applications/clear-data clears a third-party app's user login/session data.
     Flow: applications/launch -> applications/clear-data -> applications/launch
     Pass if clear-data returns 200. (Session reset verification is manual/OEM).
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id = config.apps.get("sample_app", "Sample_App")
     logs = []
     payload_app = json.dumps({"appId": app_id})
@@ -5477,11 +5485,11 @@ def run_clear_data_session_reset(dab_topic, test_category, test_name, tester, de
         LOGGER.result(msg); logs.append(msg)
         return result
 
-def run_voice_log_collection_check(dab_topic, test_category, test_name, tester, device_id):
+def run_voice_log_collection_check(dab_topic, test_name, tester, device_id):
     """
     Verifies that voice assistant activity is captured in the system logs. This is a manual verification test.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/logs/start-collection", "{}", "UNKNOWN", "", logs)
     # Variables for the final summary log
@@ -5582,11 +5590,11 @@ def run_voice_log_collection_check(dab_topic, test_category, test_name, tester, 
 
     return result
 
-def run_idle_log_collection_check(dab_topic, test_category, test_name, tester, device_id):
+def run_idle_log_collection_check(dab_topic, test_name, tester, device_id):
     """
     Verifies that system logs are collected correctly during an idle period. This is a manual verification test.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/logs/start-collection", "{}", "UNKNOWN", "", logs)
     # Variable for the final summary log
@@ -5670,12 +5678,12 @@ def run_idle_log_collection_check(dab_topic, test_category, test_name, tester, d
 
     return result
 
-def run_channel_switch_log_check(dab_topic, test_category, test_name, tester, device_id):
+def run_channel_switch_log_check(dab_topic, test_name, tester, device_id):
     """
     Verifies that system logs are collected correctly during rapid TV channel switching.
     This is a manual verification test.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/logs/start-collection", "{}", "UNKNOWN", "", logs)
     # Variable for the final summary log
@@ -5760,12 +5768,12 @@ def run_channel_switch_log_check(dab_topic, test_category, test_name, tester, de
     return result
 
 
-def run_app_switch_log_check(dab_topic, test_category, test_name, tester, device_id):
+def run_app_switch_log_check(dab_topic, test_name, tester, device_id):
     """
     Verifies that system logs are collected correctly during an app switch.
     This is a manual verification test.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/logs/start-collection", "{}", "UNKNOWN", "", logs)
     # Variable for the final summary log
@@ -5865,12 +5873,12 @@ def run_app_switch_log_check(dab_topic, test_category, test_name, tester, device
 
     return result
 
-def run_clear_data_preinstalled_app_check(dab_topic, test_category, test_name, tester, device_id):
+def run_clear_data_preinstalled_app_check(dab_topic, test_name, tester, device_id):
     """
     Verifies that 'applications/clear-data' works on a non-removable, pre-installed app.
     This is a manual verification test.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "applications/clear-data", "{}", "UNKNOWN", "", logs)
     app_id = "N/A"
@@ -5978,12 +5986,12 @@ def run_clear_data_preinstalled_app_check(dab_topic, test_category, test_name, t
 
     return result
 
-def run_install_region_specific_app_check(dab_topic, test_category, test_name, tester, device_id):
+def run_install_region_specific_app_check(dab_topic, test_name, tester, device_id):
     """
     Verifies that a region-specific app can be installed and shows correct localization.
     This is a manual verification test.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id = "localApp963" # Example App ID for a region-specific app
     logs = []
     result = TestResult(test_id, device_id, "applications/install-from-app-store", "{}", "UNKNOWN", "", logs)
@@ -6088,12 +6096,12 @@ def run_install_region_specific_app_check(dab_topic, test_category, test_name, t
 
     return result
 
-def run_update_installed_app_check(dab_topic, test_category, test_name, tester, device_id):
+def run_update_installed_app_check(dab_topic, test_name, tester, device_id):
     """
     Verifies that an already installed application can be updated to a newer version.
     This is a manual verification test.
     """
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id = "updatableApp123" # Example App ID for an app that has an older version
     logs = []
     result = TestResult(test_id, device_id, "applications/install-from-app-store", "{}", "UNKNOWN", "", logs)
@@ -6199,12 +6207,12 @@ def run_update_installed_app_check(dab_topic, test_category, test_name, tester, 
     return result
 
 # === Test 38: Log Collection Check ===
-def run_logs_collection_check(dab_topic, test_category, test_name, tester, device_id):
+def run_logs_collection_check(dab_topic, test_name, tester, device_id):
     """
     Validates that logs can be collected successfully.
     """
 
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/logs/start-collection", json.dumps({}), "UNKNOWN", "", logs)
 
@@ -6286,12 +6294,12 @@ def run_logs_collection_check(dab_topic, test_category, test_name, tester, devic
     return result
 
 # === Test 39: Log Collection For Major System Services Check ===
-def run_logs_collection_for_major_system_services_check(dab_topic, test_category, test_name, tester, device_id):
+def run_logs_collection_for_major_system_services_check(dab_topic, test_name, tester, device_id):
     """
     Validates that logs can be collected successfully for major system services.
     """
 
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/logs/start-collection", json.dumps({}), "UNKNOWN", "", logs)
 
@@ -6396,12 +6404,12 @@ def run_logs_collection_for_major_system_services_check(dab_topic, test_category
     return result
 
 # === Test 40: Log Collection While App Pause Check ===
-def run_logs_collection_app_pause_check(dab_topic, test_category, test_name, tester, device_id):
+def run_logs_collection_app_pause_check(dab_topic, test_name, tester, device_id):
     """
     Validates that logs can be collected successfully while an app pause.
     """
 
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     appId = config.apps.get("youtube", "YouTube")
     result = TestResult(test_id, device_id, "system/logs/start-collection", json.dumps({}), "UNKNOWN", "", logs)
@@ -6520,12 +6528,12 @@ def run_logs_collection_app_pause_check(dab_topic, test_category, test_name, tes
     return result
 
 # === Test 41: Log Collection While Background App Is Force-Stopped Check ===
-def run_logs_collection_app_force_stop_check(dab_topic, test_category, test_name, tester, device_id):
+def run_logs_collection_app_force_stop_check(dab_topic, test_name, tester, device_id):
     """
     Validates that logs can be collected successfully while While Background App Is Force-Stopped.
     """
 
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     appId = config.apps.get("youtube", "YouTube")
     result = TestResult(test_id, device_id, "system/logs/start-collection", json.dumps({}), "UNKNOWN", "", logs)
@@ -6659,12 +6667,12 @@ def run_logs_collection_app_force_stop_check(dab_topic, test_category, test_name
     return result
 
 # === Test 42: Log Collection During App Uninstallation Check ===
-def run_logs_collection_app_uninstall_check(dab_topic, test_category, test_name, tester, device_id):
+def run_logs_collection_app_uninstall_check(dab_topic, test_name, tester, device_id):
     """
     Validates that logs can be collected successfully while App Uninstallation.
     """
 
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     appId = config.apps.get("youtube", "YouTube")
     result = TestResult(test_id, device_id, "system/logs/start-collection", json.dumps({}), "UNKNOWN", "", logs)
@@ -6768,12 +6776,12 @@ def run_logs_collection_app_uninstall_check(dab_topic, test_category, test_name,
     return result
 
 # === Test 43: Log Collection While App Install And Launch Check ===
-def run_logs_collection_app_install_and_launch_check(dab_topic, test_category, test_name, tester, device_id):
+def run_logs_collection_app_install_and_launch_check(dab_topic, test_name, tester, device_id):
     """
     Validates that logs can be collected successfully while install and launch App.
     """
 
-    test_id = to_test_id(f"{dab_topic}/{test_category}")
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     appId = config.apps.get("store_app", "Store_App")  # valid, not-installed appId
     payload_app = json.dumps({"appId": appId})

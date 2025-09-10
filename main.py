@@ -20,7 +20,7 @@ import output_image
 import netflix
 import functional
 from logger import LOGGER
-from util.config_loader import init_interactive_setup
+from util.config_loader import init_interactive_setup, make_app_id_list
 import sys 
 
 ALL_SUITES = {
@@ -81,10 +81,14 @@ if __name__ == "__main__":
     LOGGER.verbose = bool(args.verbose)
     device_id = args.ID
 
-    # ---- init mode (interactive) ----
-    if args.init:
-        init_interactive_setup(app_ids=("Sample_App",), ask_store_url=True)
-        sys.exit(0)
+    # ---- interactive bootstrap for sample apps ----
+    if getattr(args, "init", False):
+        # Fixed to exactly three apps; make_app_id_list() now returns the allowed set.
+        ids = make_app_id_list()
+        print(f"[INIT] Managing fixed app set: {ids}")
+        init_interactive_setup(app_ids=tuple(ids))  # safe: function uses the fixed allow-list
+        print("[INIT] Done.")
+        sys.exit(0)  # if you use 'from sys import exit as sys_exit', change to: sys_exit(0)
 
     Tester = DabTester(args.broker, override_dab_version=args.dab_version)
 
