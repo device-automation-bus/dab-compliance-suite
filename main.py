@@ -21,6 +21,7 @@ import netflix
 import functional
 from logger import LOGGER
 from util.config_loader import init_interactive_setup
+from util.config_loader import init_interactive_setup, make_app_id_list
 import sys 
 
 ALL_SUITES = {
@@ -81,9 +82,17 @@ if __name__ == "__main__":
     LOGGER.verbose = bool(args.verbose)
     device_id = args.ID
 
-    # ---- init mode (interactive) ----
-    if args.init:
-        init_interactive_setup(app_ids=("Sample_App",), ask_store_url=True)
+    # ---- interactive bootstrap for sample apps ----
+    if getattr(args, "init", False):
+        try:
+            raw_n = input("How many sample apps to configure? [3]: ").strip()
+            n = int(raw_n) if raw_n else 3
+        except Exception:
+            n = 3
+        base = input("Base name for apps [Sample_App]: ").strip() or "Sample_App"
+        app_ids = make_app_id_list(count=n, base_name=base)
+        init_interactive_setup(app_ids=tuple(app_ids))
+        print("[INIT] Done.")
         sys.exit(0)
 
     Tester = DabTester(args.broker, override_dab_version=args.dab_version)

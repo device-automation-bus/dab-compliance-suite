@@ -786,9 +786,17 @@ stop_log_collection_response_schema = {
     "properties": {
         "status": {"type": "integer"},
         "error": {"type": "string"},
-        "logs": {"type": "string"}  # or binary/file path depending on device
+        # keep logs
+        "logs": {"type": "string"},
+        # just add logArchive support
+        "logArchive": {"type": "string"}
     },
-    "required": ["status", "logs"]
+    # require status AND at least one of logs or logArchive
+    "required": ["status"],
+    "anyOf": [
+        {"required": ["logs"]},
+        {"required": ["logArchive"]}
+    ]
 }
 
 # Operation: system/power-mode/get

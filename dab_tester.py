@@ -13,6 +13,7 @@ import os
 from util.enforcement_manager import EnforcementManager
 from util.enforcement_manager import ValidateCode
 from util.config_loader import resolve_body_or_raise, PayloadConfigError
+from util.output_image_handler import handle_output_image_response
 from sys import exit as sys_exit
 import re
 import time  
@@ -478,7 +479,18 @@ class DabTester:
                 # Send DAB request via broker
                 try:
                     code = self.execute_cmd(device_id, dab_request_topic, dab_request_body)
-                    test_result.response = self.dab_client.response()
+                    resp_text = self.dab_client.response() or ""
+                    status_code = self.dab_client.last_error_code()
+                    test_result.response = resp_text
+                    # Topics whose responses are big/noisy (don’t store full response in JSON)
+                    HEAVY_TOPICS = {"system/logs/stop-collection", "output/image"}
+                    if dab_request_topic in HEAVY_TOPICS:
+                        outcome = "SUCCESS" if status_code == 200 else f"ERROR {status_code}"
+                        log(test_result, f"[INFO] Response summary for '{dab_request_topic}': HTTP {status_code} ({outcome})")
+                    else:
+                        # For normal topics, keep existing behavior
+                        test_result.response = resp_text
+
                 except Exception as e:
                     test_result.test_result = "SKIPPED"
                     log(test_result, f"\033[1;34m[ SKIPPED - Internal Error During Execution ]\033[0m {str(e)}")
@@ -569,7 +581,8 @@ class DabTester:
                 log(test_result, f"\033[1;34m[ SKIPPED - Internal Error ]\033[0m {str(e)}")
 
             if self.verbose and test_result.test_result != "SKIPPED":
-                log(test_result, test_result.response)
+                if dab_request_topic not in {"system/logs/stop-collection", "output/image"} and getattr(test_result, "response", None):
+                    log(test_result, test_result.response)
 
             # ---------- close the test section ----------
             total_ms = int((time.time() - section_wall_start) * 1000)
@@ -655,7 +668,7 @@ class DabTester:
                 if callable(test_func):
                     result = None
                     try:
-                        result = test_func(dab_topic, test_category, pretty_name, self, device_id)
+                        result = test_func(dab_topic, pretty_name, self, device_id)
                         # Ensure we always append a TestResult-like object
                         if result is None:
                             result = TestResult(
@@ -802,6 +815,7 @@ class DabTester:
         """
         if not output_path:
             output_path = f"./test_result/{suite_name}.json"
+        os.environ["DAB_RESULTS_JSON"] = os.path.abspath(output_path)
 
         def _outcome_of(r):
             return getattr(r, "test_result", None) or getattr(r, "outcome", None) or ""
@@ -818,6 +832,57 @@ class DabTester:
             except Exception:
                 self.logger.warn(f"An invalid result object was skipped in the JSON writer: {r}")
 
+        # --- Save heavy artifacts (logs/images) and replace response with a short summary ---
+        HEAVY_TOPICS = {"system/logs/stop-collection", "output/image"}
+
+        # handlers expect the final results.json path (we only need its directory)
+        results_json_path = output_path or f"./test_result/{suite_name}.json"
+
+        for r in valid_results:
+            topic = getattr(r, "operation", "") or getattr(r, "topic", "")
+            if topic not in HEAVY_TOPICS:
+                continue
+
+            # Parse response to dict (best-effort)
+            resp_raw = getattr(r, "response", None)
+            if isinstance(resp_raw, dict):
+                resp_obj = resp_raw
+            elif isinstance(resp_raw, str) and resp_raw.strip():
+                try:
+                    resp_obj = json.loads(resp_raw)
+                except Exception:
+                    resp_obj = {}
+            else:
+                resp_obj = {}
+
+            device_id = getattr(r, "device_id", None)
+
+            # Call the right handler
+            msg = None
+            try:
+                if topic == "output/image":
+                    msg = handle_output_image_response(resp_obj, results_json_path, device_id)
+            except Exception as e:
+                msg = f"[WARN] Artifact save failed: {e}"
+
+            # Ensure a logs list exists and record where we saved things
+            try:
+                if not hasattr(r, "logs") or r.logs is None:
+                    setattr(r, "logs", [])
+                if msg:
+                    r.logs.append(msg)
+            except Exception:
+                pass
+
+            # Replace raw response with a concise summary (no big payloads in results.json)
+            status = resp_obj.get("status") if isinstance(resp_obj, dict) else None
+            if isinstance(status, int):
+                outcome = "SUCCESS" if status == 200 else f"ERROR {status}"
+                summary = f"Response summary for '{topic}': HTTP {status} ({outcome})"
+            else:
+                summary = f"Response summary for '{topic}': stored artifact; see logs."
+            setattr(r, "response", summary)
+        # -------------------------------------------------------------------------------
         # Clean only valid results so what we write is tidy
         self.clean_result_fields(valid_results, fields_to_clean=["logs", "request", "response"])
 
@@ -1094,17 +1159,35 @@ def get_test_tool_version():
 
 def log(test_result, str_print):
     """
-    Normalizes any incoming text (even if it has leading/trailing newlines),
-    prints each non-empty line via the unified LOGGER with a timestamp,
-    and stores the stamped line into test_result.logs.
+    Print with timestamp to console, but store a clean line in result.logs
+    (no leading datetime or [LEVEL] tags) for results.json.
     """
+    import re
+
+    # Matches:
+    #   2025-09-06 17:22:47.784
+    #   2025-09-06T17:22:47
+    #   optional [RESULT]/[INFO]/[OK]/... tag after timestamp
+    ts_re = re.compile(
+        r'^\s*'                                   # leading spaces
+        r'(?:\d{4}-\d{2}-\d{2}[ T]'               # date + space or T
+        r'\d{2}:\d{2}:\d{2}(?:\.\d+)?\s*)?'       # time(.ms) (optional)
+        r'(?:\[[A-Z]+\]\s*)?'                     # optional [LEVEL] tag
+    )
+
     s = str(str_print).replace("\r\n", "\n")
     for raw in s.split("\n"):
         line = raw.strip()
         if not line:
-            continue 
-        LOGGER.result(line)                  # console with timestamp
-        test_result.logs.append(LOGGER.stamp(line))  # persist stamped line
+            continue
+        # Console keeps timestamp (handled by LOGGER)
+        LOGGER.result(line)
+        # JSON keeps a clean message (strip ts + [LEVEL] if present)
+        try:
+            clean = ts_re.sub("", line).strip()
+        except Exception:
+            clean = line
+        test_result.logs.append(clean)
 
 def YesNoQuestion(test_result, question=""):
     positive = ['yes', 'y']
