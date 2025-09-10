@@ -20,7 +20,6 @@ import output_image
 import netflix
 import functional
 from logger import LOGGER
-from util.config_loader import init_interactive_setup
 from util.config_loader import init_interactive_setup, make_app_id_list
 import sys 
 

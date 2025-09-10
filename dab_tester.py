@@ -832,18 +832,15 @@ class DabTester:
             except Exception:
                 self.logger.warn(f"An invalid result object was skipped in the JSON writer: {r}")
 
-        # --- Save heavy artifacts (logs/images) and replace response with a short summary ---
+        # --- Summarize heavy topics (no artifact saving here) ---
         HEAVY_TOPICS = {"system/logs/stop-collection", "output/image"}
-
-        # handlers expect the final results.json path (we only need its directory)
-        results_json_path = output_path or f"./test_result/{suite_name}.json"
 
         for r in valid_results:
             topic = getattr(r, "operation", "") or getattr(r, "topic", "")
             if topic not in HEAVY_TOPICS:
                 continue
 
-            # Parse response to dict (best-effort)
+            # Parse response to dict (best-effort) for status summarization
             resp_raw = getattr(r, "response", None)
             if isinstance(resp_raw, dict):
                 resp_obj = resp_raw
@@ -855,26 +852,7 @@ class DabTester:
             else:
                 resp_obj = {}
 
-            device_id = getattr(r, "device_id", None)
-
-            # Call the right handler
-            msg = None
-            try:
-                if topic == "output/image":
-                    msg = handle_output_image_response(resp_obj, results_json_path, device_id)
-            except Exception as e:
-                msg = f"[WARN] Artifact save failed: {e}"
-
-            # Ensure a logs list exists and record where we saved things
-            try:
-                if not hasattr(r, "logs") or r.logs is None:
-                    setattr(r, "logs", [])
-                if msg:
-                    r.logs.append(msg)
-            except Exception:
-                pass
-
-            # Replace raw response with a concise summary (no big payloads in results.json)
+            # Build concise summary (no big payloads in results.json)
             status = resp_obj.get("status") if isinstance(resp_obj, dict) else None
             if isinstance(status, int):
                 outcome = "SUCCESS" if status == 200 else f"ERROR {status}"
@@ -882,9 +860,19 @@ class DabTester:
             else:
                 summary = f"Response summary for '{topic}': stored artifact; see logs."
             setattr(r, "response", summary)
+            # Ensure a logs list exists; reference any path that the step saved
+            try:
+                if not hasattr(r, "logs") or r.logs is None:
+                    setattr(r, "logs", [])
+                saved_path = getattr(r, "saved_image_path", None)
+                if topic == "output/image" and saved_path:
+                    r.logs.append(f"[INFO] Screenshot (from step): {saved_path}")
+            except Exception:
+                pass
         # -------------------------------------------------------------------------------
-        # Clean only valid results so what we write is tidy
-        self.clean_result_fields(valid_results, fields_to_clean=["logs", "request", "response"])
+
+        # Clean only valid results so what we write is tidy (keep logs!)
+        self.clean_result_fields(valid_results, fields_to_clean=["request", "response"])
 
         # Counts must match what we write
         total = len(valid_results)

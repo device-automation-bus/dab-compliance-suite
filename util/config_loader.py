@@ -97,11 +97,13 @@ def _load_allowed_ids(path: str = APP_IDS_JSON, max_count: int = 3, silent: bool
 
 def _allowed_ids() -> List[str]:
     """Return the current 3 allowed app IDs (from JSON if present, else defaults)."""
-    ids = _load_allowed_ids()
-    # Always ensure we end up with exactly <=3 and preserve order
-    ids = [i for i in ids if i in {"Sample_App", "Sample_App1", "Large_App"} or True][:3]
-    return ids
-
+    ids = [i for i in _load_allowed_ids() if i]
+    if not ids:
+        ids = ["Sample_App", "Sample_App1", "Large_App"]
+    return ids[:3]
+ 
+def make_app_id_list(count=3, base_name="Sample_App"):
+    return [base_name if i == 0 else f"{base_name}{i}" for i in range(count)]
 
 def _enforce_allowed(app_id: str) -> str:
     """Raise if app_id is not in the allowed list; return normalized safe id otherwise."""
@@ -387,6 +389,14 @@ def get_appstore_url_or_fail(config_path: str = DEFAULT_STORE_JSON) -> str:
         )
     return url
 
+def get_or_prompt_appstore_url(config_path: str = DEFAULT_STORE_JSON) -> str:
+    try:
+        return get_appstore_url_or_fail(config_path)
+    except Exception:
+        url = input("Enter App Store URL (e.g. https://...): ").strip()
+        if not url:
+            raise ValueError("App Store URL is required.")
+        return url
 
 def get_or_prompt_appstore_url(
     config_path: str = DEFAULT_STORE_JSON,

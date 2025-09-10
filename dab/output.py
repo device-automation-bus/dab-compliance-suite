@@ -41,6 +41,16 @@ def image(test_result, durationInMs=0, expectedLatencyMs=0):
             filename_prefix=getattr(test_result, "operation", "output_image"),
         )
         setattr(test_result, "_artifact_saved", True)  # optional: avoid re-save later
+        setattr(test_result, "saved_image_path", png_path)
+
+        # record where the image is saved in logs (optional but helpful)
+        try:
+            if not hasattr(test_result, "logs") or test_result.logs is None:
+                test_result.logs = []
+            test_result.logs.append(f"[INFO] Screenshot saved: {png_path}")
+        except Exception:
+            pass
+
     except Exception as e:
         print("Image save error:", e)
         return False
