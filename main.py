@@ -84,16 +84,12 @@ if __name__ == "__main__":
 
     # ---- interactive bootstrap for sample apps ----
     if getattr(args, "init", False):
-        try:
-            raw_n = input("How many sample apps to configure? [3]: ").strip()
-            n = int(raw_n) if raw_n else 3
-        except Exception:
-            n = 3
-        base = input("Base name for apps [Sample_App]: ").strip() or "Sample_App"
-        app_ids = make_app_id_list(count=n, base_name=base)
-        init_interactive_setup(app_ids=tuple(app_ids))
+        # Fixed to exactly three apps; make_app_id_list() now returns the allowed set.
+        ids = make_app_id_list()
+        print(f"[INIT] Managing fixed app set: {ids}")
+        init_interactive_setup(app_ids=tuple(ids))  # safe: function uses the fixed allow-list
         print("[INIT] Done.")
-        sys.exit(0)
+        sys.exit(0)  # if you use 'from sys import exit as sys_exit', change to: sys_exit(0)
 
     Tester = DabTester(args.broker, override_dab_version=args.dab_version)
 

@@ -1,31 +1,34 @@
 """
 Helpers for resolving local app artifacts and App Store URLs for DAB tests.
 
-Highlights:
-- Accept ANY file extension for app artifacts (no hardcoding).
-- Friendly interactive init for N apps; if a FILE PATH is pasted at the base-name prompt,
-  it is auto-used for the FIRST app and the base stays 'Sample_App'.
-- Non-interactive payload builders for tests.
-- Per-app URL map (appId -> url) at config/apps/app_urls.json.
-- Backward-compatible single legacy URL (config/apps/sample_app.json).
+This version ENFORCES exactly three allowed apps and URLs:
+  - "Sample_App"
+  - "Sample_App1"
+  - "Large_App"
 
-Stable APIs:
+Minimal-impact changes:
+- Introduces a fixed allow‑list; all public helpers validate app IDs against it.
+- Keeps existing APIs and behaviors otherwise.
+- Still supports per‑app URL map at config/apps/app_urls.json (limited to the 3 IDs).
+- Optionally lets you override *which* three via config/apps/app_ids.json, but we
+  always cap to 3. (Edit that file only if you really need to swap an ID.)
+
+Stable APIs preserved:
 - ensure_app_available_anyext(app_id="Sample_App", config_dir=..., timeout=..., prompt_if_missing=False)
 - ensure_apps_available_anyext(app_ids=[...], ...)
-- make_app_id_list(count=3, base_name="Sample_App")
-- init_sample_apps(count=3, base_name="Sample_App", config_dir=..., ask_store_url=True, store_config_path=...)
-- get_sample_apps_payloads(count=3, base_name="Sample_App", ...)
-- get_apps_payloads(app_ids=[...], ...)
-- init_interactive_setup(app_ids=("Sample_App",), ...)        # legacy wrapper
-- ensure_app_available(...) & ensure_apps_available(...)      # legacy aliases
+- make_app_id_list(count=3, base_name="Sample_App")  # base_name ignored; returns the 3 allowed
+- init_sample_apps(count=3, base_name="Sample_App", ...)  # count/base ignored; manages the 3 allowed
+- get_sample_apps_payloads(...), get_apps_payloads(...)
+- init_interactive_setup(app_ids=("Sample_App",), ...)  # legacy wrapper now manages the 3 allowed
+- ensure_app_available(...), ensure_apps_available(...)  # legacy aliases
 
-URL helpers:
+URL helpers preserved (restricted to the 3 IDs):
 - set_app_url(app_id, url)
-- get_app_url_or_fail(app_id)             # prefers per-app; falls back to global
+- get_app_url_or_fail(app_id)
 - get_urls_for_apps([ids...]) -> {id:url}
 - load_app_urls_map()/save_app_urls_map()
 
-Misc:
+Misc preserved:
 - App Store URL helpers (get_appstore_url_or_fail, get_or_prompt_appstore_url, ...)
 - PayloadConfigError + resolve_body_or_raise
 """
@@ -41,12 +44,20 @@ from typing import Dict, List, Optional
 from logger import LOGGER  # shared suite logger
 
 # -------------------------------------------------------------------------
-# Defaults
+# Defaults & NEW allow-list config
 # -------------------------------------------------------------------------
 
 DEFAULT_CONFIG_DIR = "config/apps"
 DEFAULT_STORE_JSON = f"{DEFAULT_CONFIG_DIR}/sample_app.json"  # legacy single URL
 APP_URLS_JSON = f"{DEFAULT_CONFIG_DIR}/app_urls.json"         # per-app URL map
+APP_IDS_JSON = f"{DEFAULT_CONFIG_DIR}/app_ids.json"           # optional override list (<=3)
+
+# Fixed three app IDs (edit APP_IDS_JSON to override, still capped at 3)
+ALLOWED_APP_IDS_DEFAULT: List[str] = [
+    "Sample_App",
+    "Sample_App1",
+    "Large_App"
+]
 
 # -------------------------------------------------------------------------
 # Small utilities
@@ -58,11 +69,57 @@ def _safe_app_id(app_id: str) -> str:
     return s or "app"
 
 
+def _load_allowed_ids(path: str = APP_IDS_JSON, max_count: int = 3, silent: bool = True) -> List[str]:
+    """Load up to 3 allowed app IDs from JSON array; fall back to defaults.
+
+    JSON format (optional): ["Sample_App", "Sample_App1", "Large_App"]
+    Regardless of file contents, we always cap to 3 entries.
+    """
+    try:
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, list):
+                ids = []
+                for x in data:
+                    if not isinstance(x, str):
+                        continue
+                    sid = _safe_app_id(x)
+                    if sid and sid not in ids:
+                        ids.append(sid)
+                if ids:
+                    return ids[:max_count]
+    except Exception as e:
+        if not silent:
+            LOGGER.warn(f"[INIT] Failed to load app_ids from '{path}': {e}")
+    return ALLOWED_APP_IDS_DEFAULT[:max_count]
+
+
+def _allowed_ids() -> List[str]:
+    """Return the current 3 allowed app IDs (from JSON if present, else defaults)."""
+    ids = _load_allowed_ids()
+    # Always ensure we end up with exactly <=3 and preserve order
+    ids = [i for i in ids if i in {"Sample_App", "Sample_App1", "Large_App"} or True][:3]
+    return ids
+
+
+def _enforce_allowed(app_id: str) -> str:
+    """Raise if app_id is not in the allowed list; return normalized safe id otherwise."""
+    sid = _safe_app_id(app_id)
+    allowed = _allowed_ids()
+    if sid not in allowed:
+        raise ValueError(
+            f"Unsupported app_id='{app_id}'. Allowed: {allowed}. "
+            f"(Edit {APP_IDS_JSON} only if you must swap IDs; still limited to 3.)"
+        )
+    return sid
+
+
 def _find_first_app_file(app_id: str, config_dir: str) -> Optional[Path]:
     """
-    Find an artifact in config_dir:
+    Find an artifact in config_dir for the given app_id (case-insensitive):
       - exact filename without extension, OR
-      - any extension starting with '<app_id>.' (case-insensitive).
+      - any extension starting with '<app_id>.'
     """
     root = Path(config_dir)
     if not root.exists():
@@ -115,17 +172,17 @@ def _remove_app_files(app_id: str, config_dir: str) -> int:
 
 
 def _to_install_payload(app_id: str, file_path: Path, timeout: int = 60000) -> Dict[str, object]:
-    """Build a standard install payload for applications/install."""
+    """Build a standard install payload for applications/install (any extension)."""
     ext = file_path.suffix[1:].lower() if file_path.suffix else "bin"
     return {
         "appId": app_id,
-        "url": str(file_path),     # absolute filesystem path (no file://)
+        "url": str(file_path),  # absolute filesystem path (no file://)
         "format": ext or "bin",
         "timeout": int(timeout),
     }
 
 # -------------------------------------------------------------------------
-# Core ensure (ANY extension)
+# Core ensure (ANY extension) — now validates allowed IDs
 # -------------------------------------------------------------------------
 
 def ensure_app_available_anyext(
@@ -136,6 +193,7 @@ def ensure_app_available_anyext(
 ) -> Dict[str, object]:
     """
     Ensure an app artifact exists under config_dir with ANY extension.
+    Only the 3 allowed app IDs are supported.
 
     Strategy:
       - Looks for '<app_id>' or '<app_id>.<ext>'.
@@ -144,7 +202,7 @@ def ensure_app_available_anyext(
 
     Returns: payload usable by `applications/install`.
     """
-    app_id = _safe_app_id(app_id)
+    app_id = _enforce_allowed(app_id)
     Path(config_dir).mkdir(parents=True, exist_ok=True)
 
     found = _find_first_app_file(app_id, config_dir)
@@ -176,33 +234,37 @@ def ensure_apps_available_anyext(
     timeout: int = 60000,
     prompt_if_missing: bool = False,
 ) -> List[Dict[str, object]]:
-    """Ensure multiple apps are available. Returns payloads in given order."""
+    """Ensure multiple apps (max 3) are available. Returns payloads in given order."""
+    allowed = _allowed_ids()
+    ids: List[str] = []
+    for a in (app_ids or []):
+        sid = _enforce_allowed(a)
+        ids.append(sid)
+    if len(ids) > 3:
+        LOGGER.warn(f"[INIT] More than 3 app IDs requested; truncating to: {allowed}")
+        ids = allowed
     return [
         ensure_app_available_anyext(
-            app_id=_safe_app_id(a),
+            app_id=a,
             config_dir=config_dir,
             timeout=timeout,
             prompt_if_missing=prompt_if_missing,
         )
-        for a in app_ids
+        for a in ids
     ]
 
 # -------------------------------------------------------------------------
-# Uniform N-app helpers
+# Uniform app helpers — now fixed to the allow-list
 # -------------------------------------------------------------------------
 
 def make_app_id_list(count: int = 3, base_name: str = "Sample_App") -> List[str]:
     """
-    Build ['Sample_App', 'Sample_App1', 'Sample_App2', ...] with cleaned ids.
-    Hardening: if base_name looks like a *path* or has a *file suffix*, fall back to 'Sample_App'.
+    Return the 3 allowed app IDs. Parameters kept for backward compatibility.
+    - `count` and `base_name` are ignored; we always return up to 3 allowed IDs.
+    - Edit config/apps/app_ids.json to swap IDs if you must (still limited to 3).
     """
-    looks_like_path = False
-    if base_name:
-        if ("/" in base_name) or ("\\" in base_name) or Path(base_name).suffix:
-            looks_like_path = True
-    raw_base = "Sample_App" if looks_like_path else (base_name or "Sample_App")
-    base = (raw_base[:1].upper() + raw_base[1:])
-    return [_safe_app_id(base if i == 0 else f"{base}{i}") for i in range(count)]
+    ids = _allowed_ids()
+    return ids[:3]
 
 
 def init_sample_apps(
@@ -212,15 +274,9 @@ def init_sample_apps(
     ask_store_url: bool = True,
     store_config_path: str = DEFAULT_STORE_JSON,
 ) -> None:
-    """
-    Interactive init for N sample apps.
-
-    For each appId in make_app_id_list(...):
-      - If artifact exists: allow Keep/Replace/Delete.
-      - If missing: prompt once for a file and copy it.
-    """
+    """Interactive init strictly for the 3 allowed apps (artifacts + optional URLs)."""
     Path(config_dir).mkdir(parents=True, exist_ok=True)
-    app_ids = make_app_id_list(count=count, base_name=base_name)
+    app_ids = make_app_id_list()  # fixed 3
 
     LOGGER.info(f"[INIT] Preparing in: {Path(config_dir).resolve()}")
 
@@ -262,11 +318,10 @@ def init_sample_apps(
         except Exception as e:
             LOGGER.warn(f"[INIT][WARN] {app_id}: {e}")
 
-    # Optional per-app URL prompts
+    # Optional per-app URL prompts (only for the 3 allowed IDs)
     if ask_store_url:
         LOGGER.info("[INIT] Configure App Store URLs (per app). Leave blank to keep/skip.")
         urls_map = load_app_urls_map(silent=True)
-        changed = False
         for app_id in app_ids:
             current_url = urls_map.get(app_id, "")
             prompt = f"Enter App Store URL for '{app_id}'"
@@ -276,19 +331,10 @@ def init_sample_apps(
             entered = input(prompt).strip()
             if entered:
                 set_app_url(app_id, entered)
-                changed = True
                 LOGGER.info(f"[INIT] URL set for '{app_id}'.")
-        if not changed:
-            LOGGER.info("[INIT] No per-app URL changes.")
-        # Fallback: if none set per-app, offer legacy single URL
-        if not any(load_app_urls_map(silent=True).values()):
-            try:
-                current = load_appstore_url(store_config_path)
-            except FileNotFoundError:
-                current = ""
 
 # -------------------------------------------------------------------------
-# Batch payload builders
+# Batch payload builders (restricted to the 3 allowed IDs)
 # -------------------------------------------------------------------------
 
 def get_sample_apps_payloads(
@@ -297,7 +343,7 @@ def get_sample_apps_payloads(
     config_dir: str = DEFAULT_CONFIG_DIR,
     timeout: int = 60000,
 ) -> List[Dict[str, object]]:
-    app_ids = make_app_id_list(count=count, base_name=base_name)
+    app_ids = make_app_id_list()
     return ensure_apps_available_anyext(
         app_ids=app_ids,
         config_dir=config_dir,
@@ -312,12 +358,15 @@ def get_apps_payloads(
     timeout: int = 60000,
 ) -> List[Dict[str, object]]:
     return ensure_apps_available_anyext(
-        app_ids=[_safe_app_id(a) for a in app_ids],
+        app_ids=[_enforce_allowed(a) for a in app_ids],
         config_dir=config_dir,
         timeout=timeout,
         prompt_if_missing=False,
     )
 
+# -------------------------------------------------------------------------
+# Global App Store helpers (unchanged)
+# -------------------------------------------------------------------------
 
 def load_appstore_url(config_path: str = DEFAULT_STORE_JSON) -> str:
     """Load the global App Store URL string from JSON (raises if file missing)."""
@@ -341,7 +390,7 @@ def get_appstore_url_or_fail(config_path: str = DEFAULT_STORE_JSON) -> str:
 
 def get_or_prompt_appstore_url(
     config_path: str = DEFAULT_STORE_JSON,
-    prompt_if_missing: bool = False
+    prompt_if_missing: bool = False,
 ) -> str:
     """
     Backwards-compatible shim:
@@ -357,7 +406,7 @@ def get_or_prompt_appstore_url(
         raise
 
 # -------------------------------------------------------------------------
-# Per-app URL map (appId -> url)
+# Per-app URL map (restricted to the 3 allowed IDs)
 # -------------------------------------------------------------------------
 
 def load_app_urls_map(path: str = APP_URLS_JSON, silent: bool = False) -> Dict[str, str]:
@@ -382,16 +431,21 @@ def save_app_urls_map(mapping: Dict[str, str], path: str = APP_URLS_JSON) -> Non
 
 
 def set_app_url(app_id: str, url: str, path: str = APP_URLS_JSON) -> None:
-    """Set per-app URL in the map (overwrites existing value)."""
+    """Set per-app URL in the map (overwrites existing value). Limited to allowed IDs."""
+    sid = _enforce_allowed(app_id)
     mapping = load_app_urls_map(path, silent=True)
-    mapping[_safe_app_id(app_id)] = (url or "").strip()
+    mapping[sid] = (url or "").strip()
+    # Keep only allowed keys and limit to 3 entries
+    allowed = set(_allowed_ids())
+    mapping = {k: v for k, v in mapping.items() if k in allowed}
     save_app_urls_map(mapping, path)
 
 
 def get_app_url_or_fail(app_id: str, path: str = APP_URLS_JSON, fallback_global: str = DEFAULT_STORE_JSON) -> str:
     """Get per-app URL; if missing, fall back to global; else raise with guidance."""
+    sid = _enforce_allowed(app_id)
     mapping = load_app_urls_map(path, silent=True)
-    url = (mapping.get(_safe_app_id(app_id), "") or "").strip()
+    url = (mapping.get(sid, "") or "").strip()
     if url:
         return url
     # Fallback to legacy single URL
@@ -399,20 +453,21 @@ def get_app_url_or_fail(app_id: str, path: str = APP_URLS_JSON, fallback_global:
     if url and url.strip():
         return url
     raise ValueError(
-        f"No URL configured for app_id='{app_id}'. "
+        f"No URL configured for app_id='{sid}'. "
         f"Run --init to set per-app URLs or configure global URL at {fallback_global}."
     )
 
 
 def get_urls_for_apps(app_ids: List[str], path: str = APP_URLS_JSON, fallback_global: str = DEFAULT_STORE_JSON) -> Dict[str, str]:
     """Return a dict of appId->url for requested app IDs (raises if any missing)."""
-    return {
-        _safe_app_id(a): get_app_url_or_fail(a, path=path, fallback_global=fallback_global)
-        for a in app_ids
-    }
+    urls: Dict[str, str] = {}
+    for a in app_ids:
+        sid = _enforce_allowed(a)
+        urls[sid] = get_app_url_or_fail(sid, path=path, fallback_global=fallback_global)
+    return urls
 
 # -------------------------------------------------------------------------
-# Payload builder & error
+# Payload builder & error (unchanged)
 # -------------------------------------------------------------------------
 
 class PayloadConfigError(Exception):
@@ -451,19 +506,20 @@ def resolve_body_or_raise(body_spec) -> str:
         raise PayloadConfigError(str(e), _hint_from_reason(e))
 
 # -------------------------------------------------------------------------
-# Backward-compatibility aliases
+# Backward-compatibility aliases (unchanged API, new restrictions apply)
 # -------------------------------------------------------------------------
 
 def ensure_app_available(*args, **kwargs):
-    """Legacy alias → any-extension version."""
+    """Legacy alias → any-extension version (still restricted to 3 allowed apps)."""
     return ensure_app_available_anyext(*args, **kwargs)
 
+
 def ensure_apps_available(app_ids, **kwargs):
-    """Legacy alias for batch ensure; preserves old import sites."""
+    """Legacy alias for batch ensure; preserves old import sites (max 3 apps)."""
     return ensure_apps_available_anyext(app_ids=app_ids, **kwargs)
 
 # -------------------------------------------------------------------------
-# Interactive bootstrap wrapper for --init
+# Interactive bootstrap wrapper for --init (now fixed to 3 allowed apps)
 # -------------------------------------------------------------------------
 
 def init_interactive_setup(
@@ -473,53 +529,21 @@ def init_interactive_setup(
     store_config_path: str = DEFAULT_STORE_JSON,
 ) -> None:
     """
-    Interactive bootstrap for --init.
+    Interactive bootstrap for --init, restricted to exactly 3 allowed apps.
 
-    FIXED: If the user mistakenly pastes a FILE PATH at the "Base name" prompt,
-    we do NOT turn that into an app id. Instead:
-      - Use 'Sample_App', 'Sample_App1', ... as ids.
-      - Auto-use that file for the first app (no second prompt).
+    Notes:
+    - Ignores any provided `app_ids` beyond validation; always manages the 3 allowed
+      from `_allowed_ids()` to keep behavior consistent across runs.
+    - The earlier base-name / count prompts are removed by design.
     """
     Path(config_dir).mkdir(parents=True, exist_ok=True)
     LOGGER.info(f"[INIT] Preparing in: {Path(config_dir).resolve()}")
 
-    # If explicit ids provided (legacy path), just manage those.
-    if app_ids:
-        ids = [_safe_app_id(a) for a in app_ids]
-        first_file_hint = None
-    else:
-        # How many apps
-        raw_n = input("How many sample apps to configure? [3]: ").strip()
-        try:
-            n = int(raw_n) if raw_n else 3
-        except ValueError:
-            n = 3
-
-        # Base name (may be misused as a path!)
-        base_in = input("Base name for apps [Sample_App]: ").strip()
-        first_file_hint: Optional[Path] = None
-
-        # Detect if user pasted a file path here; handle gracefully.
-        looks_like_path = False
-        if base_in:
-            if ("/" in base_in) or ("\\" in base_in) or Path(base_in).suffix:
-                looks_like_path = True
-
-        if looks_like_path:
-            maybe_file = Path(base_in).expanduser().resolve()
-            if maybe_file.exists() and maybe_file.is_file():
-                first_file_hint = maybe_file
-                LOGGER.info("[INIT] Detected file path in base-name prompt; will use it for the FIRST app.")
-            else:
-                LOGGER.warn(f"[INIT] Provided base-name looks like a path, but not a file: {maybe_file}")
-            base = "Sample_App"  # always fall back to a safe base
-        else:
-            base = base_in or "Sample_App"
-
-        ids = make_app_id_list(count=n, base_name=base)
+    # Always use the allowed three
+    ids = make_app_id_list()
 
     # Manage each app: Keep / Replace / Delete, or add if missing.
-    for idx, app_id in enumerate(ids):
+    for app_id in ids:
         try:
             existing = _find_first_app_file(app_id, config_dir)
             if existing:
@@ -545,14 +569,6 @@ def init_interactive_setup(
                 else:
                     LOGGER.info(f"[INIT] Kept '{app_id}'.")
             else:
-                # If a file path was provided at base-name prompt, use it for the FIRST app and skip prompting.
-                if idx == 0:
-                    first_hint = locals().get("first_file_hint", None)
-                    if first_hint and isinstance(first_hint, Path) and first_hint.exists() and first_hint.is_file():
-                        dest = _copy_into_config_dir(first_hint, config_dir, app_id)
-                        LOGGER.info(f"[INIT] Added artifact for '{app_id}': {dest}")
-                        continue
-                # Normal add flow (single prompt) — make the destination explicit to the user
                 LOGGER.info(
                     f"[INIT] '{app_id}' has no artifact. You will be prompted to select a file, "
                     f"which will be stored as '{Path(config_dir) / (app_id + '.<ext>')}'."
@@ -565,13 +581,12 @@ def init_interactive_setup(
         except Exception as e:
             LOGGER.warn(f"[INIT][WARN] {app_id}: {e}")
 
-    # Optional per-app URLs, then legacy single URL if none set
+    # Optional per-app URLs (only 3, same names)
     if ask_store_url:
         try:
             urls_map = load_app_urls_map(silent=True)
         except Exception:
             urls_map = {}
-        changed = False
         for app_id in ids:
             current = urls_map.get(app_id, "")
             prompt = f"Enter App Store URL for '{app_id}'"
@@ -581,10 +596,4 @@ def init_interactive_setup(
             entered = input(prompt).strip()
             if entered:
                 set_app_url(app_id, entered)
-                changed = True
                 LOGGER.info(f"[INIT] URL set for '{app_id}'.")
-        if not changed:
-            try:
-                current_url = load_appstore_url(store_config_path)
-            except FileNotFoundError:
-                current_url = ""
