@@ -57,4 +57,21 @@ def image(test_result, durationInMs=0, expectedLatencyMs=0):
 
     # 5) Prompt and run default timing validation
     prompt = f"Verify '{png_path}' exists and shows the screenshot"
-    return YesNoQuestion(test_result, prompt) and Default_Validations(test_result, durationInMs, expectedLatencyMs)
+    ok = YesNoQuestion(test_result, prompt) and Default_Validations(test_result, durationInMs, expectedLatencyMs)
+
+    # 6) After user validation succeeds, delete the saved file (minimal change)
+    if ok:
+        try:
+            if os.path.exists(png_path):
+                os.remove(png_path)
+                try:
+                    test_result.logs.append(f"[INFO] Deleted screenshot after validation: {png_path}")
+                except Exception:
+                    pass
+        except Exception as e:
+            try:
+                test_result.logs.append(f"[WARN] Failed to delete screenshot: {e}")
+            except Exception:
+                pass
+
+    return ok
