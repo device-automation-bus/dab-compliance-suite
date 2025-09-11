@@ -23,7 +23,8 @@ DEVICE_REBOOT_WAIT = 180  # Max wait for device reboot
 TELEMETRY_DURATION_MS = 5000
 TELEMETRY_METRICS_WAIT = 30  # Max wait for telemetry metrics (seconds)
 HEALTH_CHECK_INTERVAL = 5    # Seconds between health check polls
-ASSISITANT_WAIT = 5
+ASSISTANT_INIT = 10
+ASSISTANT_WAIT = 10
 LOGS_COLLECTION_WAIT = 30  # Seconds for logs collection wait
 SCREENSAVER_TIMEOUT_WAIT = 30  # Screensaver timeout for idle wait
 
@@ -5501,30 +5502,80 @@ def run_voice_log_collection_check(dab_topic, test_name, tester, device_id):
         for line in (
             f"[TEST] Voice Activity Log Collection Check (Manual) — {test_name} (test_id={test_id}, device={device_id})",
             "[DESC] Goal: Start log collection, send a voice command, stop collection, and manually verify the logs.",
-            "[DESC] Required ops: system/logs/start-collection, voice/send-text, system/logs/stop-collection.",
+            "[DESC] Required ops: voice/list, voice/set, system/logs/start-collection, voice/send-text, system/logs/stop-collection.",
             "[DESC] Pass criteria: User confirmation that the voice command appears in the collected system logs.",
         ):
             LOGGER.result(line)
             logs.append(line)
 
         # Capability gate for all required DAB operations
-        required_ops = "ops: system/logs/start-collection, voice/send-text, system/logs/stop-collection"
+        required_ops = "ops: voice/list, voice/set, system/logs/start-collection, voice/send-text, system/logs/stop-collection"
         if not need(tester, device_id, required_ops, result, logs):
             return result
 
-        # Precondition: Manually verify that the device supports a voice assistant
-        line = "[STEP] Manual check required: Checking for Voice Assistant support."
+        # Step 1: Manually select one supported voice system on the device.
+        line = f"[STEP] Listing voice systems for manual selection."
         LOGGER.result(line)
         logs.append(line)
-        supports_voice = yes_or_no(result, logs, "Does this device support a Voice Assistant feature?")
-        if not supports_voice:
-            result.test_result = "OPTIONAL_FAILED"
-            line = "[RESULT] OPTIONAL_FAILED — Test skipped because the device does not support a voice assistant."
+        topic = "voice/list"
+        payload = json.dumps({})
+        rc, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
+        if dab_status_from(response, rc) != 200:
+            result.test_result = "FAILED"
+            line = "[RESULT] FAILED — Could not list supported voice systems as a precondition."
             LOGGER.result(line)
             logs.append(line)
             return result
 
-        # Step 1: Start log collection
+        voiceSystems = json.loads(response).get("voiceSystems")
+        if not voiceSystems:
+            result.test_result = "OPTIONAL_FAILED"
+            line = "[RESULT] OPTIONAL_FAILED — Test skipped because there are no voice systems in the list."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        voiceSystem_list = []
+
+        for voiceSystem in voiceSystems:
+            name = voiceSystem.get("name")
+            voiceSystem_list.append(name)
+
+        logs.append(f"Please select one supported voice system in the list.")
+        print(f"Please select one supported voice system in the list.")
+        index = select_input(result, logs, voiceSystem_list)
+        if index == 0:
+            print(f"There are no supported voice system in the list.")
+            logs.append(f"[OPTIONAL_FAILED] There are no supported voice system in the list.")
+            result.test_result = "OPTIONAL_FAILED"
+            print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+            return result
+
+        voiceSystem = voiceSystem_list[index - 1]
+        line = f"Select voice system '{voiceSystem}'."
+        logs.append(line)
+        LOGGER.info(line)
+
+        print(voiceSystems[index-1])
+        enabled = voiceSystems[index-1].get("enabled")
+        if enabled == False:
+            line = f"Voice system {voiceSystem} is disabled, try to enable it."
+            logs.append(line)
+            LOGGER.info(line)
+            rc, response = execute_cmd_and_log(tester, device_id, "voice/set", json.dumps({"voiceSystem": {"name": voiceSystem, "enabled": True}}), logs)
+            if dab_status_from(response, rc) != 200:
+                result.test_result = "FAILED"
+                line = "[RESULT] FAILED — Could not enable the supported voice system {voiceSystem} on the device."
+                LOGGER.result(line)
+                logs.append(line)
+                return result
+
+            line = f"Waiting for {ASSISTANT_INIT}s to initial voice system {voiceSystem}"
+            LOGGER.result(line)
+            logs.append(line)
+            time.sleep(ASSISTANT_INIT)
+
+        # Step 2: Start log collection
         line = "[STEP] Starting system log collection."
         LOGGER.result(line)
         logs.append(line)
@@ -5536,24 +5587,51 @@ def run_voice_log_collection_check(dab_topic, test_name, tester, device_id):
             logs.append(line)
             return result
 
-        # Step 2: Send a voice command
+        # Step 3: Send a voice command
         voice_command = "Open YouTube"
-        payload_voice = json.dumps({"requestText": voice_command})
+        payload_voice = json.dumps({"requestText": voice_command, "voiceSystem": voiceSystem})
         line = f"[STEP] Sending voice command: '{voice_command}'"
         LOGGER.result(line)
         logs.append(line)
         execute_cmd_and_log(tester, device_id, "voice/send-text", payload_voice, logs, result)
 
         # Allow time for the command to be processed and logged
-        time.sleep(ASSISITANT_WAIT)
+        time.sleep(ASSISTANT_WAIT)
 
-        # Step 3: Stop log collection
-        line = "[STEP] Stopping system log collection."
+        # Step 4: Waiting for 10 seconds to collect logs.
+        line = f"[STEP] Waiting for {LOGS_COLLECTION_WAIT} seconds to collect logs."
         LOGGER.result(line)
         logs.append(line)
-        execute_cmd_and_log(tester, device_id, "system/logs/stop-collection", "{}", logs, result)
+        countdown(f"Waiting for {LOGS_COLLECTION_WAIT} seconds to collect logs.", LOGS_COLLECTION_WAIT)
 
-        # Step 4: Manual verification of logs
+        # Step 5: Stop logs collection, and generate logs.tar.gz file.
+        line = f"[STEP] Stop logs collection, and generate logs.tar.gz file."
+        LOGGER.result(line)
+        logs.append(line)
+        topic = "system/logs/stop-collection"
+        payload = json.dumps({})
+        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
+        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
+        if validate_state == False:
+            return result
+        validate_state = EnforcementManager().verify_logs_chunk(tester, logs)
+        if validate_state == False:
+            result.test_result = "FAILED"
+            return result
+
+        # Step 6: Uncompress logs.tar.gz and verify logs structure.
+        line = f"[STEP] Uncompress logs.tar.gz and verify logs structure."
+        LOGGER.result(line)
+        logs.append(line)
+        validate_state = EnforcementManager().verify_logs_structure(logs)
+        if validate_state == False:
+            result.test_result = "FAILED"
+            return result
+        else:
+            print(f"The logs structure follows DAB requirement.")
+            logs.append(f"The logs structure follows DAB requirement.")
+
+        # Step 7: Manual verification of logs
         line = "[STEP] Manual action required: Please retrieve and inspect the collected system logs."
         LOGGER.result(line)
         logs.append(line)
@@ -5635,13 +5713,34 @@ def run_idle_log_collection_check(dab_topic, test_name, tester, device_id):
         logs.append(line)
         countdown("Idle log collection", wait_duration)
 
-        # Step 3: Stop log collection
-        line = "[STEP] Stopping system log collection."
+        # Step 3: Stop logs collection, and generate logs.tar.gz file.
+        line = f"[STEP] Stop logs collection, and generate logs.tar.gz file."
         LOGGER.result(line)
         logs.append(line)
-        execute_cmd_and_log(tester, device_id, "system/logs/stop-collection", "{}", logs, result)
+        topic = "system/logs/stop-collection"
+        payload = json.dumps({})
+        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
+        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
+        if validate_state == False:
+            return result
+        validate_state = EnforcementManager().verify_logs_chunk(tester, logs)
+        if validate_state == False:
+            result.test_result = "FAILED"
+            return result
 
-        # Step 4: Manual verification of logs
+        # Step 4: Uncompress logs.tar.gz and verify logs structure.
+        line = f"[STEP] Uncompress logs.tar.gz and verify logs structure."
+        LOGGER.result(line)
+        logs.append(line)
+        validate_state = EnforcementManager().verify_logs_structure(logs)
+        if validate_state == False:
+            result.test_result = "FAILED"
+            return result
+        else:
+            print(f"The logs structure follows DAB requirement.")
+            logs.append(f"The logs structure follows DAB requirement.")
+
+        # Step 5: Manual verification of logs
         line = "[STEP] Manual action required: Please retrieve and inspect the collected system logs."
         LOGGER.result(line)
         logs.append(line)
@@ -5724,13 +5823,34 @@ def run_channel_switch_log_check(dab_topic, test_name, tester, device_id):
         logs.append(line)
         countdown("Channel switching period", wait_duration)
 
-        # Step 3: Stop log collection
-        line = "[STEP] Stopping system log collection."
+        # Step 3: Stop logs collection, and generate logs.tar.gz file.
+        line = f"[STEP] Stop logs collection, and generate logs.tar.gz file."
         LOGGER.result(line)
         logs.append(line)
-        execute_cmd_and_log(tester, device_id, "system/logs/stop-collection", "{}", logs, result)
+        topic = "system/logs/stop-collection"
+        payload = json.dumps({})
+        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
+        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
+        if validate_state == False:
+            return result
+        validate_state = EnforcementManager().verify_logs_chunk(tester, logs)
+        if validate_state == False:
+            result.test_result = "FAILED"
+            return result
 
-        # Step 4: Manual verification of logs
+        # Step 4: Uncompress logs.tar.gz and verify logs structure.
+        line = f"[STEP] Uncompress logs.tar.gz and verify logs structure."
+        LOGGER.result(line)
+        logs.append(line)
+        validate_state = EnforcementManager().verify_logs_structure(logs)
+        if validate_state == False:
+            result.test_result = "FAILED"
+            return result
+        else:
+            print(f"The logs structure follows DAB requirement.")
+            logs.append(f"The logs structure follows DAB requirement.")
+
+        # Step 5: Manual verification of logs
         line = "[STEP] Manual action required: Please retrieve and inspect the collected system logs."
         LOGGER.result(line)
         logs.append(line)
@@ -5779,7 +5899,7 @@ def run_app_switch_log_check(dab_topic, test_name, tester, device_id):
     # Variable for the final summary log
     logs_are_valid = "N/A"
     app1_id = config.apps.get("youtube", "YouTube")
-    app2_id = config.apps.get("prime_video", "Prime Video")
+    app2_id = config.apps.get("primevideo", "PrimeVideo")
 
 
     try:
@@ -5830,13 +5950,40 @@ def run_app_switch_log_check(dab_topic, test_name, tester, device_id):
         logs.append(line)
         time.sleep(APP_LAUNCH_WAIT)
 
-        # Step 4: Stop log collection
-        line = "[STEP] Stopping system log collection."
+        # Step 4: Waiting for 10 seconds to collect logs.
+        line = f"[STEP] Waiting for {LOGS_COLLECTION_WAIT} seconds to collect logs."
         LOGGER.result(line)
         logs.append(line)
-        execute_cmd_and_log(tester, device_id, "system/logs/stop-collection", "{}", logs, result)
+        countdown(f"Waiting for {LOGS_COLLECTION_WAIT} seconds to collect logs.", LOGS_COLLECTION_WAIT)
 
-        # Step 5: Manual verification of logs
+        # Step 5: Stop logs collection, and generate logs.tar.gz file.
+        line = f"[STEP] Stop logs collection, and generate logs.tar.gz file."
+        LOGGER.result(line)
+        logs.append(line)
+        topic = "system/logs/stop-collection"
+        payload = json.dumps({})
+        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
+        validate_state, result = validate_response(tester, topic, payload, response, result, logs)
+        if validate_state == False:
+            return result
+        validate_state = EnforcementManager().verify_logs_chunk(tester, logs)
+        if validate_state == False:
+            result.test_result = "FAILED"
+            return result
+
+        # Step 6: Uncompress logs.tar.gz and verify logs structure.
+        line = f"[STEP] Uncompress logs.tar.gz and verify logs structure."
+        LOGGER.result(line)
+        logs.append(line)
+        validate_state = EnforcementManager().verify_logs_structure(logs)
+        if validate_state == False:
+            result.test_result = "FAILED"
+            return result
+        else:
+            print(f"The logs structure follows DAB requirement.")
+            logs.append(f"The logs structure follows DAB requirement.")
+
+        # Step 7: Manual verification of logs
         line = "[STEP] Manual action required: Please retrieve and inspect the collected system logs."
         LOGGER.result(line)
         logs.append(line)
@@ -6255,23 +6402,25 @@ def run_logs_collection_check(dab_topic, test_name, tester, device_id):
         # Step 3: Stop logs collection, and generate logs.tar.gz file.
         line = f"[STEP] Stop logs collection, and generate logs.tar.gz file."
         LOGGER.result(line)
-        logs.append(line) 
+        logs.append(line)
         topic = "system/logs/stop-collection"
         payload = json.dumps({})
         _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
         validate_state, result = validate_response(tester, topic, payload, response, result, logs)
         if validate_state == False:
             return result
-        validate_state, result = EnforcementManager().verify_logs_chunk(tester, result, logs)
+        validate_state = EnforcementManager().verify_logs_chunk(tester, logs)
         if validate_state == False:
+            result.test_result = "FAILED"
             return result
 
         # Step 4: Uncompress logs.tar.gz and verify logs structure.
         line = f"[STEP] Uncompress logs.tar.gz and verify logs structure."
         LOGGER.result(line)
         logs.append(line)
-        validate_state, result = EnforcementManager().verify_logs_structure(result, logs)
+        validate_state = EnforcementManager().verify_logs_structure(logs)
         if validate_state == False:
+            result.test_result = "FAILED"
             return result
         else:
             print(f"The logs structure follows DAB requirement.")
@@ -6358,16 +6507,18 @@ def run_logs_collection_for_major_system_services_check(dab_topic, test_name, te
         validate_state, result = validate_response(tester, topic, payload, response, result, logs)
         if validate_state == False:
             return result
-        validate_state, result = EnforcementManager().verify_logs_chunk(tester, result, logs)
+        validate_state = EnforcementManager().verify_logs_chunk(tester, logs)
         if validate_state == False:
+            result.test_result = "FAILED"
             return result
 
         # Step 5: Uncompress logs.tar.gz and verify logs structure.
         line = f"[STEP] Uncompress logs.tar.gz and verify logs structure."
         LOGGER.result(line)
         logs.append(line)
-        validate_state, result = EnforcementManager().verify_logs_structure(result, logs)
+        validate_state = EnforcementManager().verify_logs_structure(logs)
         if validate_state == False:
+            result.test_result = "FAILED"
             return result
         else:
             print(f"The logs structure follows DAB requirement.")
@@ -6475,23 +6626,25 @@ def run_logs_collection_app_pause_check(dab_topic, test_name, tester, device_id)
         # Step 5: Stop logs collection, and generate logs.tar.gz file.
         line = f"[STEP] Stop logs collection, and generate logs.tar.gz file."
         LOGGER.result(line)
-        logs.append(line) 
+        logs.append(line)
         topic = "system/logs/stop-collection"
         payload = json.dumps({})
         _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
         validate_state, result = validate_response(tester, topic, payload, response, result, logs)
         if validate_state == False:
             return result
-        validate_state, result = EnforcementManager().verify_logs_chunk(tester, result, logs)
+        validate_state = EnforcementManager().verify_logs_chunk(tester, logs)
         if validate_state == False:
+            result.test_result = "FAILED"
             return result
 
         # Step 6: Uncompress logs.tar.gz and verify logs structure.
         line = f"[STEP] Uncompress logs.tar.gz and verify logs structure."
         LOGGER.result(line)
         logs.append(line)
-        validate_state, result = EnforcementManager().verify_logs_structure(result, logs)
+        validate_state = EnforcementManager().verify_logs_structure(logs)
         if validate_state == False:
+            result.test_result = "FAILED"
             return result
         else:
             print(f"The logs structure follows DAB requirement.")
@@ -6614,23 +6767,25 @@ def run_logs_collection_app_force_stop_check(dab_topic, test_name, tester, devic
         # Step 6: Stop logs collection, and generate logs.tar.gz file.
         line = f"[STEP] Stop logs collection, and generate logs.tar.gz file."
         LOGGER.result(line)
-        logs.append(line) 
+        logs.append(line)
         topic = "system/logs/stop-collection"
         payload = json.dumps({})
         _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
         validate_state, result = validate_response(tester, topic, payload, response, result, logs)
         if validate_state == False:
             return result
-        validate_state, result = EnforcementManager().verify_logs_chunk(tester, result, logs)
+        validate_state = EnforcementManager().verify_logs_chunk(tester, logs)
         if validate_state == False:
+            result.test_result = "FAILED"
             return result
 
         # Step 7: Uncompress logs.tar.gz and verify logs structure.
         line = f"[STEP] Uncompress logs.tar.gz and verify logs structure."
         LOGGER.result(line)
         logs.append(line)
-        validate_state, result = EnforcementManager().verify_logs_structure(result, logs)
+        validate_state = EnforcementManager().verify_logs_structure(logs)
         if validate_state == False:
+            result.test_result = "FAILED"
             return result
         else:
             print(f"The logs structure follows DAB requirement.")
@@ -6723,23 +6878,25 @@ def run_logs_collection_app_uninstall_check(dab_topic, test_name, tester, device
         # Step 4: Stop logs collection, and generate logs.tar.gz file.
         line = f"[STEP] Stop logs collection, and generate logs.tar.gz file."
         LOGGER.result(line)
-        logs.append(line)        
+        logs.append(line)
         topic = "system/logs/stop-collection"
         payload = json.dumps({})
         _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
         validate_state, result = validate_response(tester, topic, payload, response, result, logs)
         if validate_state == False:
             return result
-        validate_state, result = EnforcementManager().verify_logs_chunk(tester, result, logs)
+        validate_state = EnforcementManager().verify_logs_chunk(tester, logs)
         if validate_state == False:
+            result.test_result = "FAILED"
             return result
 
         # Step 5: Uncompress logs.tar.gz and verify logs structure.
         line = f"[STEP] Uncompress logs.tar.gz and verify logs structure."
         LOGGER.result(line)
         logs.append(line)
-        validate_state, result = EnforcementManager().verify_logs_structure(result, logs)
+        validate_state = EnforcementManager().verify_logs_structure(logs)
         if validate_state == False:
+            result.test_result = "FAILED"
             return result
         else:
             print(f"The logs structure follows DAB requirement.")
@@ -6860,38 +7017,40 @@ def run_logs_collection_app_install_and_launch_check(dab_topic, test_name, teste
             LOGGER.result(msg); logs.append(msg)
             return result
 
-	    # Step 4: Waiting for logs collections.
+        # Step 4: Waiting for logs collections.
         line = f"[STEP] Waiting for {LOGS_COLLECTION_WAIT} seconds to collect logs."
         LOGGER.result(line)
         logs.append(line)
         countdown(f"Waiting for {LOGS_COLLECTION_WAIT} seconds to collect logs.", LOGS_COLLECTION_WAIT)
 
- 	    # Step 5: Stop logs collection, and generate logs.tar.gz file.
+        # Step 5: Stop logs collection, and generate logs.tar.gz file.
         line = f"[STEP] Stop logs collection, and generate logs.tar.gz file."
         LOGGER.result(line)
-        logs.append(line)        
+        logs.append(line)
         topic = "system/logs/stop-collection"
         payload = json.dumps({})
         _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
         validate_state, result = validate_response(tester, topic, payload, response, result, logs)
         if validate_state == False:
             return result
-        validate_state, result = EnforcementManager().verify_logs_chunk(tester, result, logs)
+        validate_state = EnforcementManager().verify_logs_chunk(tester, logs)
         if validate_state == False:
+            result.test_result = "FAILED"
             return result
 
         # Step 6: Uncompress logs.tar.gz and verify logs structure.
         line = f"[STEP] Uncompress logs.tar.gz and verify logs structure."
         LOGGER.result(line)
         logs.append(line)
-        validate_state, result = EnforcementManager().verify_logs_structure(result, logs)
+        validate_state = EnforcementManager().verify_logs_structure(logs)
         if validate_state == False:
+            result.test_result = "FAILED"
             return result
         else:
             print(f"The logs structure follows DAB requirement.")
             logs.append(f"The logs structure follows DAB requirement.")
 
-	    # Step 7: Verify logs details.
+        # Step 7: Verify logs details.
         line = f"[STEP] Verify logs details."
         LOGGER.result(line)
         logs.append(line)
