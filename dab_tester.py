@@ -18,6 +18,8 @@ from sys import exit as sys_exit
 import re
 import time  
 
+DAB_VERSION = "2.0" # default dab version is 2.0, this global value will be used in system/settings/... operations.
+
 # Raised when preflight (discovery/health) decides we should stop the run.
 class PreflightTermination(Exception):
     pass
@@ -992,8 +994,10 @@ class DabTester:
         Stores version string in self.dab_version.
         Honors override_dab_version if explicitly provided.
         """
+        global DAB_VERSION
         if hasattr(self, 'override_dab_version') and self.override_dab_version:
             self.dab_version = self.override_dab_version
+            DAB_VERSION = self.dab_version
             self.logger.info(f"Using the forced DAB version override: {self.dab_version}.")
             return
         try:
@@ -1003,6 +1007,7 @@ class DabTester:
             if response:
                 resp_json = json.loads(response)
                 self.dab_version = resp_json.get("DAB Version", "2.0")
+                DAB_VERSION = self.dab_version
                 self.logger.info(f"DAB version detected: {self.dab_version}.")
             else:
                 self.logger.warn("The DAB version check returned an empty response. Defaulting to 2.0.")
@@ -1128,7 +1133,6 @@ class DabTester:
 
     def Close(self):
         self.dab_client.disconnect()
-
 
 def Default_Validations(test_result, durationInMs=0, expectedLatencyMs=0):
     sleep(0.2)

@@ -137,7 +137,7 @@ class EnforcementManager:
     def is_application_supported(self, application):
         return not self.supported_applications or application in self.supported_applications
 
-    def verify_logs_chunk(self, tester, result, logs):
+    def verify_logs_chunk(self, tester, logs):
         previous_remainingChunks = -1
         all_logArchives = bytearray()
         validate_state = True
@@ -151,7 +151,6 @@ class EnforcementManager:
                     validate_state = False
                     print(f"More than 90s without receiving logs chunk. Timeout!")
                     logs.append(f"[FAILED] More than 90s without receiving logs chunk. Timeout!.")
-                    result.test_result = "FAILED"
                     break
                 else:
                     continue
@@ -162,7 +161,6 @@ class EnforcementManager:
                 validate_state = False
                 print(f"Lost the logs chunk with 'remainingChunks':{previous_remainingChunks - 1}.")
                 logs.append(f"[FAILED] Lost the logs chunk with 'remainingChunks':{previous_remainingChunks - 1}.")
-                result.test_result = "FAILED"
                 break
             if remainingChunks != previous_remainingChunks:
                 print(chunkData)
@@ -183,11 +181,10 @@ class EnforcementManager:
                 validate_state = False
                 print(f"[Error] Combine chunks failed: {str(e)}")
                 logs.append(f"[FAILED] Combine chunks failed: {str(e)}")
-                result.test_result = "FAILED"
 
-        return validate_state, result
+        return validate_state
 
-    def verify_logs_structure(self, result, logs):
+    def verify_logs_structure(self, logs):
         logs_structure = set()
         try:
             with tarfile.open(LOGS_COLLECTION_PACKAGE, 'r:gz') as tar:
@@ -195,8 +192,7 @@ class EnforcementManager:
         except Exception as e:
             print(f"[Error] Uncompress {LOGS_COLLECTION_PACKAGE}: {str(e)}")
             logs.append(f"[FAILED] Verify {LOGS_COLLECTION_PACKAGE} failed: {str(e)}")
-            result.test_result = "FAILED"
-            return False, result
+            return False
 
         entries = os.listdir(LOGS_COLLECTION_FOLDER)
         for entry in entries:
@@ -211,9 +207,8 @@ class EnforcementManager:
             validate_state = False
             print(f"The logs structure doesn't follows DAB requirement.")
             logs.append(f"[FAILED] The logs structure doesn't follows DAB requirement.")
-            result.test_result = "FAILED"
 
-        return validate_state, result
+        return validate_state
 
     def delete_logs_collection_files(self):
         if os.path.exists(LOGS_COLLECTION_FOLDER):
