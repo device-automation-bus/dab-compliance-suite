@@ -607,3 +607,37 @@ def init_interactive_setup(
             if entered:
                 set_app_url(app_id, entered)
                 LOGGER.info(f"[INIT] URL set for '{app_id}'.")
+
+
+def build_incorrect_format_body(
+    app_id: str = "Sample_App",
+    basename: str = "unsupported_format_app.txt",
+    config_dir: str = DEFAULT_CONFIG_DIR,
+    timeout_ms: int = 60000,
+) -> dict:
+    """
+    Return an applications/install request body for the negative test:
+      {
+        "appId": "<app_id>",
+        "fileLocation": {
+          "url": "<abs path to .txt>",
+          "format": "txt",
+          "timeout": <timeout_ms>
+        }
+      }
+    Creates the .txt if it doesn't exist. Stays within the 3-ID allow-list.
+    """
+    cfg = Path(config_dir)
+    cfg.mkdir(parents=True, exist_ok=True)
+    txt_path = cfg / basename
+    if not txt_path.exists():
+        txt_path.write_text(
+            "This is a dummy file used to test invalid app install format.\n",
+            encoding="utf-8",
+        )
+    return {
+        "appId": app_id,
+        "url": str(txt_path.resolve()),
+        "format": "txt",
+        "timeout": int(timeout_ms),
+    }
