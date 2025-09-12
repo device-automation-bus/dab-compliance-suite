@@ -68,7 +68,7 @@ CONFORMANCE_TEST_CASE = [
     ("system/settings/set", '{"screenSaverMinTimeout": 60}', dab.system.settings_set, 5000, "Set Screen Saver Min Timeout", "2.1", False),
     ("system/settings/set", '{"personalizedAds": true}', dab.system.settings_set, 5000, "Set Personalized Ads", "2.1" , False),
     ("system/settings/set", '{"highContrastText": true}', dab.system.settings_set, 5000, "Set High Contrast Text", "2.1" , False),
-    ("system/settings/set", '{"identifierForAdvertising": true}', dab.system.settings_set, 5000, "Set identifier For Advertising", "2.1" , False),
+    ("system/settings/set", '{"identifierForAdvertising": "38400000-8cf0-11bd-b23e-10b96e40000d"}', dab.system.settings_set, 5000, "Set identifier For Advertising", "2.1" , False),
     ("system/settings/set", '{"brightness": 10}', dab.system.settings_set, 5000, "Set brightness", "2.1" , False),
     ("system/settings/set", '{"contrast": 10}', dab.system.settings_set, 5000, "Set contrast", "2.1" , False),
     ("system/settings/set", '{"timeZone": "America/Los_Angeles"}', dab.system.settings_set, 5000, "Set timeZone", "2.1" , False),

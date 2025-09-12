@@ -43,10 +43,7 @@ def list(test_result, durationInMs=0,expectedLatencyMs=0):
     response  = jsons.loads(test_result.response)
     if response['status'] != 200:
         return False
-    for voiceSystem in response['voiceSystems']:
-        print("current ", voiceSystem)
-        if voiceSystem['enabled'] is True:
-            EnforcementManager().add_supported_voice_assistant(voiceSystem['name'])
+    EnforcementManager().set_supported_voice_assistants(response['voiceSystems'])
     sleep(0.1)
     return Default_Validations(test_result, durationInMs, expectedLatencyMs)
 

@@ -90,6 +90,8 @@ class DabChecker:
                 return self.__precheck_app_telemetry_stop(device_id, dab_request_body)
             case 'input/key-press' | 'input/long-key-press':
                 return self.__precheck_key_press(device_id, dab_request_body)
+            case 'system/logs/stop-collection':
+                return self.__precheck_logs_stop_collection(device_id, dab_request_body)
             case _:
                 return ValidateCode.SUPPORT, ""
 
@@ -275,6 +277,21 @@ class DabChecker:
 
         return validate_code, prechecker_log
 
+    def __precheck_logs_stop_collection(self, device_id, dab_request_body):
+        dab_precheck_topic = "system/logs/start-collection"
+        dab_precheck_body = "{}"
+
+        self.logger.info("Start logs collection.")
+        dab_response = self.__execute_cmd(device_id, dab_precheck_topic, dab_precheck_body)
+        if dab_response:
+            prechecker_log = f"\nlogs collection is started on this device. Ongoing...\n"
+            validate_code = ValidateCode.SUPPORT
+        else:
+            prechecker_log = f"\nstart logs collection failed on this device.\n"
+            validate_code = ValidateCode.UNSUPPORT
+
+        return validate_code, prechecker_log
+
     def end_precheck(self, device_id, dab_request_topic, dab_request_body):
         match dab_request_topic:
             case 'device-telemetry/start' | 'device-telemetry/stop':
@@ -316,6 +333,8 @@ class DabChecker:
                 return self.__check_app_telemetry_start(device_id, dab_request_body)
             case 'app-telemetry/stop':
                 return self.__check_app_telemetry_stop(device_id, dab_request_body)
+            case 'system/logs/stop-collection':
+                return self.__check_logs_chunks(device_id, dab_request_body)
             case _:
                 return True, ""
 
@@ -417,7 +436,7 @@ class DabChecker:
 
     def __check_telemetry_metrics(self, device_id, appId = None):
         if appId:
-            dab_check_topic = "app-telemetry/metrics/" + appId.lower()
+            dab_check_topic = "app-telemetry/metrics/" + appId
             metrics_log = f"app {appId} telemetry metrics"
         else:
             dab_check_topic = "device-telemetry/metrics"
@@ -433,3 +452,14 @@ class DabChecker:
         self.dab_tester.dab_client.unsubscribe_metrics(device_id, dab_check_topic)
 
         return validate_result
+
+    def __check_logs_chunks(self, device_id, dab_request_body):
+        logs = []
+        try:
+            validate_state = EnforcementManager().verify_logs_chunk(self.dab_tester, logs)
+            if validate_state == False:
+                "\n".join(logs)
+                return validate_state, logs
+            return EnforcementManager().verify_logs_structure(logs), "\n".join(logs)
+        finally:
+            EnforcementManager().delete_logs_collection_files()
