@@ -607,3 +607,48 @@ def init_interactive_setup(
             if entered:
                 set_app_url(app_id, entered)
                 LOGGER.info(f"[INIT] URL set for '{app_id}'.")
+
+def build_incorrect_format_body(app_id: str | None = None):
+    """
+    Build a flat 'applications/install' NEGATIVE payload (no fileLocation, no file://)
+    using appId='unsupported_format_app' and a .txt artifact.
+
+    Produces:
+    {
+      "appId": "unsupported_format_app",
+      "url": "<absolute>/config/apps/unsupported_format_app.txt",
+      "format": "txt",
+      "timeout": 60000
+    }
+    """
+
+    # Always use the dedicated negative-test app id
+    resolved_app_id = "unsupported_format_app"
+
+    # Resolve <repo>/config/apps robustly (independent of CWD)
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    apps_dir = os.path.join(repo_root, "config", "apps")
+    os.makedirs(apps_dir, exist_ok=True)
+
+    txt_path = os.path.join(apps_dir, "unsupported_format_app.txt")
+
+    # Ensure the dummy artifact exists (create if missing)
+    if not os.path.exists(txt_path):
+        try:
+            with open(txt_path, "w", encoding="utf-8") as f:
+                f.write("dummy text file for negative install format test\n")
+        except Exception:
+            # Best-effort fallback under current working directory
+            fallback = os.path.abspath(os.path.join("config", "apps", "unsupported_format_app.txt"))
+            os.makedirs(os.path.dirname(fallback), exist_ok=True)
+            with open(fallback, "w", encoding="utf-8") as f:
+                f.write("dummy text file for negative install format test\n")
+            txt_path = fallback
+
+    # Flat payload (as required): NO fileLocation, NO file://
+    return {
+        "appId": resolved_app_id,
+        "url": txt_path,
+        "format": "txt",
+        "timeout": 60000,
+    }
