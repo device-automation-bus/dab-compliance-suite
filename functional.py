@@ -2613,45 +2613,43 @@ def run_set_invalid_voice_assistant_check(dab_topic, test_name, tester, device_i
 # === Test 21: Device Restart and Telemetry Validation ===
 def run_device_restart_and_telemetry_check(dab_topic, test_name, tester, device_id):
     """
-    Validates full device restart + telemetry:
-      1) system/restart, wait until health OK
-      2) device-telemetry/start (duration)
-      3) Use DabChecker to verify metrics are actually flowing
-      4) device-telemetry/stop (best-effort in finally)
-    Pass if at least one metric is observed. OPTIONAL_FAILED on 501.
+    Validates full device restart + telemetry with minimal changes:
+      1) system/restart, wait for health
+      2) device-telemetry/start (single start)
+      3) passive metrics wait (no re-start in loop)
+      4) device-telemetry/stop in finally
     """
     test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, "system/restart", "{}", "UNKNOWN", "", logs)
 
     device_ready = False
-    checker_log = ""
-    checker_ok = False
+    metrics_received = False
 
     try:
-        # ===== Header =====
-        msg = f"[TEST] Device Restart and Telemetry Check — {test_name} (test_id={test_id}, device={device_id})"
-        LOGGER.result(msg); logs.append(msg)
-        for line in (
+        # Header (unchanged style)
+        line = f"[TEST] Device Restart and Telemetry Check — {test_name} (test_id={test_id}, device={device_id})"
+        LOGGER.result(line); logs.append(line)
+        for d in (
             "Goal: Restart device; wait until healthy; start telemetry; verify metrics; stop telemetry.",
             "Required ops: system/restart, health-check/get, device-telemetry/start, device-telemetry/stop.",
             "Pass: At least one telemetry metric observed within the wait window.",
         ):
-            msg = f"[DESC] {line}"
-            LOGGER.result(msg); logs.append(msg)
+            line = f"[DESC] {d}"
+            LOGGER.result(line); logs.append(line)
 
-        # ===== Capability gate (non-fatal; your 'need' already handles logging/outcome) =====
+        # Capability gate
         required_ops = "ops: system/restart, health-check/get, device-telemetry/start, device-telemetry/stop"
         if not need(tester, device_id, required_ops, result, logs):
             return result
 
-        # ===== 1) Restart & wait for health =====
-        msg = "[STEP] Restarting the device; this may take a few minutes."
-        LOGGER.result(msg); logs.append(msg)
+        # 1) Restart & wait for health
+        line = "[STEP] Restarting the device; this may take a few minutes."
+        LOGGER.result(line); logs.append(line)
         execute_cmd_and_log(tester, device_id, "system/restart", "{}", logs)
 
-        msg = f"[INFO] Polling health-check/get every {HEALTH_CHECK_INTERVAL}s for up to {DEVICE_REBOOT_WAIT}s..."
-        LOGGER.info(msg); logs.append(msg)
+        line = f"[INFO] Polling health-check/get every {HEALTH_CHECK_INTERVAL}s for up to {DEVICE_REBOOT_WAIT}s..."
+        LOGGER.info(line); logs.append(line)
         t0 = time.time()
         while time.time() - t0 < DEVICE_REBOOT_WAIT:
             try:
@@ -2665,93 +2663,92 @@ def run_device_restart_and_telemetry_check(dab_topic, test_name, tester, device_
 
         if not device_ready:
             result.test_result = "FAILED"
-            msg = f"[RESULT] FAILED — Device did not become healthy within {DEVICE_REBOOT_WAIT}s."
-            LOGGER.result(msg); logs.append(msg)
+            line = f"[RESULT] FAILED — Device did not become healthy within {DEVICE_REBOOT_WAIT}s."
+            LOGGER.result(line); logs.append(line)
             return result
 
-        msg = "[INFO] Device is online and healthy."
-        LOGGER.info(msg); logs.append(msg)
+        LOGGER.info("[INFO] Device is online and healthy."); logs.append("[INFO] Device is online and healthy.")
 
-        # ===== 2) Start telemetry (respect 501 → OPTIONAL_FAILED) =====
+        # 2) Start telemetry (single start; respect 501)
+        line = f"[STEP] Starting device telemetry for ~{TELEMETRY_DURATION_MS} ms."
+        LOGGER.result(line); logs.append(line)
         payload_start = json.dumps({"duration": TELEMETRY_DURATION_MS})
-        msg = f"[STEP] Starting device telemetry for ~{TELEMETRY_DURATION_MS} ms."
-        LOGGER.result(msg); logs.append(msg)
         rc, resp = execute_cmd_and_log(tester, device_id, "device-telemetry/start", payload_start, logs)
-        status = dab_status_from(resp, rc)
-        if status == 501:
+        st = dab_status_from(resp, rc)
+        if st == 501:
             result.test_result = "OPTIONAL_FAILED"
-            msg = "[RESULT] OPTIONAL_FAILED — Telemetry not implemented (501)."
-            LOGGER.result(msg); logs.append(msg)
+            line = "[RESULT] OPTIONAL_FAILED — Telemetry not implemented (501)."
+            LOGGER.result(line); logs.append(line)
             return result
-        if status != 200:
+        if st != 200:
             result.test_result = "FAILED"
-            msg = f"[RESULT] FAILED — device-telemetry/start returned {status}."
-            LOGGER.result(msg); logs.append(msg)
+            line = f"[RESULT] FAILED — device-telemetry/start returned {st}."
+            LOGGER.result(line); logs.append(line)
             return result
 
-        # ===== 3) Use DabChecker to prove metrics are flowing =====
-        # DabChecker internally subscribes to the metrics topic and verifies last_metrics_state().
-        msg = f"[STEP] Listening for telemetry metrics for up to {TELEMETRY_METRICS_WAIT}s..."
-        LOGGER.result(msg); logs.append(msg)
+        # 3) Passive metrics wait (no re-start in loop)
+        line = f"[STEP] Listening for telemetry metrics for up to {TELEMETRY_METRICS_WAIT}s..."
+        LOGGER.result(line); logs.append(line)
         checker = DabChecker(tester)
 
-        # simple wait-loop using DabChecker's check() for start validation (it stops telemetry itself after check)
-        # We keep our own stop in finally as best-effort cleanup.
-        wait_deadline = time.time() + TELEMETRY_METRICS_WAIT
-        while time.time() < wait_deadline:
-            ok, checker_log = checker.check(device_id, "device-telemetry/start", payload_start)
-            # checker.check() for 'device-telemetry/start' returns True iff metrics were observed.
-            if ok:
-                checker_ok = True
-                break
-            time.sleep(1.5)  # brief backoff before re-checking
-
-        # If you also want schema validation for a *sample* metric, keep it optional & simple:
-        # Try to grab one metric message (non-fatal if not available as DabChecker already proved presence).
-        if checker_ok:
-            msg = "[INFO] Telemetry metrics observed via DabChecker."
-            LOGGER.info(msg); logs.append(msg)
+        deadline = time.time() + TELEMETRY_METRICS_WAIT
+        while time.time() < deadline:
+            ok, chk = (False, "")
             try:
-                # best-effort peek (your dab_client may expose a metrics buffer or a last sample)
-                sample_msg = tester.dab_client.last_metrics_sample()  # if your client exposes it
-                if sample_msg:
-                    # validate schema if your validator supports it
-                    dab_response_validator.validate_device_telemetry_metrics_schema(sample_msg)
-                    msg = "[INFO] Telemetry metric sample schema validated."
-                    LOGGER.info(msg); logs.append(msg)
-            except Exception as e:
-                # non-fatal — we only *require* presence of metrics, not schema, unless you want to fail here
-                msg = f"[INFO] Metric sample schema validation skipped/failed non-fatally: {e}"
-                LOGGER.info(msg); logs.append(msg)
+                # IMPORTANT: passive peek (must NOT start telemetry again)
+                ok, chk = checker.check(device_id, "device-telemetry/metrics-peek", payload_start)
+            except Exception:
+                pass
 
-        if not checker_ok:
+            if chk:  # use checker_log per review
+                logs.append(f"[INFO] checker_log: {chk}")
+
+            # Guarded peek of last sample if your client exposes it
+            sample_fn = getattr(getattr(tester, "dab_client", None), "last_metrics_sample", None)
+            sample_msg = None
+            if callable(sample_fn):
+                try:
+                    sample_msg = sample_fn()
+                except Exception:
+                    sample_msg = None
+
+            if ok or sample_msg:
+                metrics_received = True
+                break
+
+            time.sleep(1.0)
+
+        if not metrics_received:
             result.test_result = "FAILED"
-            msg = f"[RESULT] FAILED — No telemetry metrics observed within {TELEMETRY_METRICS_WAIT}s."
-            LOGGER.result(msg); logs.append(msg)
+            line = f"[RESULT] FAILED — No telemetry metrics observed within {TELEMETRY_METRICS_WAIT}s."
+            LOGGER.result(line); logs.append(line)
             return result
 
-        # ===== PASS =====
+        # PASS
         result.test_result = "PASS"
-        msg = "[RESULT] PASS — Restart + telemetry workflow succeeded with non-empty metrics."
-        LOGGER.result(msg); logs.append(msg)
+        line = "[RESULT] PASS — Restart + telemetry workflow succeeded with non-empty metrics."
+        LOGGER.result(line); logs.append(line)
 
     except UnsupportedOperationError as e:
         result.test_result = "OPTIONAL_FAILED"
-        msg = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
-        LOGGER.result(msg); logs.append(msg)
+        line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
+        LOGGER.result(line); logs.append(line)
+
     except Exception as e:
         result.test_result = "SKIPPED"
-        msg = f"[RESULT] SKIPPED — Unexpected error: {e}"
-        LOGGER.result(msg); logs.append(msg)
+        line = f"[RESULT] SKIPPED — Unexpected error: {e}"
+        LOGGER.result(line); logs.append(line)
+
     finally:
-        # Best-effort stop & go HOME
+        # cleanup & final summary (always)
         try:
             execute_cmd_and_log(tester, device_id, "device-telemetry/stop", "{}", logs)
         except Exception:
             pass
+        line = (f"[SUMMARY] outcome={result.test_result}, device_ready={device_ready}, "
+                f"metrics_received={metrics_received}, test_id={test_id}, device={device_id}")
+        LOGGER.result(line); logs.append(line)
 
-    msg = f"[SUMMARY] outcome={result.test_result}, device_ready={device_ready}, metrics_seen={checker_ok}, test_id={test_id}, device={device_id}"
-    LOGGER.result(msg); logs.append(msg)
     return result
 
 # === Test 22: Stop App Telemetry Without Active Session (Negative) ===
