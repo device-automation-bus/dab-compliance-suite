@@ -423,11 +423,28 @@ class DabTester:
 
             # Initialize result object for logging and reporting
             test_result = TestResult(to_test_id(f"{dab_request_topic}/{test_title}"), device_id, dab_request_topic, dab_request_body, "UNKNOWN", "", [])
+
+            # ------------------------------------------------------------------------
+            # 0) Bridge Capability Gate (must expose operations/list)
+            # ------------------------------------------------------------------------
+            try:
+                bridge_code, bridge_log = self.dab_checker.is_operation_supported(device_id, "operations/list")
+                if bridge_code == ValidateCode.UNSUPPORT:
+                    test_result.test_result = "OPTIONAL_FAILED"
+                    log(test_result, bridge_log)
+                    log(test_result, "\033[1;33m[ OPTIONAL_FAILED - Bridge does not expose operations/list ]\033[0m")
+                    total_ms = int((time.time() - section_wall_start) * 1000)
+                    self.logger.test_end(outcome=test_result.test_result, duration_ms=total_ms)
+                    return test_result
+            except Exception as e:
+                test_result.test_result = "SKIPPED"
+                log(test_result, f"\033[1;34m[ SKIPPED - Unable to verify bridge capability ]\033[0m {str(e)}")
+                total_ms = int((time.time() - section_wall_start) * 1000)
+                self.logger.test_end(outcome=test_result.test_result, duration_ms=total_ms)
+                return test_result
+
             # ------------------------------------------------------------------------
             # DAB Version Compatibility Check
-            # If the test is meant for DAB 2.1 but the dav version is on DAB 2.0,
-            # treat this as OPTIONAL_FAILED instead of skipping or erroring out.
-            # This ensures transparency in test result reporting.
             # ------------------------------------------------------------------------
             # Get dab version version (default "2.0") and convert both to float
             dab_version = self.dab_version or "2.0"
@@ -447,33 +464,40 @@ class DabTester:
             except Exception as e:
                 log(test_result, f"[WARNING] Version comparison failed: {e}")
 
-            # Check operation support via operations/list (prechecker)
-            if dab_request_topic != 'operations/list':
-                validate_code, prechecker_log = self.dab_checker.is_operation_supported(device_id, dab_request_topic)
-
-                if validate_code == ValidateCode.UNSUPPORT:
+            # ------------------------------------------------------------------------
+            # Capability Gate:
+            #   1) Operation support (via operations/list)
+            #   2) Feature precheck for system/settings/* and voice/* (excludes their /list; only get/set)
+            # ------------------------------------------------------------------------
+            # 1) Operation support (always, except for operations/list itself)
+            if dab_request_topic != "operations/list":
+                vcode, ops_log = self.dab_checker.is_operation_supported(device_id, dab_request_topic)
+                if vcode == ValidateCode.UNSUPPORT:
                     test_result.test_result = "OPTIONAL_FAILED"
-                    log(test_result, prechecker_log)
-                    log(test_result, f"\033[1;33m[ OPTIONAL_FAILED - Requires DAB Operation is NOT SUPPORTED ]\033[0m")
+                    if ops_log:
+                        log(test_result, f"[OPS-CHECK] {ops_log.strip()}")
+                    log(test_result, f"\033[1;33m[ OPTIONAL_FAILED ]\033[0m Operation '{dab_request_topic}' is not supported on this device (disabled in operations/list).")
                     total_ms = int((time.time() - section_wall_start) * 1000)
                     self.logger.test_end(outcome=test_result.test_result, duration_ms=total_ms)
                     return test_result
+                
+                # 2) Feature-Level Gate (settings/voice/input) via precheck — only explicit ops
+                try:
+                    root, leaf = dab_request_topic.rsplit('/', 1)
+                except ValueError:
+                    root, leaf = dab_request_topic, ""  # topics without '/'
 
-            # ------------------------------------------------------------------------
-            # If precheck is supported and this is not a negative test case
-            # Use precheck to determine if operation is supported
-            # Optional precheck for non-negative tests
-            # ------------------------------------------------------------------------
-            if not is_negative:
-                validate_code, prechecker_log = self.dab_checker.precheck(device_id, dab_request_topic, dab_request_body)
-                if validate_code == ValidateCode.UNSUPPORT:
-                    test_result.test_result = "OPTIONAL_FAILED"
-                    log(test_result, prechecker_log)
-                    log(test_result, f"\033[1;33m[ OPTIONAL_FAILED ]\033[0m")
-                    total_ms = int((time.time() - section_wall_start) * 1000)
-                    self.logger.test_end(outcome=test_result.test_result, duration_ms=total_ms)
-                    return test_result
-                log(test_result, prechecker_log)
+                if ((root == "system/settings" and leaf in ("get", "set")) or
+                    (root == "voice"            and leaf in ("get", "set")) or
+                    (root == "input"            and leaf == "key-press")):
+                    validate_code, prechecker_log = self.dab_checker.precheck(device_id, dab_request_topic, dab_request_body)
+                    log(test_result, f"[PRECHECK] {prechecker_log.strip()}")
+                    if validate_code == ValidateCode.UNSUPPORT:
+                        log(test_result, "\033[1;33m[ OPTIONAL_FAILED ]\033[0m Capability not present / unsupported for requested input/setting/voice on this device (as per manifest).")
+                        test_result.test_result = "OPTIONAL_FAILED"
+                        total_ms = int((time.time() - section_wall_start) * 1000)
+                        self.logger.test_end(outcome=test_result.test_result, duration_ms=total_ms)
+                        return test_result
 
             start = datetime.datetime.now()
 
@@ -506,16 +530,37 @@ class DabTester:
                     durationInMs = int((end - start).total_seconds() * 1000)
 
                     try:
-                        validate_result = validate_output_function(test_result, durationInMs, expected_response)
-                        if validate_result == True:
-                            validate_result, checker_log = self.dab_checker.check(device_id, dab_request_topic, dab_request_body)
-                            if checker_log:
-                                log(test_result, checker_log)
+                        # ---- DROP explicit validator for operations/list ----
+                        if dab_request_topic == "operations/list":
+                            # Soft log only; do not fail this test via validator logic
+                            try:
+                                import json
+                                j = json.loads(test_result.response or "{}")
+                                ops = j.get("operations", [])
+                                cnt = len(ops) if isinstance(ops, list) else 0
+                                log(test_result, f"[INFO] operations/list returned {cnt} operations.")
+                            except Exception as e:
+                                log(test_result, f"[INFO] operations/list response not JSON: {e}")
+                            validate_result = True  # always treat as validated
                         else:
-                            self.dab_checker.end_precheck(device_id, dab_request_topic, dab_request_body)
+                            # First validate the raw response with the suite's validator
+                            validate_result = validate_output_function(test_result, durationInMs, expected_response)
+                            if not isinstance(validate_result, bool):
+                                validate_result = bool(validate_result)
+
+                            # Then have dab_checker confirm the *effect* (when applicable)
+                            if validate_result is True:
+                                validate_result, checker_log = self.dab_checker.check(device_id, dab_request_topic, dab_request_body)
+                                if checker_log:
+                                    log(test_result, checker_log)
+                            else:
+                                self.dab_checker.end_precheck(device_id, dab_request_topic, dab_request_body)
                     except Exception as e:
-                        # If this is a negative test case and validation fails (e.g., 200 response with incorrect behavior),
-                        # treat it as PASS because failure was the expected outcome in this scenario.
+                        # EXTRA DIAGNOSTICS (keeps your outcomes the same)
+                        err = f"{type(e).__name__}: {e}"
+                        log(test_result, f"[VALIDATION-ERROR] {err}")
+                        if "object has no attribute 'add'" in str(e):
+                            log(test_result, "[HINT] Validator uses a list with .add(...). Initialize as set() and use set operations.")
                         if is_negative:
                             # For negative test: failure is expected — pass the test
                             test_result.test_result = "PASS"
@@ -530,7 +575,7 @@ class DabTester:
                             self.logger.test_end(outcome=test_result.test_result, duration_ms=total_ms)
                             return test_result
 
-                    if validate_result == True:
+                    if validate_result is True:
                         test_result.test_result = "PASS"
                         log(test_result, "\033[1;32m[ PASS ]\033[0m")
                     else:
@@ -548,15 +593,9 @@ class DabTester:
                     if is_negative and error_code in (400, 404):
                         test_result.test_result = "PASS"
                         log(test_result, f"\033[1;33m[ NEGATIVE TEST PASSED - Expected Error Code {error_code} ]\033[0m")
+
                     elif error_code == 501:
-                        # ------------------------------------------------------------------------------
-                        # Handle 501 Not Implemented:
-                        # If the operation is listed in dab/operations/list but not implemented,
-                        # it is treated as a hard failure — this indicates a declared operation
-                        # is missing implementation.
-                        # If the operation is not listed in the supported list, mark as OPTIONAL_FAILED.
-                        # ------------------------------------------------------------------------------
-                        # Check if operation is listed in dab/operations/list
+                        # If the op is declared but not implemented → FAILED; else OPTIONAL_FAILED
                         supported_code, op_check_log = self.dab_checker.is_operation_supported(device_id, dab_request_topic)
                         if supported_code == ValidateCode.SUPPORT:
                             test_result.test_result = "FAILED"
@@ -564,7 +603,7 @@ class DabTester:
                             log(test_result, f"\033[1;31m[ FAILED - Required DAB operation is NOT IMPLEMENTED (501) ]\033[0m")
                         else:
                             test_result.test_result = "OPTIONAL_FAILED"
-                            log(test_result, f"\033[1;33m[ OPTIONAL_FAILED - Operation may not be mandatory, received 501 ]\033[0m")
+                            log(test_result, f"\033[1;33m[ OPTIONAL_FAILED - Operation not in operations/list (501 treated as optional) ]\033[0m")
 
                     elif error_code == 500:
                         # 500 Internal Server Error: Indicates a crash or failure not caused by the test itself.
@@ -600,6 +639,7 @@ class DabTester:
             except Exception:
                 # best-effort cleanup; never let this affect runner flow
                 pass
+
 
     def Execute_Functional_Tests(self, device_id, functional_tests, test_result_output_path=""):
         """

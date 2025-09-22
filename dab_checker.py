@@ -96,30 +96,70 @@ class DabChecker:
                 return ValidateCode.SUPPORT, ""
 
     def __precheck_system_settings_set(self, device_id, dab_request_body):
-        request_body = json.loads(dab_request_body)
-        (request_key, request_value), = request_body.items()
-        dab_precheck_topic = "system/settings/list"
-        dab_precheck_body = "{}"
+        """
+        Returns (ValidateCode, reason_string) for system/settings/set using system/settings/list.
+        Features: 501 handling, EM caching, flat/legacy schemas, value support check, compact previews (max 3).
+        """
+        import json
+        try:
+            req = json.loads(dab_request_body); (sid, val), = req.items(); sid = str(sid).strip()
+        except Exception as e:
+            return ValidateCode.UNCERTAIN, f"system/settings/set {dab_request_body} ⇒ cannot parse payload ({e})."
 
-        validate_code = ValidateCode.UNCERTAIN
-        prechecker_log = f"\nsystem settings set {request_key} is uncertain whether it is supported on this device. Ongoing...\n"
+        pv = lambda x, n=3: (f"{x[:n]!r}, … +{len(x)-n} more" if isinstance(x, list) and len(x) > n else
+                            f"{ {k: x[k] for k in list(x)[:n]}!r}, … +{len(x)-n} more" if isinstance(x, dict) and len(x) > n else
+                            repr(x))
+        why = lambda m: f"system/settings/set {req} ⇒ {m}"
 
-        if EnforcementManager().check_supported_settings() == False:
-            # print(f"\nTry to get system supported settings list...\n")
-            self.logger.info("Fetching the list of supported system settings from the device.")
-            dab_response = self.__execute_cmd(device_id, dab_precheck_topic, dab_precheck_body)
-            EnforcementManager().set_supported_settings(dab_response)
+        em = EnforcementManager()
+        if em.check_supported_settings() is False:
+            resp = self.__execute_cmd(device_id, "system/settings/list", "{}")
+            if isinstance(resp, str):
+                try: resp = json.loads(resp)
+                except Exception: resp = None
+            if resp is None:
+                last = getattr(self.dab_tester.dab_client, "last_error_code", lambda: None)()
+                if last == 501:
+                    em.set_supported_settings({}); return ValidateCode.UNSUPPORT, why("system/settings/list not implemented (501); settings API optional.")
+                em.set_supported_settings({}); return ValidateCode.UNCERTAIN, why("could not fetch system/settings/list; cannot infer support.")
+            sup = {}
+            if isinstance(resp, dict) and "settings" not in resp:
+                for k, v in resp.items():
+                    k = str(k).strip()
+                    if not k: continue
+                    if isinstance(v, bool): sup[k] = v
+                    elif isinstance(v, list): sup[k] = v
+                    elif isinstance(v, dict) and v.get("min") is not None and v.get("max") is not None: sup[k] = {"min": v["min"], "max": v["max"]}
+                    else: sup[k] = False
+            elif isinstance(resp, dict) and isinstance(resp.get("settings"), list):
+                for s in resp["settings"]:
+                    if not isinstance(s, dict): continue
+                    k = (s.get("id") or s.get("settingId") or "").strip(); t = (s.get("type") or "").strip().lower()
+                    if not k: continue
+                    if t in ("boolean", "bool", "toggle"): sup[k] = bool(s.get("supported", True))
+                    elif t in ("list", "enum", "array", "multi-select"): sup[k] = s.get("values") or s.get("options") or []
+                    elif t in ("integer", "int", "number", "range"):
+                        r = s.get("range") or {"min": s.get("min"), "max": s.get("max")}
+                        sup[k] = r if isinstance(r, dict) and r.get("min") is not None and r.get("max") is not None else False
+                    else: sup[k] = False
+            else:
+                em.set_supported_settings({}); return ValidateCode.UNCERTAIN, why("unexpected system/settings/list schema; cannot infer support.")
+            em.set_supported_settings(sup)
 
-            if not dab_response:
-                return validate_code, prechecker_log
+        sm = em.get_supported_settings() or {}
+        if sid not in sm:
+            return ValidateCode.UNSUPPORT, why("key (Settings Operation) not present in system/settings/list (omitted ⇒ unsupported).")
 
-        validate_code = EnforcementManager().is_setting_supported(request_key, request_value)
-        if validate_code == ValidateCode.SUPPORT:
-            prechecker_log = f"\nsystem settings set {request_body} is supported on this device. Ongoing...\n"
-        elif validate_code == ValidateCode.UNSUPPORT:
-            prechecker_log = f"\nsystem settings set {request_body} is NOT supported on this device. Ongoing...\n"
+        desc = sm[sid]
+        if isinstance(desc, bool): detail = "boolean=True (supported)" if desc else "boolean=False (unsupported)"
+        elif isinstance(desc, list): detail = f"enum values(sample)=[{pv(desc)}]" if desc else "enum has no allowed values [] (unsupported)"
+        elif isinstance(desc, dict) and "min" in desc and "max" in desc: detail = f"numeric range=[{desc['min']}, {desc['max']}]"
+        else: detail = "descriptor indicates unsupported"
 
-        return validate_code, prechecker_log
+        code = em.is_setting_supported(sid, val)
+        if code == ValidateCode.SUPPORT:   return ValidateCode.SUPPORT,   why(f"supported by device; {detail}.")
+        if code == ValidateCode.UNSUPPORT: return ValidateCode.UNSUPPORT, why(f"value not supported by device; {detail}.")
+        return ValidateCode.UNCERTAIN,      why(f"could not determine conclusively; {detail}.")
 
     def __precheck_voice_set(self, device_id, dab_request_body):
         request_body = json.loads(dab_request_body)
@@ -250,32 +290,57 @@ class DabChecker:
             return ValidateCode.SUPPORT, prechecker_log
 
     def __precheck_key_press(self, device_id, dab_request_body):
-        dab_precheck_topic = "input/key/list"
-        dab_precheck_body = "{}"
-        request_body = json.loads(dab_request_body)
-        key = request_body['keyCode']
+        """
+        Precheck for input/key-press:
+        - Fetch & cache supported keys from input/key/list (once)
+        - Handle 501 as OPTIONAL (UNSUPPORT)
+        - Normalize various response shapes
+        - Return (ValidateCode, concise reason with 3-item sample)
+        """
+        import json
+        req = json.loads(dab_request_body or "{}")
+        key = (req.get("keyCode") or req.get("code") or "").strip()
+        if not key:
+            return ValidateCode.UNCERTAIN, "input/key-press payload missing 'keyCode'."
 
-        validate_code = ValidateCode.UNCERTAIN
-        prechecker_log = f"\n{key} is uncertain whether it is supported on this device. Ongoing...\n"
+        pv = lambda xs: (f"{xs[:3]!r}, … +{len(xs)-3} more" if isinstance(xs, list) and len(xs) > 3 else repr(xs))
+        EM = EnforcementManager()
 
-        if not EnforcementManager().get_supported_keys():
-            # print(f"\nTry to get supported key list...\n")
+        if not EM.get_supported_keys():
             self.logger.info("Fetching the list of supported input keys from the device.")
-            dab_response = self.__execute_cmd(device_id, dab_precheck_topic, dab_precheck_body)
-            keys = dab_response['keyCodes'] if dab_response else None
-            EnforcementManager().add_supported_keys(keys)
+            resp = self.__execute_cmd(device_id, "input/key/list", "{}")
+            if isinstance(resp, str):
+                try: resp = json.loads(resp)
+                except Exception: resp = None
+            if resp is None:
+                last = getattr(self.dab_tester.dab_client, "last_error_code", lambda: None)()
+                if last == 501:
+                    EM.add_supported_keys([])
+                    return ValidateCode.UNSUPPORT, "input/key/list not implemented (501); key API optional."
+                return ValidateCode.UNCERTAIN, "Could not fetch input/key/list; unable to infer support."
 
-        if not EnforcementManager().get_supported_keys():
-            return validate_code, prechecker_log
+            # Normalize keys from common shapes
+            raw = resp.get("keyCodes") if isinstance(resp, dict) else resp
+            if isinstance(resp, dict) and not raw:
+                raw = resp.get("keys") or resp.get("supportedKeys") or []
+            keys = []
+            for k in (raw if isinstance(raw, list) else []):
+                if isinstance(k, str):
+                    s = k.strip()
+                    if s: keys.append(s)
+                elif isinstance(k, dict):
+                    v = (k.get("keyCode") or k.get("code") or k.get("id") or "").strip()
+                    if v: keys.append(v)
+            EM.add_supported_keys(keys or [])
 
-        if EnforcementManager().is_key_supported(key):
-            validate_code = ValidateCode.SUPPORT
-            prechecker_log = f"\n{key} is supported on this device. Ongoing...\n"
-        else:
-            validate_code = ValidateCode.UNSUPPORT
-            prechecker_log = f"\n{key} is NOT supported on this device. Ongoing...\n"
+        supported = EM.get_supported_keys() or []
+        if not supported:
+            return ValidateCode.UNCERTAIN, "No supported keys advertised; cannot determine support."
 
-        return validate_code, prechecker_log
+        if EM.is_key_supported(key):
+            return ValidateCode.SUPPORT, f"input/key-press {key} supported. sample={pv(supported)}"
+        return ValidateCode.UNSUPPORT, f"input/key-press {key} NOT supported. sample={pv(supported)}"
+
 
     def __precheck_logs_stop_collection(self, device_id, dab_request_body):
         dab_precheck_topic = "system/logs/start-collection"
