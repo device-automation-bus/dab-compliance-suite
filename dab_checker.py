@@ -96,30 +96,154 @@ class DabChecker:
                 return ValidateCode.SUPPORT, ""
 
     def __precheck_system_settings_set(self, device_id, dab_request_body):
-        request_body = json.loads(dab_request_body)
-        (request_key, request_value), = request_body.items()
-        dab_precheck_topic = "system/settings/list"
-        dab_precheck_body = "{}"
+        # 1) Parse request: must be single {key: value}
+        try:
+            request_body = dab_request_body if isinstance(dab_request_body, dict) else json.loads(dab_request_body or "{}")
+            (request_key, request_value), = request_body.items()
+            self.logger.info(f"Parsed request: key='{request_key}', value='{request_value}'")
+        except Exception as e:
+            self.logger.warn(f"CRASH during request parsing: {e}")
+            return ValidateCode.UNCERTAIN, f"\nsettings/set: invalid request body ({e}); UNCERTAIN.\n"
 
-        validate_code = ValidateCode.UNCERTAIN
-        prechecker_log = f"\nsystem settings set {request_key} is uncertain whether it is supported on this device. Ongoing...\n"
+        # 2) Ensure settings/list cache exists; if empty/malformed, re-fetch once
+        need_fetch = not EnforcementManager().check_supported_settings()
+        if not need_fetch:
+            try:
+                cached = EnforcementManager().get_supported_settings()
+                if not cached or (isinstance(cached, dict) and len(cached) == 0):
+                    self.logger.info("Cache present but empty → will re-fetch settings/list.")
+                    need_fetch = True
+            except Exception:
+                need_fetch = True
 
-        if EnforcementManager().check_supported_settings() == False:
-            # print(f"\nTry to get system supported settings list...\n")
-            self.logger.info("Fetching the list of supported system settings from the device.")
-            dab_response = self.__execute_cmd(device_id, dab_precheck_topic, dab_precheck_body)
-            EnforcementManager().set_supported_settings(dab_response)
+        if need_fetch:
+            self.logger.info("Fetching settings/list from device...")
+            resp = self.__execute_cmd(device_id, "system/settings/list", "{}")
+            if not resp:
+                last = self.dab_tester.dab_client.last_error_code()
+                self.logger.warn(f"settings/list failed. Error code: {last}")
+                return ValidateCode.UNSUPPORT, f"\nsystem/settings/list unavailable (error {last}); cannot verify support for '{request_key}'.\n"
+            EnforcementManager().set_supported_settings(resp)
+            self.logger.info("Cache updated from device.")
+        else:
+            self.logger.info("Using existing data from cache.")
 
-            if not dab_response:
-                return validate_code, prechecker_log
+        # 3) Interpret cache and decide support
+        try:
+            sup = EnforcementManager().get_supported_settings() or {}
+            sup = sup if isinstance(sup, dict) else json.loads(sup)
+            settings_map = sup.get("settings", sup) if isinstance(sup, dict) else {}
+            if not isinstance(settings_map, dict):
+                raise ValueError("settings cache not a dict")
 
-        validate_code = EnforcementManager().is_setting_supported(request_key, request_value)
-        if validate_code == ValidateCode.SUPPORT:
-            prechecker_log = f"\nsystem settings set {request_body} is supported on this device. Ongoing...\n"
-        elif validate_code == ValidateCode.UNSUPPORT:
-            prechecker_log = f"\nsystem settings set {request_body} is NOT supported on this device. Ongoing...\n"
+            # Defensive: ignore obvious meta keys
+            for meta in ("status", "statusText", "ts"):
+                settings_map.pop(meta, None)
 
-        return validate_code, prechecker_log
+            # ---- MANDATORY KEY VALIDATION ----
+            if request_key not in settings_map:
+                sample = list(settings_map.keys())[:3]
+                hint = f" Known keys: {sample} (showing up to 3 of {len(settings_map)})." if sample else " No known settings advertised."
+                self.logger.info(f"'{request_key}' missing in cache.")
+                return ValidateCode.UNSUPPORT, f"\n'{request_key}' is not supported (missing in settings/list).{hint}\n"
+
+            desc = settings_map[request_key]
+            self.logger.info(f"Descriptor for '{request_key}': {type(desc).__name__}")
+
+            # Helper to preview lists nicely
+            def _preview_list(lst, n=3):
+                if not lst:
+                    return []
+                if isinstance(lst[0], dict):
+                    return [{k: d.get(k) for k in list(d.keys())[:3]} for d in lst[:n]]
+                return lst[:n]
+
+            # ----- Numeric range: {"min": x, "max": y}
+            if isinstance(desc, dict) and {"min", "max"}.issubset(desc.keys()):
+                accepted = f"[{desc['min']}, {desc['max']}]"
+                self.logger.info(f"Accepted domain for '{request_key}': numeric range {accepted}. Provided: {request_value}")
+                if not isinstance(request_value, (int, float)):
+                    return ValidateCode.UNCERTAIN, (
+                        f"\n'{request_key}': accepted numeric range {accepted}; provided value '{request_value}' is not numeric. Marking as UNCERTAIN.\n"
+                    )
+                if not (desc["min"] <= request_value <= desc["max"]):
+                    return ValidateCode.UNCERTAIN, (
+                        f"\n'{request_key}': accepted numeric range {accepted}; provided value {request_value} out of range. Marking as UNCERTAIN.\n"
+                    )
+                return ValidateCode.SUPPORT, (
+                    f"\n'{request_key}' supported. Accepted range {accepted}; provided {request_value} within range.\n"
+                )
+
+            # ----- Boolean capability flag: True/False indicates whether the setting is supported
+            if isinstance(desc, bool):
+                self.logger.info(
+                    f"Accepted type for '{request_key}': boolean (True/False); "
+                    f"capability advertised={desc}. Provided: {request_value} (type {type(request_value).__name__})"
+                )
+                # Do NOT fail/uncertain on type; we don't validate value here. Decide by capability:
+                if desc is False:
+                    return ValidateCode.UNSUPPORT, (
+                        f"\n'{request_key}' is NOT supported on this device (settings/list advertises capability=false). "
+                        f"Provided value: {request_value}.\n"
+                    )
+                # desc is True → supported
+                return ValidateCode.SUPPORT, (
+                    f"\n'{request_key}' supported (settings/list advertises capability=true). "
+                    f"Provided value noted: {request_value}.\n"
+                )
+
+            # ----- Enumerations / options: list of primitives or dicts
+            if isinstance(desc, list):
+                if not desc:
+                    # empty options list → UNSUPPORT
+                    self.logger.info(
+                        f"Accepted domain for '{request_key}': list of options; none available (0). Provided: {request_value}"
+                    )
+                    return ValidateCode.UNSUPPORT, (
+                        f"\n'{request_key}' is NOT supported on this device (no available options advertised in settings/list). "
+                        f"Provided value: {request_value}.\n"
+                    )
+
+                accepted_preview = _preview_list(desc)
+                accepted_info = f"{accepted_preview} (showing up to 3 of {len(desc)})"
+                self.logger.info(f" Accepted domain for '{request_key}': list of options; examples: {accepted_info}. Provided: {request_value}")
+
+                wants = request_value if isinstance(request_value, list) else [request_value]
+
+                if desc and isinstance(desc[0], dict):
+                    # subset-match for dict entries (e.g., {"width":3840,"height":2160})
+                    def _match(req_d, opt_d):
+                        return isinstance(req_d, dict) and all(req_d.get(k) == opt_d.get(k) for k in req_d.keys())
+                    ok = all(any(_match(w, opt) for opt in desc) for w in wants)
+                else:
+                    ok = all(w in desc for w in wants)
+
+                if not ok:
+                    return ValidateCode.UNCERTAIN, (
+                        f"\n'{request_key}': accepted options include {accepted_info}; provided {wants} not fully recognized. Marking as UNCERTAIN.\n"
+                    )
+                return ValidateCode.SUPPORT, (
+                    f"\n'{request_key}' supported. Provided {wants} within accepted options (e.g., {accepted_info}).\n"
+                )
+
+            # ----- Unknown/complex object: log keys and treat as supported by key presence
+            if isinstance(desc, dict):
+                keys_preview = list(desc.keys())[:6]
+                self.logger.info(f"Accepted domain for '{request_key}': object-like descriptor; keys (subset): {keys_preview}. Provided: {request_value}")
+                return ValidateCode.SUPPORT, (
+                    f"\n'{request_key}' supported (key present). Descriptor keys include {keys_preview}. "
+                    f"Provided value: {request_value}. Precheck cannot fully validate complex objects.\n"
+                )
+
+            # ----- Fallback for unrecognized descriptor types
+            self.logger.info(f"Unrecognized descriptor type for '{request_key}'. Provided: {request_value}")
+            return ValidateCode.UNCERTAIN, (
+                f"\n'{request_key}': descriptor type is unrecognized; provided value '{request_value}'. Marking as UNCERTAIN.\n"
+            )
+
+        except Exception as e:
+            self.logger.warn(f"CRASH during pre-check logic: {e}")
+            return ValidateCode.UNCERTAIN, f"\nAn error occurred during settings pre-check: {e}.\n"
 
     def __precheck_voice_set(self, device_id, dab_request_body):
         request_body = json.loads(dab_request_body)
