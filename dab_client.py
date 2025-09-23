@@ -5,6 +5,7 @@ from paho.mqtt.packettypes import PacketTypes
 import paho.mqtt.client as mqtt
 import json
 import uuid
+from logger import LOGGER 
 
 METRICS_TIMES = 5
 
@@ -36,7 +37,8 @@ class DabClient:
         metrics_response = json.loads(message.payload)
         if self.__metrics_count < METRICS_TIMES:
             self.__metrics_count += 1
-            print(metrics_response)
+            logger = getattr(self, "logger", LOGGER)
+            logger.info(f"{metrics_response}")
         else:
             self.__metrics_state = True
             self.__lock.release()
@@ -88,16 +90,17 @@ class DabClient:
         return self.__code
     
     def last_error_msg(self):
-        if(self.__code == -1):
-            print("Unknown error",end='')
-        elif(self.__code == 100):
-            print("Timeout",end='')
-        elif(self.__code == 400):
-            print("Request invalid or malformed",end='')
-        elif(self.__code == 500):
-            print("Internal error",end='')
-        elif(self.__code == 501):
-            print("Not implemented",end='')
+        logger = getattr(self, "logger", LOGGER)
+        if (self.__code == -1):
+            logger.warn("Unknown error")
+        elif (self.__code == 100):
+            logger.warn("Timeout")
+        elif (self.__code == 400):
+            logger.warn("Request invalid or malformed")
+        elif (self.__code == 500):
+            logger.error("Internal error")
+        elif (self.__code == 501):
+            logger.warn("Not implemented")
 
     # ---- Minimal discovery compatible with callers passing attempts + wait_seconds ----
     def discover_devices(self, attempts: int = 1, wait_seconds: float = 1.0):

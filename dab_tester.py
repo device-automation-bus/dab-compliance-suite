@@ -447,6 +447,27 @@ class DabTester:
             except Exception as e:
                 log(test_result, f"[WARNING] Version comparison failed: {e}")
 
+            # ------------------------------------------------------------------------
+            # Capability filter 
+            # Gate topics that depend on settings lists. If unsupported ⇒ OPTIONAL_FAILED.
+            # Uses dab_checker.precheck(...) so it can consult system/settings/list.
+            # Runs for both positive and negative tests (keeps rest of logic intact).
+            # ------------------------------------------------------------------------
+            try:
+                if dab_request_topic in {"system/settings/set"}:
+                    vc, cap_log = self.dab_checker.precheck(device_id, dab_request_topic, dab_request_body)
+                    if vc == ValidateCode.UNSUPPORT:
+                        test_result.test_result = "OPTIONAL_FAILED"
+                        if cap_log:
+                            log(test_result, cap_log)
+                        log(test_result, "\033[1;33m[ OPTIONAL_FAILED - Unsupported by device capability lists ]\033[0m")
+                        total_ms = int((time.time() - section_wall_start) * 1000)
+                        self.logger.test_end(outcome=test_result.test_result, duration_ms=total_ms)
+                        return test_result
+            except Exception:
+                # do not alter flow on capability check errors; continue to existing checks
+                pass
+
             # Check operation support via operations/list (prechecker)
             if dab_request_topic != 'operations/list':
                 validate_code, prechecker_log = self.dab_checker.is_operation_supported(device_id, dab_request_topic)
