@@ -356,7 +356,7 @@ list_system_settings_schema_20 = {
     "allOf": [list_system_settings_schema],
     "required": ["status", "language", "outputResolution", "memc", "cec", "lowLatencyMode",
                  "matchContentFrameRate", "hdrOutputMode", "pictureMode", "audioOutputMode",
-                 "audioOutputSource", "videoInputSource", "audioVolume", "mute", "textToSpeech"]
+                 "audioOutputSource", "videoInputSource", "mute", "textToSpeech"]
 }
 
 list_system_settings_schema_21 = {
@@ -388,7 +388,7 @@ list_system_settings_schema_21 = {
     "required": ["status", "language", "outputResolution", "memc", "cec", "lowLatencyMode",
                  "matchContentFrameRate", "hdrOutputMode", "pictureMode", "audioOutputMode",
                  "audioOutputSource", "videoInputSource", "audioVolume", "mute", "textToSpeech",
-                 "brightness", "contrast", "timeZone", "screenSaver", "screenSaverMinTimeout",
+                 "timeZone", "screenSaver",
                  "personalizedAds", "highContrastText", "identifierForAdvertising"]
 }
 
