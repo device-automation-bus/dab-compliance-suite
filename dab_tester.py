@@ -625,18 +625,25 @@ class DabTester:
     def Execute_Functional_Tests(self, device_id, functional_tests, test_result_output_path=""):
         """
         Functional runner that mirrors conformance preflight:
-        - For EACH test: run discovery + health-check (via _preflight_before_each_test_or_raise)
+        - For EACH test: run DAB version check, then discovery + health-check.
         - If preflight fails once, mark current + remaining as SKIPPED and stop.
         """
         result_list = []
         terminated_run = False
         total_count = len(functional_tests)
         suite_wall_start = time.time()
+        dab_version = self.dab_version  # Get the device's DAB version once
+
         for idx, test_case in enumerate(functional_tests, 1):
             try:
-                dab_topic, test_category, test_func, test_name, *_ = test_case
+                # Updated tuple unpacking to include the test_version
+                dab_topic, test_category, test_func, test_name, test_version, *_ = test_case
+            except ValueError:
+                # Handle older test case definitions without a version
+                dab_topic, test_category, test_func, test_name = test_case[:4]
+                test_version = "2.0"  # Default to a version that will always pass
             except Exception:
-                dab_topic, test_category, test_func, test_name = ("unknown/topic", "functional", None, "Unknown")
+                dab_topic, test_category, test_func, test_name, test_version = ("unknown/topic", "functional", None, "Unknown", "2.0")
 
             # progress line (like conformance)
             pretty_name = test_name if isinstance(test_name, str) and test_name.strip() else f"{dab_topic}/{test_category}"
@@ -655,6 +662,27 @@ class DabTester:
             section_wall_start = time.time()
             outcome_for_end = "SKIPPED"  # default if we bail early
             # --------------------------------------------------
+
+            # ***** START: New DAB Version Pre-check Filter *****
+            try:
+                required_version = float(test_version)
+                dab_version_float = float(dab_version)
+                if dab_version_float < required_version:
+                    outcome_for_end = "OPTIONAL_FAILED"
+                    log_msg = f"[OPTIONAL_FAILED] Requires DAB Version {required_version}, but device version is {dab_version_float}. Skipping test."
+                    self.logger.warn(log_msg)
+                    tr = TestResult(
+                        test_id, device_id, dab_topic, "{}", outcome_for_end, "",
+                        [log_msg]
+                    )
+                    result_list.append(tr)
+                    total_ms = int((time.time() - section_wall_start) * 1000)
+                    self.logger.test_end(outcome=outcome_for_end, duration_ms=total_ms)
+                    continue  # Skip to the next test in the loop
+            except (ValueError, TypeError) as e:
+                # Log a warning but allow the test to proceed if versions are malformed
+                self.logger.warn(f"[WARNING] Could not compare DAB versions (required: '{test_version}', device: '{dab_version}'): {e}")
+            # ***** END: New DAB Version Pre-check Filter *****
 
             try:
                 # preflight (may raise PreflightTermination)

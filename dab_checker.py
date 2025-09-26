@@ -407,6 +407,8 @@ class DabChecker:
 
         self.logger.info("Start logs collection.")
         dab_response = self.__execute_cmd(device_id, dab_precheck_topic, dab_precheck_body)
+        self.logger.info(f"Waiting for 10 sec after start log-collection")
+        sleep(10)
         if dab_response:
             prechecker_log = f"\nlogs collection is started on this device. Ongoing...\n"
             validate_code = ValidateCode.SUPPORT
