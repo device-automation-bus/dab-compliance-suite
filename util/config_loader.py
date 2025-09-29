@@ -1,36 +1,17 @@
 """
-Helpers for resolving local app artifacts and App Store URLs for DAB tests.
-
-This version ENFORCES exactly three allowed apps and URLs:
-  - "Sample_App"
-  - "Sample_App1"
-  - "Large_App"
-
-Minimal-impact changes:
-- Introduces a fixed allow‑list; all public helpers validate app IDs against it.
-- Keeps existing APIs and behaviors otherwise.
-- Still supports per‑app URL map at config/apps/app_urls.json (limited to the 3 IDs).
-- Optionally lets you override *which* three via config/apps/app_ids.json, but we
-  always cap to 3. (Edit that file only if you really need to swap an ID.)
-
-Stable APIs preserved:
-- ensure_app_available_anyext(app_id="Sample_App", config_dir=..., timeout=..., prompt_if_missing=False)
-- ensure_apps_available_anyext(app_ids=[...], ...)
-- make_app_id_list(count=3, base_name="Sample_App")  # base_name ignored; returns the 3 allowed
-- init_sample_apps(count=3, base_name="Sample_App", ...)  # count/base ignored; manages the 3 allowed
-- get_sample_apps_payloads(...), get_apps_payloads(...)
-- init_interactive_setup(app_ids=("Sample_App",), ...)  # legacy wrapper now manages the 3 allowed
-- ensure_app_available(...), ensure_apps_available(...)  # legacy aliases
-
-URL helpers preserved (restricted to the 3 IDs):
-- set_app_url(app_id, url)
-- get_app_url_or_fail(app_id)
-- get_urls_for_apps([ids...]) -> {id:url}
-- load_app_urls_map()/save_app_urls_map()
-
-Misc preserved:
-- App Store URL helpers (get_appstore_url_or_fail, get_or_prompt_appstore_url, ...)
-- PayloadConfigError + resolve_body_or_raise
+This module helps DAB tests find app files and store links (deep links/URLs).
+It supports only three app IDs: Sample_App, Sample_App1, Large_App (override in config/apps/app_ids.json, max 3).
+App files live in config/apps/ (any extension); use ensure_app_available_anyext(appId, ...) to get a file payload.
+Per-app store links live in config/apps/app_urls.json as {appId: url}; a global link lives in config/apps/sample_app.json as {"app_url": url}.
+The global link can also come from env (DAB_APPSTORE_URL, APPSTORE_URL, STORE_URL) and is saved to sample_app.json for next runs.
+Link precedence is: per-app URL → global URL; if missing, you can enable prompting (prompt_if_missing=True) to ask once and save.
+For store installs use build_install_from_app_store_body(appId, ...) → {"appId","url","timeout"} (never puts the URL into "appId").
+For local installs the payload looks like {"appId","url","format","timeout"} from ensure_app_available_anyext.
+make_app_id_list() returns the current three allowed IDs; all helpers enforce the allow-list.
+Errors surface as PayloadConfigError with a short hint; logs use the shared suite LOGGER.
+Legacy aliases (ensure_app_available / ensure_apps_available) are kept for compatibility.
+No hard-coded store URLs are used; everything is configured via per-app map, global file, or environment.
+Example: build_install_from_app_store_body("Sample_App") → {"appId":"Sample_App","url":"<configured>","timeout":60000}.
 """
 
 from __future__ import annotations
@@ -39,12 +20,12 @@ import json
 import os
 import shutil
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from logger import LOGGER  # shared suite logger
 
 # -------------------------------------------------------------------------
-# Defaults & NEW allow-list config
+# Defaults & allow-list config
 # -------------------------------------------------------------------------
 
 DEFAULT_CONFIG_DIR = "config/apps"
@@ -67,6 +48,13 @@ def _safe_app_id(app_id: str) -> str:
     """Normalize appId to a safe filename stem (letters, digits, _ - . only)."""
     s = "".join(ch if (ch.isalnum() or ch in "._-") else "_" for ch in (app_id or "app"))
     return s or "app"
+
+
+def _write_appstore_url(url: str, config_path: str) -> None:
+    """Persist a single key {'app_url': url} to DEFAULT_STORE_JSON."""
+    Path(config_path).parent.mkdir(parents=True, exist_ok=True)
+    with open(config_path, "w", encoding="utf-8") as f:
+        json.dump({"app_url": (url or "").strip()}, f, indent=2)
 
 
 def _load_allowed_ids(path: str = APP_IDS_JSON, max_count: int = 3, silent: bool = True) -> List[str]:
@@ -102,6 +90,7 @@ def _allowed_ids() -> List[str]:
         ids = ["Sample_App", "Sample_App1", "Large_App"]
     return ids[:3]
  
+ 
 def make_app_id_list(count=3, base_name="Sample_App"):
     return [base_name if i == 0 else f"{base_name}{i}" for i in range(count)]
 
@@ -116,6 +105,9 @@ def _enforce_allowed(app_id: str) -> str:
         )
     return sid
 
+# -------------------------------------------------------------------------
+# Local artifact helpers
+# -------------------------------------------------------------------------
 
 def _find_first_app_file(app_id: str, config_dir: str) -> Optional[Path]:
     """
@@ -367,16 +359,53 @@ def get_apps_payloads(
     )
 
 # -------------------------------------------------------------------------
-# Global App Store helpers (unchanged)
+# Global App Store helpers 
 # -------------------------------------------------------------------------
 
-def load_appstore_url(config_path: str = DEFAULT_STORE_JSON) -> str:
-    """Load the global App Store URL string from JSON (raises if file missing)."""
-    if not os.path.exists(config_path):
-        raise FileNotFoundError(f"App Store config not found: {config_path}")
-    with open(config_path, "r", encoding="utf-8") as f:
-        cfg = json.load(f)
-    return cfg.get("app_url", "")
+def load_appstore_url(
+    config_path: str = DEFAULT_STORE_JSON,
+    env_keys: Tuple[str, ...] = ("DAB_APPSTORE_URL", "APPSTORE_URL", "STORE_URL"),
+) -> str:
+    """
+    Return the global App Store URL.
+
+    Resolution (no hard-coded defaults):
+      1) If config file exists and contains 'app_url' -> return it (non-empty).
+      2) Else, check environment variables in order: env_keys.
+         - If found, persist to config and return.
+      3) Else, raise FileNotFoundError with guidance.
+
+    Accepts any URL/deeplink scheme (market://, https://, appstore://, etc.).
+    """
+    # 1) Config file
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+            val = (cfg.get("app_url", "") or "").strip()
+            if val:
+                return val
+            else:
+                LOGGER.warn(f"[INIT] '{config_path}' present but 'app_url' is empty.")
+        except Exception as e:
+            LOGGER.warn(f"[INIT] Failed to read '{config_path}': {e}")
+
+    # 2) Environment variables
+    for key in env_keys:
+        val = (os.getenv(key) or "").strip()
+        if val:
+            try:
+                _write_appstore_url(val, config_path)  # persist for future runs
+                LOGGER.info(f"[INIT] Set App Store URL from ${key} and saved to '{config_path}'.")
+            except Exception as e:
+                LOGGER.warn(f"[INIT] Could not persist App Store URL from ${key}: {e}")
+            return val
+
+    # 3) Nothing configured
+    raise FileNotFoundError(
+        f"App Store URL not configured. Set one of {env_keys} or run with --init to create "
+        f"'{config_path}' containing {{\"app_url\": \"<store deep link or URL>\"}}."
+    )
 
 
 def get_appstore_url_or_fail(config_path: str = DEFAULT_STORE_JSON) -> str:
@@ -389,34 +418,38 @@ def get_appstore_url_or_fail(config_path: str = DEFAULT_STORE_JSON) -> str:
         )
     return url
 
-def get_or_prompt_appstore_url(config_path: str = DEFAULT_STORE_JSON) -> str:
-    try:
-        return get_appstore_url_or_fail(config_path)
-    except Exception:
-        url = input("Enter App Store URL (e.g. https://...): ").strip()
-        if not url:
-            raise ValueError("App Store URL is required.")
-        return url
 
 def get_or_prompt_appstore_url(
     config_path: str = DEFAULT_STORE_JSON,
     prompt_if_missing: bool = False,
 ) -> str:
     """
-    Backwards-compatible shim:
-      - Default non-interactive: return URL or raise.
-      - If prompt_if_missing=True: prompt and store, then return URL.
+    - Returns the configured global App Store URL (file/env).
+    - If missing/empty and prompt_if_missing=True: prompt once, persist, and return.
+    - If missing/empty and prompt_if_missing=False: raise ValueError.
     """
     try:
-        return get_appstore_url_or_fail(config_path)
-    except (FileNotFoundError, ValueError):
-        if prompt_if_missing:
-            LOGGER.warn("[INIT] App Store URL not configured; prompting now.")
-            return get_appstore_url_or_fail(config_path)
-        raise
+        url = (load_appstore_url(config_path) or "").strip()
+        if url:
+            return url
+    except Exception:
+        pass
+
+    if prompt_if_missing:
+        LOGGER.warn("[INIT] Global App Store URL not configured; prompting now.")
+        entered = input("Enter GLOBAL App Store URL to use as fallback for all apps: ").strip()
+        if not entered:
+            raise ValueError("App Store URL is required.")
+        _write_appstore_url(entered, config_path)
+        LOGGER.info(f"[INIT] Saved App Store URL to '{config_path}'.")
+        return entered
+
+    raise ValueError(
+        "App Store URL not configured. Run with --init to set it or export DAB_APPSTORE_URL / APPSTORE_URL."
+    )
 
 # -------------------------------------------------------------------------
-# Per-app URL map (restricted to the 3 allowed IDs)
+# Per-app URL map + helpers (restricted to the 3 allowed IDs)
 # -------------------------------------------------------------------------
 
 def load_app_urls_map(path: str = APP_URLS_JSON, silent: bool = False) -> Dict[str, str]:
@@ -435,7 +468,8 @@ def load_app_urls_map(path: str = APP_URLS_JSON, silent: bool = False) -> Dict[s
 
 def save_app_urls_map(mapping: Dict[str, str], path: str = APP_URLS_JSON) -> None:
     """Persist {appId: url} map to disk."""
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    Path(path).parent.mkdir(parents=True, exist_ok=True
+    )
     with open(path, "w", encoding="utf-8") as f:
         json.dump(mapping, f, indent=2)
 
@@ -458,13 +492,13 @@ def get_app_url_or_fail(app_id: str, path: str = APP_URLS_JSON, fallback_global:
     url = (mapping.get(sid, "") or "").strip()
     if url:
         return url
-    # Fallback to legacy single URL
+    # Fallback to global single URL
     url = load_appstore_url(fallback_global)
     if url and url.strip():
         return url
     raise ValueError(
         f"No URL configured for app_id='{sid}'. "
-        f"Run --init to set per-app URLs or configure global URL at {fallback_global}."
+        f"Set per-app in {path} or configure global URL at {fallback_global}."
     )
 
 
@@ -475,6 +509,91 @@ def get_urls_for_apps(app_ids: List[str], path: str = APP_URLS_JSON, fallback_gl
         sid = _enforce_allowed(a)
         urls[sid] = get_app_url_or_fail(sid, path=path, fallback_global=fallback_global)
     return urls
+
+
+def get_or_prompt_app_url(
+    app_id: str,
+    per_app: bool = True,
+    prompt_if_missing: bool = False,
+    path: str = APP_URLS_JSON,
+    store_config_path: str = DEFAULT_STORE_JSON,
+) -> str:
+    """
+    Return the App Store URL for a given allowed app_id.
+
+    Order:
+      1) Per-app URL from app_urls.json (if per_app=True).
+         - If missing and prompt_if_missing, prompt once, persist via set_app_url, and return.
+      2) Global URL from sample_app.json or env via load_appstore_url().
+         - If missing and prompt_if_missing, prompt once, persist via _write_appstore_url, and return.
+      3) Else raise ValueError with guidance.
+
+    Mirrors the 'ask for apps path' behavior: we prompt only when requested.
+    """
+    sid = _enforce_allowed(app_id)
+
+    # 1) Per-app
+    if per_app:
+        mapping = load_app_urls_map(path, silent=True) or {}
+        url = (mapping.get(sid, "") or "").strip()
+        if url:
+            return url
+        if prompt_if_missing:
+            entered = input(f"Enter App Store URL for '{sid}' (e.g. market://details?id=..., https://...): ").strip()
+            if entered:
+                set_app_url(sid, entered, path=path)
+                return entered
+            # fall through to global
+
+    # 2) Global
+    try:
+        url = (load_appstore_url(store_config_path) or "").strip()
+        if url:
+            return url
+    except Exception:
+        # ignore; we may prompt below
+        pass
+
+    if prompt_if_missing:
+        LOGGER.warn("[INIT] Global App Store URL not configured; prompting now.")
+        entered = input("Enter GLOBAL App Store URL to use as fallback for all apps: ").strip()
+        if entered:
+            _write_appstore_url(entered, store_config_path)
+            return entered
+
+    # 3) Nothing configured
+    raise ValueError(
+        f"No App Store URL configured for '{sid}'. "
+        f"Set per-app in {path} or set a global 'app_url' in {store_config_path} "
+        f"(or export DAB_APPSTORE_URL / APPSTORE_URL)."
+    )
+
+# -------------------------------------------------------------------------
+# Install-from-store payload builder
+# -------------------------------------------------------------------------
+
+def build_install_from_app_store_body(
+    app_id: str = "Sample_App",
+    timeout: int = 60000,
+    per_app: bool = True,
+    prompt_if_missing: bool = False,
+) -> Dict[str, object]:
+    """
+    Build payload for applications/install-from-app-store:
+      {"appId": "<ID>", "url": "<store URL/deeplink>", "timeout": 60000}
+
+    - Prompts for missing URLs if prompt_if_missing=True (same UX as asking for app path).
+    - Honors the 3 allowed IDs: Sample_App, Sample_App1, Large_App.
+    """
+    sid = _enforce_allowed(app_id)
+    url = get_or_prompt_app_url(
+        sid,
+        per_app=per_app,
+        prompt_if_missing=prompt_if_missing,
+        path=APP_URLS_JSON,
+        store_config_path=DEFAULT_STORE_JSON,
+    )
+    return {"appId": sid, "url": url, "timeout": int(timeout)}
 
 # -------------------------------------------------------------------------
 # Payload builder & error (unchanged)
@@ -516,7 +635,7 @@ def resolve_body_or_raise(body_spec) -> str:
         raise PayloadConfigError(str(e), _hint_from_reason(e))
 
 # -------------------------------------------------------------------------
-# Backward-compatibility aliases (unchanged API, new restrictions apply)
+# Backward-compatibility aliases
 # -------------------------------------------------------------------------
 
 def ensure_app_available(*args, **kwargs):
@@ -529,7 +648,7 @@ def ensure_apps_available(app_ids, **kwargs):
     return ensure_apps_available_anyext(app_ids=app_ids, **kwargs)
 
 # -------------------------------------------------------------------------
-# Interactive bootstrap wrapper for --init (now fixed to 3 allowed apps)
+# Interactive bootstrap wrapper for --init (fixed to 3 allowed apps)
 # -------------------------------------------------------------------------
 
 def init_interactive_setup(
@@ -608,6 +727,10 @@ def init_interactive_setup(
                 set_app_url(app_id, entered)
                 LOGGER.info(f"[INIT] URL set for '{app_id}'.")
 
+# -------------------------------------------------------------------------
+# Negative-case payload
+# -------------------------------------------------------------------------
+
 def build_incorrect_format_body(app_id: str | None = None):
     """
     Build a flat 'applications/install' NEGATIVE payload (no fileLocation, no file://)
@@ -621,7 +744,6 @@ def build_incorrect_format_body(app_id: str | None = None):
       "timeout": 60000
     }
     """
-
     # Always use the dedicated negative-test app id
     resolved_app_id = "unsupported_format_app"
 

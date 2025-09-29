@@ -12,7 +12,7 @@ import dab.output
 import dab.version
 import json
 from util.enforcement_manager import EnforcementManager
-from util.config_loader import ensure_app_available, get_appstore_url_or_fail, build_incorrect_format_body
+from util.config_loader import ensure_app_available, build_install_from_app_store_body, build_incorrect_format_body
 
 # Implement the test cases for conformance test.
 CONFORMANCE_TEST_CASE = [
@@ -191,7 +191,7 @@ CONFORMANCE_TEST_CASE = [
     ("applications/uninstall",lambda: f'{{"appId": "com.example!@#"}}', dab.applications.uninstall, 50000, "Conformance Bad Request", "2.1", True),
     ("applications/clear-data",lambda: f'{{"appId": "{config.apps["youtube"]}"}}', dab.applications.clear_data, 10000, "Conformance", "2.1", False),
     ("applications/clear-data",lambda: f'{{"appId": ""}}', dab.applications.clear_data, 10000, "Conformance Bad Request", "2.1", True),
-    ("applications/install-from-app-store", lambda: json.dumps({"appId": get_appstore_url_or_fail(), "timeout": 60000}), dab.applications.install_from_appstore, 120000, "Install From App Store Conformance", "2.1", False),
+    ("applications/install-from-app-store", lambda: json.dumps(build_install_from_app_store_body("Sample_App", timeout=60000)), dab.applications.install_from_appstore, 120000, "Install From App Store Conformance", "2.1", False),
     ("system/logs/start-collection", '{}', dab.system.start_log_collection, 200, "Conformance", "2.1" , False), 
     ("system/logs/stop-collection", '{}', dab.system.stop_log_collection, 200, "Conformance", "2.1" , False), 
     ("system/logs/stop-collection", '{}', dab.system.stop_log_collection, 400, "Stop Without Start Negative", "2.1" , True),

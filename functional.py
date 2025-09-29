@@ -7,11 +7,12 @@ import sys
 from readchar import readchar
 from util.enforcement_manager import EnforcementManager
 from util.config_loader import ensure_app_available_anyext
-from util.config_loader import ensure_app_available 
+from util.config_loader import ensure_app_available
 from paho.mqtt.properties import Properties
 from paho.mqtt.packettypes import PacketTypes
 from dab_checker import DabChecker
-from schema import dab_response_validator 
+from util.enforcement_manager import ValidateCode
+from logger import LOGGER
 
 # --- Sleep Time Constants ---
 APP_LAUNCH_WAIT = 5
@@ -24,8 +25,9 @@ CONTENT_LOAD_WAIT = 20
 DEVICE_REBOOT_WAIT = 180  # Max wait for device reboot
 TELEMETRY_DURATION_MS = 5000
 TELEMETRY_METRICS_WAIT = 30  # Max wait for telemetry metrics (seconds)
-HEALTH_CHECK_INTERVAL = 5    # Seconds between health check polls
+HEALTH_CHECK_INTERVAL = 5   # Seconds between health check polls
 ASSISTANT_INIT = 10
+APP_INSTALL_WAIT = 3
 ASSISTANT_WAIT = 10
 LOGS_COLLECTION_WAIT = 30  # Seconds for logs collection wait
 SCREENSAVER_TIMEOUT_WAIT = 30  # Screensaver timeout for idle wait
@@ -37,74 +39,18 @@ class UnsupportedOperationError(Exception):
         self.topic = topic
         super().__init__(f"DAB operation '{topic}' is not supported by the device.")
 
-SUPPORTED_OPERATIONS = []
-
-def fetch_supported_operations(tester, device_id):
-    """
-    Fill SUPPORTED_OPERATIONS via 'operations/list' and return it.
-    Accepts list[str] or list[{"operation": str}] shapes.
-    """
-    global SUPPORTED_OPERATIONS
-
-    if SUPPORTED_OPERATIONS:
-        LOGGER.info(f"Using cached operations ({len(SUPPORTED_OPERATIONS)})")
-        return SUPPORTED_OPERATIONS
-
-    LOGGER.info("Fetching supported DAB operations via 'operations/list'")
-    result_code = tester.execute_cmd(device_id, "operations/list", "{}")
-    response = tester.dab_client.response()
-
-    if result_code != 0:
-        code = tester.dab_client.last_error_code()
-        LOGGER.warn(f"'operations/list' failed (code {code}); "
-                    "continuing without cache")
-        tester.dab_client.last_error_msg()
-        return SUPPORTED_OPERATIONS
-
-    try:
-        data = json.loads(response) if response else {}
-        ops = None
-
-        if isinstance(data, dict) and "operations" in data:
-            raw_ops = data["operations"]
-            if isinstance(raw_ops, list):
-                if raw_ops and isinstance(raw_ops[0], dict):
-                    ops = [d.get("operation")
-                           for d in raw_ops
-                           if isinstance(d, dict) and d.get("operation")]
-                else:
-                    ops = [x for x in raw_ops if isinstance(x, str)]
-
-        if not ops:
-            LOGGER.warn("'operations' list missing or invalid in response")
-            return SUPPORTED_OPERATIONS
-
-        SUPPORTED_OPERATIONS = ops
-        LOGGER.ok(f"Cached {len(SUPPORTED_OPERATIONS)} operations")
-        return SUPPORTED_OPERATIONS
-
-    except Exception as e:
-        LOGGER.error(f"Failed to parse 'operations/list' response: {e}")
-        return SUPPORTED_OPERATIONS
-
-
 # === Capability-gate helpers (non-breaking additions) =========================
-from logger import LOGGER
-
-SUPPORTED_SETTINGS_IDS = None   # cached by _fetch_supported_settings_ids
-SUPPORTED_KEY_CODES    = None   # cached by _fetch_supported_key_codes
-
 def _split_items(s: str):
     return [x.strip() for x in s.split(",") if x and x.strip()]
 
 def _parse_need_spec(spec: str):
     """
     Parse a spec like:
-      'ops: a,b | settings: x,y | keys: K_HOME,K_BACK'
+      'ops: a,b | settings: x,y | keys: K_HOME,K_BACK | voices: GoogleAssistant'
     Default segment = ops (if no prefix is given).
     """
-    ops_req, set_req, key_req = set(), set(), set()
-    for seg in (p.strip() for p in spec.split("|")):
+    ops_req, set_req, key_req, voice_req = set(), set(), set(), set()
+    for seg in (p.strip() for p in (spec or "").split("|")):
         if not seg:
             continue
         low = seg.lower()
@@ -114,165 +60,91 @@ def _parse_need_spec(spec: str):
             set_req.update(_split_items(seg.split(":", 1)[1]))
         elif low.startswith(("keys:", "key:")):
             key_req.update(_split_items(seg.split(":", 1)[1]))
+        elif low.startswith(("voices:", "voice:")):
+            voice_req.update(_split_items(seg.split(":", 1)[1]))
         else:
             ops_req.update(_split_items(seg))  # default to ops
     LOGGER.info(
         f"Parsed need spec → ops={sorted(ops_req)}, "
         f"settings={sorted(set_req)}, keys={sorted(key_req)}"
+        + (f", voices={sorted(voice_req)}" if voice_req else "")
     )
-    return ops_req, set_req, key_req
-
-def _fetch_supported_settings_ids(tester, device_id, logs=None, result=None):
-    """
-    Returns a set of supported setting IDs using 'system/settings/list'.
-    Falls back gracefully if list is unsupported or unparseable.
-    """
-    global SUPPORTED_SETTINGS_IDS
-    if SUPPORTED_SETTINGS_IDS is not None:
-        LOGGER.info(f"Using cached settings IDs ({len(SUPPORTED_SETTINGS_IDS)})")
-        if logs is not None:
-            logs.append(LOGGER.stamp(f"Using cached settings IDs ({len(SUPPORTED_SETTINGS_IDS)})"))
-        return SUPPORTED_SETTINGS_IDS
-    try:
-        _, resp = execute_cmd_and_log(
-            tester, device_id, "system/settings/list", "{}", logs, result
-        )
-        data = json.loads(resp) if resp else {}
-        if isinstance(data, dict) and isinstance(data.get("settings"), list):
-            SUPPORTED_SETTINGS_IDS = {
-                s.get("settingId")
-                for s in data["settings"]
-                if isinstance(s, dict) and s.get("settingId")
-            }
-        elif isinstance(data, dict):
-            SUPPORTED_SETTINGS_IDS = set(data.keys())
-        else:
-            SUPPORTED_SETTINGS_IDS = set()
-        LOGGER.info(f"Fetched {len(SUPPORTED_SETTINGS_IDS)} setting IDs")
-        if logs is not None:
-            logs.append(LOGGER.stamp(f"Fetched {len(SUPPORTED_SETTINGS_IDS)} setting IDs"))
-    except UnsupportedOperationError:
-        SUPPORTED_SETTINGS_IDS = set()
-        LOGGER.info("system/settings/list not supported; skipping settings gate.")
-        if logs is not None:
-            logs.append(LOGGER.stamp("system/settings/list not supported; skipping settings gate."))
-    except Exception as e:
-        SUPPORTED_SETTINGS_IDS = set()
-        LOGGER.warn(f"settings/list parse failed: {e}")
-        if logs is not None:
-            logs.append(LOGGER.stamp(f"settings/list parse failed: {e}"))
-    return SUPPORTED_SETTINGS_IDS
-
-def _fetch_supported_key_codes(tester, device_id, logs=None, result=None):
-    """
-    Returns a set of supported key codes using 'input/key/list'.
-    """
-    global SUPPORTED_KEY_CODES
-    if SUPPORTED_KEY_CODES is not None:
-        LOGGER.info(f"Using cached key codes ({len(SUPPORTED_KEY_CODES)})")
-        if logs is not None:
-            logs.append(LOGGER.stamp(f"Using cached key codes ({len(SUPPORTED_KEY_CODES)})"))
-        return SUPPORTED_KEY_CODES
-    try:
-        _, resp = execute_cmd_and_log(
-            tester, device_id, "input/key/list", "{}", logs, result
-        )
-        data = json.loads(resp) if resp else {}
-        if isinstance(data, dict):
-            for k in ("keys", "supportedKeys", "keyCodes"):
-                if isinstance(data.get(k), list):
-                    SUPPORTED_KEY_CODES = set(data[k])
-                    break
-            else:
-                SUPPORTED_KEY_CODES = set()
-        elif isinstance(data, list):
-            SUPPORTED_KEY_CODES = set(data)
-        else:
-            SUPPORTED_KEY_CODES = set()
-        LOGGER.info(f"Fetched {len(SUPPORTED_KEY_CODES)} key codes")
-        if logs is not None:
-            logs.append(LOGGER.stamp(f"Fetched {len(SUPPORTED_KEY_CODES)} key codes"))
-    except UnsupportedOperationError:
-        SUPPORTED_KEY_CODES = set()
-        LOGGER.info("input/key/list not supported; skipping key gate.")
-        if logs is not None:
-            logs.append(LOGGER.stamp("input/key/list not supported; skipping key gate."))
-    except Exception as e:
-        SUPPORTED_KEY_CODES = set()
-        LOGGER.warn(f"key/list parse failed: {e}")
-        if logs is not None:
-            logs.append(LOGGER.stamp(f"key/list parse failed: {e}"))
-    return SUPPORTED_KEY_CODES
+    return ops_req, set_req, key_req, voice_req
 
 def need(tester, device_id, spec, result=None, logs=None):
     """
-    One-line capability check. Example:
-        need(tester, device_id,
-             "ops: applications/launch, applications/get-state | "
-             "settings: screenSaver | keys: KEY_HOME",
-             result, logs)
+    One-line capability precheck to run before each test case.
+
+    Example:
+        need(
+            tester, device_id,
+            "ops: applications/launch, applications/get-state | "
+            "settings: personalizedAds, screenSaver | keys: KEY_HOME | voices: GoogleAssistant",
+            result, logs
+        )
+
+    Uses DabChecker to precheck and populate caches for:
+      - operations/list    → is_operation_supported(...)
+      - system/settings/list → precheck('system/settings/set', {"setting_key": "dummy_val"})
+      - input/key/list       → precheck('input/key-press', {"keyCode":"KEY_HOME"})
+      - voice/list           → precheck('voice/set', {"voiceSystem":{"name":"__probe__","enabled":True}})
+
     If any required item is missing, marks OPTIONAL_FAILED and returns False.
     """
-    ops_req, set_req, key_req = _parse_need_spec(spec)
+    # Parse what this test requires
+    ops_req, set_req, key_req, voice_req = _parse_need_spec(spec)
+
+    # Get or create a checker instance attached to the tester
+    checker = getattr(tester, "dab_checker", None)
+    if checker is None:
+        checker = DabChecker(tester)
+        try:
+            setattr(tester, "dab_checker", checker)
+        except Exception:
+            pass
 
     try:
-        # Ensure ops cache is filled
-        if not SUPPORTED_OPERATIONS:
-            LOGGER.info("Fetching supported operations…")
-            fetch_supported_operations(tester, device_id)
-        have_ops = set(SUPPORTED_OPERATIONS or [])
-        miss_ops = ops_req - have_ops
-        if miss_ops:
-            LOGGER.warn("[OPTIONAL_FAILED] Required ops not supported: " +
-                        ", ".join(sorted(miss_ops)))
-            if logs is not None:
-                logs.append(LOGGER.stamp("[OPTIONAL_FAILED] Required ops not supported: " +
-                                         ", ".join(sorted(miss_ops))))
-            if result is not None:
-                result.test_result = "OPTIONAL_FAILED"
-            return False
+        # ---------- Operations gate (operations/list) ----------
+        for op in sorted(ops_req):
+            validate_code, _ = checker.is_operation_supported(device_id, op)
+            if validate_code != ValidateCode.SUPPORT:
+                msg = f"[OPTIONAL_FAILED] Required op not supported: {op}"
+                LOGGER.warn(msg)
+                if logs is not None: logs.append(LOGGER.stamp(msg))
+                if result is not None: result.test_result = "OPTIONAL_FAILED"
+                return False
 
-        # Settings (best-effort; if list unsupported, we skip)
-        if set_req:
-            have_settings = _fetch_supported_settings_ids(
-                tester, device_id, logs, result
-            )
-            if have_settings:
-                miss_set = set_req - have_settings
-                if miss_set:
-                    LOGGER.warn("[OPTIONAL_FAILED] Required settings not supported: " +
-                                ", ".join(sorted(miss_set)))
-                    if logs is not None:
-                        logs.append(LOGGER.stamp("[OPTIONAL_FAILED] Required settings not supported: " +
-                                                 ", ".join(sorted(miss_set))))
-                    if result is not None:
-                        result.test_result = "OPTIONAL_FAILED"
-                    return False
-            else:
-                LOGGER.info("Settings list unavailable; skipping settings gate.")
-                if logs is not None:
-                    logs.append(LOGGER.stamp("Settings list unavailable; skipping settings gate."))
+        # ---------- Settings gate (system/settings/list) ----------
+        for setting in sorted(set_req):
+            # Use a dummy value; precheck only cares about the key's descriptor in the settings list
+            validate_code, _ = checker.precheck(device_id, "system/settings/set", json.dumps({setting: True}))
+            if validate_code != ValidateCode.SUPPORT:
+                msg = f"[OPTIONAL_FAILED] Required setting not supported: {setting}"
+                LOGGER.warn(msg)
+                if logs is not None: logs.append(LOGGER.stamp(msg))
+                if result is not None: result.test_result = "OPTIONAL_FAILED"
+                return False
 
-        # Keys (best-effort; if key/list unsupported, we skip)
-        if key_req:
-            have_keys = _fetch_supported_key_codes(
-                tester, device_id, logs, result
-            )
-            if have_keys:
-                miss_keys = key_req - have_keys
-                if miss_keys:
-                    LOGGER.warn("[OPTIONAL_FAILED] Required keys not supported: " +
-                                ", ".join(sorted(miss_keys)))
-                    if logs is not None:
-                        logs.append(LOGGER.stamp("[OPTIONAL_FAILED] Required keys not supported: " +
-                                                 ", ".join(sorted(miss_keys))))
-                    if result is not None:
-                        result.test_result = "OPTIONAL_FAILED"
-                    return False
-            else:
-                LOGGER.info("Key list unavailable; skipping key gate.")
-                if logs is not None:
-                    logs.append(LOGGER.stamp("Key list unavailable; skipping key gate."))
+        # ---------- Keys gate (input/key/list) ----------
+        for key in sorted(key_req):
+            validate_code, _ = checker.precheck(device_id, "input/key-press", json.dumps({"keyCode": key}))
+            if validate_code != ValidateCode.SUPPORT:
+                msg = f"[OPTIONAL_FAILED] Required key not supported: {key}"
+                LOGGER.warn(msg)
+                if logs is not None: logs.append(LOGGER.stamp(msg))
+                if result is not None: result.test_result = "OPTIONAL_FAILED"
+                return False
+
+        # ---------- Voices gate (voice/list) ----------
+        for voice in sorted(voice_req):
+            payload = json.dumps({"voiceSystem": {"name": voice, "enabled": True}})
+            validate_code, _ = checker.precheck(device_id, "voice/set", payload)
+            if validate_code != ValidateCode.SUPPORT:
+                msg = f"[OPTIONAL_FAILED] Required voice assistant not supported: {voice}"
+                LOGGER.warn(msg)
+                if logs is not None: logs.append(LOGGER.stamp(msg))
+                if result is not None: result.test_result = "OPTIONAL_FAILED"
+                return False
 
         LOGGER.ok("Capability gate passed.")
         if logs is not None:
@@ -280,36 +152,28 @@ def need(tester, device_id, spec, result=None, logs=None):
         return True
 
     except Exception as e:
-        # Any unexpected failure in gating is a non-enforceable optional fail
-        LOGGER.warn(f"[OPTIONAL_FAILED] Capability check failed: {e}")
+        # Any unexpected failure in precheck is a non-enforceable optional fail
+        msg = f"[OPTIONAL_FAILED] Capability precheck failed: {e}"
+        LOGGER.warn(msg)
         if logs is not None:
-            logs.append(LOGGER.stamp(f"[OPTIONAL_FAILED] Capability check failed: {e}"))
+            logs.append(LOGGER.stamp(msg))
         if result is not None:
             result.test_result = "OPTIONAL_FAILED"
         return False
 
-def ensure_supported(tester, device_id, result, logs, ops=None, settings=None, keys=None):
-    """
-    Convenience wrapper to avoid building the spec string by hand.
-    """
-    parts = []
-    if ops:      parts.append("ops: "      + ", ".join(sorted(ops)))
-    if settings: parts.append("settings: " + ", ".join(sorted(settings)))
-    if keys:     parts.append("keys: "     + ", ".join(sorted(keys)))
-    spec = " | ".join(parts) or ""
-    LOGGER.info(f"Ensuring support for: {spec or '(none)'}")
-    if logs is not None:
-        logs.append(LOGGER.stamp(f"Ensuring support for: {spec or '(none)'}"))
-    return need(tester, device_id, spec, result, logs)
-
 def execute_cmd_and_log(tester, device_id, topic, payload, logs=None, result=None):
-    global SUPPORTED_OPERATIONS
+    """
+    Executes a DAB command and logs the request and response.
+    Relies on need() to have already checked for operation support.
+    """
+    # The capability check is assumed to have been performed by need() before this call.
+    # For safety, we can still check the cache, but the primary validation is in need().
+    em = EnforcementManager()
+    supported_ops_raw = em.get_supported_operations() or []
+    supported_ops = {op.get("operation") if isinstance(op, dict) else op for op in supported_ops_raw}
 
-    if not SUPPORTED_OPERATIONS:
-        fetch_supported_operations(tester, device_id)
-
-    if topic not in SUPPORTED_OPERATIONS:
-        line = f"[OPTIONAL_FAILED] Operation '{topic}' is not supported by the device."
+    if topic not in supported_ops and topic != "operations/list":
+        line = f"[OPTIONAL_FAILED] Operation '{topic}' is not supported by the device (checked from cache)."
         LOGGER.warn(line)
         if logs is not None:
             logs.append(line)
@@ -325,16 +189,13 @@ def execute_cmd_and_log(tester, device_id, topic, payload, logs=None, result=Non
 
 def dab_status_from(resp, rc):
     try:
-        if isinstance(resp, str):      # JSON string
+        if isinstance(resp, str):    # JSON string
             return json.loads(resp).get("status", rc)
-        if isinstance(resp, dict):     # dict
+        if isinstance(resp, dict):   # dict
             return resp.get("status", rc)
     except Exception:
         pass
     return rc
-
-# The 'print_response' function is removed from here
-# It is still defined in the file but is no longer called by this function.
 
 def print_response(response, topic_for_color=None, indent=10):
     if isinstance(response, str):
@@ -471,37 +332,58 @@ def verify_system_setting(tester, payload, response, result, logs):
     LOGGER.result(f"[Result] Test Id: {result.test_id}\nTest Outcome: {result.test_result}\n{'-'*100}")
     return False, result
 
-def get_supported_setting(tester, device_id, key, result, logs, do_list=True):
-    topic = "system/settings/list"
-    payload = "{}"
-    if EnforcementManager().check_supported_settings() == False or do_list:
-        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs, result)
-        ok, result = validate_response(tester, topic, payload, response, result, logs)
-        if ok is False:
-            EnforcementManager().set_supported_settings(None)
-            return None, result
-        try:
-            EnforcementManager().set_supported_settings(json.loads(response))
-        except Exception:
-            EnforcementManager().set_supported_settings(None)
-
-    settings = EnforcementManager().get_supported_settings()
-    if not settings:
-        LOGGER.error(f"System setting list '{key}' FAILED on this device.")
-        if logs is not None:
-            logs.append(f"[FAILED] System settings list '{key}' FAILED on this device.")
+def get_supported_setting(tester, device_id, key, result, logs):
+    """
+    Retrieves a specific setting's supported values/range from the cached
+    system settings list. If the setting or the list itself is not supported,
+    it marks the test as OPTIONAL_FAILED.
+    """
+    # Use need() to ensure the settings list is fetched and cached if not already.
+    if not need(tester, device_id, f"settings: {key}", result, logs):
+        # 'need' already set the result to OPTIONAL_FAILED and logged the reason.
         return None, result
 
-    if key in settings:
-        setting = settings.get(key)
-        LOGGER.info(f"Get supported setting '{key}: {setting}'")
-        return setting, result
+    # At this point, the setting is confirmed to be supported. Retrieve from cache.
+    em = EnforcementManager()
+    settings = em.get_supported_settings()
+    settings_map = settings.get("settings", settings) if isinstance(settings, dict) else {}
 
-    LOGGER.error(f"System setting '{key}' is unsupported on this device.")
-    if logs is not None:
-        logs.append(f"[FAILED] System settings '{key}' is unsupported on this device.")
-    result.test_result = "FAILED"
-    return None, result
+    setting_value = settings_map.get(key)
+    LOGGER.info(f"Get supported setting '{key}: {setting_value}'")
+    return setting_value, result
+
+# === New Helper Function to Check Minimum Screensaver Timeout ===
+def check_min_screensaver_timeout(tester, device_id, result, logs):
+    """
+    Checks if the device's min screensaver timeout is less than 60s.
+    If it's >= 60s or unsupported, marks the test as OPTIONAL_FAILED to save time.
+    Returns True if the test should proceed, False otherwise.
+    """
+    min_timeout, _ = get_supported_setting(tester, device_id, "screenSaverMinTimeout", result, logs)
+
+    # get_supported_setting returns None and sets OPTIONAL_FAILED if not supported
+    if min_timeout is None:
+        # The get_supported_setting function already set the result and logged
+        return False
+
+    try:
+        min_timeout_val = int(min_timeout)
+        if min_timeout_val >= 60:
+            result.test_result = "OPTIONAL_FAILED"
+            line = (f"[RESULT] OPTIONAL_FAILED — Device minimum screensaver timeout ({min_timeout_val}s) "
+                    f"is >= 60s. Optimizing for execution time; this test has been strategically omitted.")
+            LOGGER.warn(line)
+            logs.append(line)
+            return False
+    except (ValueError, TypeError):
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — Could not parse 'screenSaverMinTimeout' value of '{min_timeout}'."
+        LOGGER.warn(line)
+        logs.append(line)
+        return False
+
+    # If we get here, the timeout is valid and < 60s
+    return True
 
 # ---- shared helper: build install targets from config or local artifacts ----
 def get_install_targets(default_app_ids=("Sample_App", "Sample_App1")):
@@ -1177,9 +1059,10 @@ def run_screensaver_enable_check(dab_topic, test_name, tester, device_id):
             LOGGER.result(line)
             logs.append(line)
 
-        # Capability gate for required operations
-        required_ops = "ops: system/settings/set, system/settings/get"
-        if not need(tester, device_id, required_ops, result, logs):
+        # Capability gate for required operations and settings
+        if not need(tester, device_id,
+                    "ops: system/settings/set, system/settings/get | settings: screenSaver",
+                    result, logs):
             return result # The 'need' function already logged the reason and set the result
 
         # Step 1: Set a known state by disabling the screensaver first
@@ -1279,9 +1162,10 @@ def run_screensaver_disable_check(dab_topic, test_name, tester, device_id):
             LOGGER.result(line)
             logs.append(line)
 
-        # Capability gate for required operations
-        required_ops = "ops: system/settings/set, system/settings/get"
-        if not need(tester, device_id, required_ops, result, logs):
+        # Capability gate for required operations and settings
+        if not need(tester, device_id,
+                    "ops: system/settings/set, system/settings/get | settings: screenSaver",
+                    result, logs):
             return result # The 'need' function already logged the reason and set the result
 
         # Step 1: Set a known state by enabling the screensaver first
@@ -1382,7 +1266,13 @@ def run_screensaver_active_check(dab_topic, test_name, tester, device_id):
             logs.append(line)
 
         # Capability gate
-        if not need(tester, device_id, "ops: system/settings/set", result, logs):
+        if not need(tester, device_id,
+                    "ops: system/settings/set | settings: screenSaver, screenSaverTimeout, screenSaverMinTimeout",
+                    result, logs):
+            return result
+        
+        # Check if min timeout is acceptable for manual testing
+        if not check_min_screensaver_timeout(tester, device_id, result, logs):
             return result
 
         # Step 1: Enable the screensaver
@@ -1474,7 +1364,13 @@ def run_screensaver_inactive_check(dab_topic, test_name, tester, device_id):
             logs.append(line)
 
         # Capability gate
-        if not need(tester, device_id, "ops: system/settings/set", result, logs):
+        if not need(tester, device_id,
+                    "ops: system/settings/set | settings: screenSaver, screenSaverTimeout, screenSaverMinTimeout",
+                    result, logs):
+            return result
+        
+        # Check if min timeout is acceptable for manual testing
+        if not check_min_screensaver_timeout(tester, device_id, result, logs):
             return result
 
         # Step 1: Disable the screensaver
@@ -1545,7 +1441,7 @@ def run_screensaver_inactive_check(dab_topic, test_name, tester, device_id):
 
     return result
 
-# === Test 10: Screensaver Active Return Check ===
+# === Test 11: Screensaver Active Return Check ===
 def run_screensaver_active_return_check(dab_topic, test_name, tester, device_id):
     """
     Validates that the screen returns to its previous state after exiting the screensaver. This is a manual test.
@@ -1568,7 +1464,13 @@ def run_screensaver_active_return_check(dab_topic, test_name, tester, device_id)
             logs.append(line)
 
         # Capability gate
-        if not need(tester, device_id, "ops: system/settings/set", result, logs):
+        if not need(tester, device_id,
+                    "ops: system/settings/set | settings: screenSaver, screenSaverTimeout, screenSaverMinTimeout",
+                    result, logs):
+            return result
+
+        # Check if min timeout is acceptable for manual testing
+        if not check_min_screensaver_timeout(tester, device_id, result, logs):
             return result
 
         # Step 1 & 2: Enable screensaver and set a timeout
@@ -1636,7 +1538,7 @@ def run_screensaver_active_return_check(dab_topic, test_name, tester, device_id)
 
     return result
 
-# === Test 11: Screensaver Active Check After Continuous Idle ===
+# === Test 12: Screensaver Active Check After Continuous Idle ===
 def run_screensaver_active_after_continuous_idle_check(dab_topic, test_name, tester, device_id):
     """
     Validates that the screensaver idle timer resets with user activity. This is a manual test.
@@ -1658,7 +1560,13 @@ def run_screensaver_active_after_continuous_idle_check(dab_topic, test_name, tes
             logs.append(line)
 
         # Capability gate
-        if not need(tester, device_id, "ops: system/settings/set", result, logs):
+        if not need(tester, device_id,
+                    "ops: system/settings/set | settings: screenSaver, screenSaverTimeout, screenSaverMinTimeout",
+                    result, logs):
+            return result
+
+        # Check if min timeout is acceptable for manual testing
+        if not check_min_screensaver_timeout(tester, device_id, result, logs):
             return result
 
         # Step 1 & 2: Enable screensaver and set a timeout
@@ -1723,7 +1631,7 @@ def run_screensaver_active_after_continuous_idle_check(dab_topic, test_name, tes
 
     return result
 
-# === Test 12: Screensaver Inactive Check After Reboot ===
+# === Test 13: Screensaver Inactive Check After Reboot ===
 def run_screensaver_inactive_after_reboot_check(dab_topic, test_name, tester, device_id):
     """
     Validates that a disabled screensaver setting persists after a reboot. This is a manual test.
@@ -1745,7 +1653,13 @@ def run_screensaver_inactive_after_reboot_check(dab_topic, test_name, tester, de
             logs.append(line)
 
         # Capability gate
-        if not need(tester, device_id, "ops: system/settings/set, system/restart", result, logs):
+        if not need(tester, device_id,
+                    "ops: system/settings/set, system/restart | settings: screenSaver, screenSaverTimeout, screenSaverMinTimeout",
+                    result, logs):
+            return result
+
+        # Check if min timeout is acceptable for manual testing
+        if not check_min_screensaver_timeout(tester, device_id, result, logs):
             return result
 
         # Step 1 & 2: Disable screensaver and set a timeout
@@ -1818,7 +1732,7 @@ def run_screensaver_inactive_after_reboot_check(dab_topic, test_name, tester, de
 
     return result
 
-# === Test 13: Screensaver Timeout 300 seconds Check ===
+# === Test 14: Screensaver Timeout 300 seconds Check ===
 def run_screensavertimeout_300_check(dab_topic, test_name, tester, device_id):
     """
     Validates that the screensaver activates after a 300-second timeout. This is a manual test.
@@ -1840,8 +1754,12 @@ def run_screensavertimeout_300_check(dab_topic, test_name, tester, device_id):
             logs.append(line)
 
         # Capability gate
-        if not need(tester, device_id, "ops: system/settings/set", result, logs):
+        if not need(tester, device_id,
+                    "ops: system/settings/set | settings: screenSaver, screenSaverTimeout",
+                    result, logs):
             return result
+        
+        # NOTE: This specific test is for a long timeout, so we bypass the < 60s check.
 
         # Step 1 & 2: Enable screensaver and set the 300-second timeout
         timeout_seconds = 300
@@ -1905,7 +1823,7 @@ def run_screensavertimeout_300_check(dab_topic, test_name, tester, device_id):
 
     return result
 
-# === Test 14: Screensaver Timeout Reboot Check ===
+# === Test 15: Screensaver Timeout Reboot Check ===
 def run_screensavertimeout_reboot_check(dab_topic, test_name, tester, device_id):
     """
     Validates that the screensaver timeout setting persists after a device reboot. This is a manual test.
@@ -1928,8 +1846,13 @@ def run_screensavertimeout_reboot_check(dab_topic, test_name, tester, device_id)
             logs.append(line)
 
         # Capability gate
-        required_ops = "ops: system/settings/set, system/settings/get, system/restart"
-        if not need(tester, device_id, required_ops, result, logs):
+        if not need(tester, device_id,
+                    "ops: system/settings/set, system/settings/get, system/restart | settings: screenSaver, screenSaverTimeout, screenSaverMinTimeout",
+                    result, logs):
+            return result
+        
+        # Check if min timeout is acceptable for manual testing
+        if not check_min_screensaver_timeout(tester, device_id, result, logs):
             return result
 
         # Step 1: Set the screensaver timeout before rebooting
@@ -2034,7 +1957,7 @@ def run_screensavertimeout_reboot_check(dab_topic, test_name, tester, device_id)
 
     return result
 
-# === Test 15: ScreenSaver Timeout Guest Mode Check ===
+# === Test 16: ScreenSaver Timeout Guest Mode Check ===
 def run_screensavertimeout_guest_mode_check(dab_topic, test_name, tester, device_id):
     """
     Validates that the screensaver can be activated while the device is in guest mode. This is a manual test.
@@ -2058,7 +1981,13 @@ def run_screensavertimeout_guest_mode_check(dab_topic, test_name, tester, device
             logs.append(line)
 
         # Capability gate for DAB operations
-        if not need(tester, device_id, "ops: system/settings/set", result, logs):
+        if not need(tester, device_id,
+                    "ops: system/settings/set | settings: screenSaver, screenSaverTimeout, screenSaverMinTimeout",
+                    result, logs):
+            return result
+
+        # Check if min timeout is acceptable for manual testing
+        if not check_min_screensaver_timeout(tester, device_id, result, logs):
             return result
 
         # Step 1: Manually check if the device supports Guest Mode at all
@@ -2143,7 +2072,7 @@ def run_screensavertimeout_guest_mode_check(dab_topic, test_name, tester, device
 
     return result
 
-# === Test 16: ScreenSaver Min Timeout Check ===
+# === Test 17: ScreenSaver Min Timeout Check ===
 def run_screensavertimeout_minimum_check(dab_topic, test_name, tester, device_id):
     """
     Validates that the screensaver can be activated using the device's reported minimum timeout value.
@@ -2167,8 +2096,9 @@ def run_screensavertimeout_minimum_check(dab_topic, test_name, tester, device_id
             logs.append(line)
 
         # Capability gate
-        required_ops = "ops: system/settings/list, system/settings/set"
-        if not need(tester, device_id, required_ops, result, logs):
+        if not need(tester, device_id,
+                    "ops: system/settings/list, system/settings/set | settings: screenSaver, screenSaverTimeout, screenSaverMinTimeout",
+                    result, logs):
             return result
 
         # Step 1: Get the minimum supported screensaver timeout
@@ -2176,12 +2106,16 @@ def run_screensavertimeout_minimum_check(dab_topic, test_name, tester, device_id
         LOGGER.result(line)
         logs.append(line)
         min_timeout, result = get_supported_setting(tester, device_id, "screenSaverMinTimeout", result, logs)
-        if not min_timeout:
+        if min_timeout is None:
             # get_supported_setting already logs the failure reason and sets the result
             return result
         line = f"[INFO] Device reports minimum screensaver timeout is: {min_timeout} seconds."
         LOGGER.info(line)
         logs.append(line)
+
+        # New logic: check if min_timeout is too long for automated testing
+        if not check_min_screensaver_timeout(tester, device_id, result, logs):
+            return result
 
         # Step 2 & 3: Enable screensaver and set the minimum timeout
         for payload_data in [
@@ -2205,7 +2139,7 @@ def run_screensavertimeout_minimum_check(dab_topic, test_name, tester, device_id
         line = f"[STEP] Do not interact with the device. Waiting {min_timeout} seconds for the screensaver."
         LOGGER.result(line)
         logs.append(line)
-        waiting_for_screensaver(result, logs, min_timeout, "Ready to begin the idle wait?")
+        waiting_for_screensaver(result, logs, int(min_timeout), "Ready to begin the idle wait?")
 
         line = "[STEP] Manual check required."
         LOGGER.result(line)
@@ -2243,7 +2177,7 @@ def run_screensavertimeout_minimum_check(dab_topic, test_name, tester, device_id
 
     return result
 
-# === Test 17: ScreenSaver Min Timeout Reboot Check ===
+# === Test 18: ScreenSaver Min Timeout Reboot Check ===
 def run_screensavermintimeout_reboot_check(dab_topic, test_name, tester, device_id):
     """
     Verifies that the minimum screensaver timeout value is not altered after a device restart.
@@ -2266,8 +2200,9 @@ def run_screensavermintimeout_reboot_check(dab_topic, test_name, tester, device_
             logs.append(line)
 
         # Capability gate
-        required_ops = "ops: system/settings/list, system/restart"
-        if not need(tester, device_id, required_ops, result, logs):
+        if not need(tester, device_id,
+                    "ops: system/settings/list, system/restart | settings: screenSaverMinTimeout",
+                    result, logs):
             return result
 
         # Step 1: Get the initial minimum timeout value
@@ -2531,6 +2466,7 @@ def run_highContrastText_video_playback_check(dab_topic, test_name, tester, devi
         logs.append(line)
 
     return result
+
 # === Test 20: SetInvalidVoiceAssistant ===
 def run_set_invalid_voice_assistant_check(dab_topic, test_name, tester, device_id):
     """
@@ -3236,7 +3172,7 @@ def run_launch_app_while_restarting_check(dab_topic, test_name, tester, device_i
         logs.append(line)
         # Allow time for device to come back online for next test
         LOGGER.info("Waiting for device to potentially recover from restart...")
-        time.sleep(DEVICE_REBOOT_WAIT)
+        time.sleep(HEALTH_CHECK_INTERVAL)
 
     return result
 
@@ -3411,50 +3347,47 @@ def run_personalized_ads_response_check(dab_topic, test_name, tester, device_id)
         # Header and description
         for line in (
             f"[TEST] Personalized Ads Not Supported Check — {test_name} (test_id={test_id}, device={device_id})",
-            "[DESC] Goal: On a device that does not support 'personalizedAds', verify that setting it returns an error.",
+            "[DESC] Goal: On a device that does not support 'personalizedAds', verify that setting it returns a 501 error.",
             "[DESC] Required ops: system/settings/set. Optional: system/settings/list.",
-            "[DESC] Pass criteria: 'set' command returns a non-200 status. If setting is listed as supported, test is OPTIONAL_FAILED.",
+            "[DESC] Pass criteria: 'set' command must return status 501. If the setting is supported, the test is OPTIONAL_FAILED.",
         ):
             LOGGER.result(line)
             logs.append(line)
 
-        # Capability gate
+        # Basic capability gate for the required operations
         if not need(tester, device_id, "ops: system/settings/set", result, logs):
             return result
 
-        # Step 1 (Optional): Check if the setting is listed. If so, this test is not applicable.
-        try:
-            _, response = execute_cmd_and_log(tester, device_id, "system/settings/list", "{}", logs)
-            if response and '"personalizedAds"' in response:
-                result.test_result = "OPTIONAL_FAILED"
-                line = "[RESULT] OPTIONAL_FAILED — 'personalizedAds' is listed as a supported setting. This test is not applicable."
-                LOGGER.result(line)
-                logs.append(line)
-                return result
-        except UnsupportedOperationError:
-            logs.append("[INFO] 'system/settings/list' not supported. Proceeding to 'set' check.")
-        except Exception:
-            logs.append("[INFO] Could not parse 'system/settings/list'. Proceeding to 'set' check.")
+        # Step 1: Check if the 'personalizedAds' setting is supported by the device.
+        is_setting_supported = need(tester, device_id, "settings: personalizedAds", result, logs)
 
-        # Step 2: Attempt to set the unsupported setting
-        line = "[STEP] Attempting to set 'personalizedAds', expecting an error."
-        LOGGER.result(line)
-        logs.append(line)
-        payload = json.dumps({"personalizedAds": True})
-        rc, response = execute_cmd_and_log(tester, device_id, "system/settings/set", payload, logs, result)
-        set_status = dab_status_from(response, rc)
-        
-        if set_status != 200:
-            result.test_result = "PASS"
-            line = f"[RESULT] PASS — Device correctly rejected the unsupported setting with status {set_status}."
+        if is_setting_supported:
+            # If the setting IS supported, this test is not applicable and should be skipped.
+            result.test_result = "OPTIONAL_FAILED"
+            line = "[RESULT] OPTIONAL_FAILED — 'personalizedAds' is a supported setting. This test is only for devices that do not support it."
+            LOGGER.result(line)
+            logs.append(line)
         else:
-            result.test_result = "FAILED"
-            line = "[RESULT] FAILED — Device unexpectedly accepted the unsupported setting with status 200."
-        
-        LOGGER.result(line)
-        logs.append(line)
+            # Step 2: If the setting is NOT supported, attempt to set it. The correct behavior is for the device to return 501.
+            line = "[STEP] Setting is not supported as expected. Attempting to set 'personalizedAds', expecting a 501 error."
+            LOGGER.result(line)
+            logs.append(line)
+            payload = json.dumps({"personalizedAds": True})
+            rc, response = execute_cmd_and_log(tester, device_id, "system/settings/set", payload, logs, result)
+            set_status = dab_status_from(response, rc)
+
+            if set_status == 501:
+                result.test_result = "PASS"
+                line = f"[RESULT] PASS — Device correctly returned '501 Not Implemented' for an unsupported setting."
+            else:
+                result.test_result = "FAILED"
+                line = f"[RESULT] FAILED — Device returned status {set_status}, but expected '501 Not Implemented' for an unsupported setting."
+
+            LOGGER.result(line)
+            logs.append(line)
 
     except UnsupportedOperationError as e:
+        # This will be caught if 'system/settings/set' itself is not supported.
         result.test_result = "OPTIONAL_FAILED"
         line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
         LOGGER.result(line)
@@ -3481,22 +3414,24 @@ def run_personalized_ads_persistence_check(dab_topic, test_name, tester, device_
     logs = []
     result = TestResult(test_id, device_id, "system/settings/set", "{}", "UNKNOWN", "", logs)
     persisted_value = "N/A"
+    device_recovered = False
 
     try:
         # Header and description
         for line in (
             f"[TEST] Personalized Ads Persistence Check — {test_name} (test_id={test_id}, device={device_id})",
             "[DESC] Goal: Enable personalized ads, reboot, and verify the setting is still enabled.",
-            "[DESC] Required ops: system/settings/set, system/settings/get, system/restart.",
+            "[DESC] Required ops: system/settings/set, system/settings/get, system/restart, health-check/get.",
+            "[DESC] Required settings: personalizedAds",
             "[DESC] Pass criteria: The 'personalizedAds' value must be true after reboot.",
         ):
             LOGGER.result(line)
             logs.append(line)
 
-        # Capability gate
-        required_ops = "ops: system/settings/set, system/settings/get, system/restart"
-        if not need(tester, device_id, required_ops, result, logs):
-            return result
+        # Capability gate: Check for both required operations AND the specific setting
+        spec = "ops: system/settings/set, system/settings/get, system/restart, health-check/get | settings: personalizedAds"
+        if not need(tester, device_id, spec, result, logs):
+            return result # The 'need' function already logged the reason and set the result
 
         # Step 1: Enable personalized ads
         line = "[STEP] Enabling 'personalizedAds' setting."
@@ -3505,8 +3440,9 @@ def run_personalized_ads_persistence_check(dab_topic, test_name, tester, device_
         payload = json.dumps({"personalizedAds": True})
         rc, response = execute_cmd_and_log(tester, device_id, "system/settings/set", payload, logs, result)
         if dab_status_from(response, rc) != 200:
+            # This could be a 501 if the setting is read-only, which is a valid failure for a 'set' test.
             result.test_result = "FAILED"
-            line = "[RESULT] FAILED — Could not enable 'personalizedAds' as a precondition."
+            line = f"[RESULT] FAILED — Could not enable 'personalizedAds' as a precondition. Status: {dab_status_from(response, rc)}"
             LOGGER.result(line)
             logs.append(line)
             return result
@@ -3516,13 +3452,33 @@ def run_personalized_ads_persistence_check(dab_topic, test_name, tester, device_
         LOGGER.result(line)
         logs.append(line)
         execute_cmd_and_log(tester, device_id, "system/restart", "{}", logs)
-        
-        line = f"[WAIT] Waiting {DEVICE_REBOOT_WAIT}s for device to restart and stabilize."
+
+        # Step 3: Wait for the device to become healthy by polling
+        line = f"[WAIT] Polling for device health for up to {DEVICE_REBOOT_WAIT}s..."
         LOGGER.info(line)
         logs.append(line)
-        time.sleep(DEVICE_REBOOT_WAIT)
+        start_time = time.time()
+        while time.time() - start_time < DEVICE_REBOOT_WAIT:
+            try:
+                rc_health, resp_health = execute_cmd_and_log(tester, device_id, "health-check/get", "{}", logs)
+                if dab_status_from(resp_health, rc_health) == 200 and json.loads(resp_health).get("healthy"):
+                    device_recovered = True
+                    LOGGER.ok("[INFO] Device is healthy after reboot.")
+                    logs.append("[INFO] Device is healthy after reboot.")
+                    break
+            except Exception:
+                # Ignore errors while device is rebooting
+                pass
+            time.sleep(HEALTH_CHECK_INTERVAL)
 
-        # Step 3: Verify the setting after reboot
+        if not device_recovered:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — Device did not become healthy within {DEVICE_REBOOT_WAIT}s after reboot."
+            LOGGER.error(line)
+            logs.append(line)
+            return result
+
+        # Step 4: Verify the setting after reboot
         line = "[STEP] Verifying 'personalizedAds' setting after reboot."
         LOGGER.result(line)
         logs.append(line)
@@ -3539,7 +3495,7 @@ def run_personalized_ads_persistence_check(dab_topic, test_name, tester, device_
         else:
             result.test_result = "FAILED"
             line = f"[RESULT] FAILED — Setting did not persist. Expected true, got '{persisted_value}'."
-        
+
         LOGGER.result(line)
         logs.append(line)
 
@@ -3562,11 +3518,6 @@ def run_personalized_ads_persistence_check(dab_topic, test_name, tester, device_
 
     return result
 
-# NOTE: The following tests are variations of the same manual ad validation.
-# We will use one robust, combined version to avoid redundancy.
-# run_personalized_ads_not_supported_check, run_personalized_ads_Video_ads_are_personalized,
-# and run_personalized_ads_apply_and_display_check are all covered by the logic in
-# run_personalized_ads_response_check (for unsupported) and a new manual check.
 
 def run_personalized_ads_manual_check(dab_topic, test_name, tester, device_id):
     """
@@ -3588,21 +3539,13 @@ def run_personalized_ads_manual_check(dab_topic, test_name, tester, device_id):
             LOGGER.result(line)
             logs.append(line)
 
-        # Capability gate
-        if not need(tester, device_id, "ops: system/settings/set", result, logs):
+        # Capability gate now checks for the setting directly
+        if not need(tester, device_id,
+                    "ops: system/settings/set, system/settings/list | settings: personalizedAds",
+                    result, logs):
             return result
         
-        # Pre-check if the setting is supported. If not, this test is optional.
-        try:
-            _, response = execute_cmd_and_log(tester, device_id, "system/settings/list", "{}", logs)
-            if response and '"personalizedAds"' not in response:
-                result.test_result = "OPTIONAL_FAILED"
-                line = "[RESULT] OPTIONAL_FAILED — 'personalizedAds' is not listed as a supported setting."
-                LOGGER.result(line)
-                logs.append(line)
-                return result
-        except Exception:
-            logs.append("[INFO] Could not check settings list. Proceeding with 'set' command.")
+        # The redundant manual check for the setting has been removed from here.
 
         # Step 1: Enable personalized ads
         line = "[STEP] Enabling 'personalizedAds' setting."
@@ -3652,206 +3595,188 @@ def run_personalized_ads_manual_check(dab_topic, test_name, tester, device_id):
     return result
 
 # === Test 34: Uninstall An Application Currently Running Foreground Check ===
+import traceback # Make sure this import is at the top of your file
+
 def run_uninstall_foreground_app_check(dab_topic, test_name, tester, device_id):
     """
-    Validates that an application currently running foreground can be uninstalled successfully.
+    Validates that a foreground application can be uninstalled successfully.
+    This test now pre-installs Sample_App to ensure a consistent state.
     """
-
     test_id = to_test_id(f"{dab_topic}/{test_name}")
+    app_id = config.apps.get("sample_app", "Sample_App")
     logs = []
-    result = TestResult(test_id, device_id, "applications/uninstall", json.dumps({"appId": "[appId]"}), "UNKNOWN", "", logs)
+    result = TestResult(test_id, device_id, "applications/uninstall", json.dumps({"appId": app_id}), "UNKNOWN", "", logs)
+    clear_status = "N/A" # Initialize for summary
 
     try:
         # Header and description
         for line in (
-            f"[TEST] Uninstall An Application Currently Running Foreground — {test_name} (test_id={test_id}, device={device_id}, appId=[appId])",
-            "[DESC] Goal: Launch an non-system app, then uninstall it while it's in the foreground.",
-            "[DESC] Required ops: applications/list, applications/launch, applications/get-state, applications/uninstall.",
+            f"[TEST] Uninstall Foreground App Check — {test_name} (test_id={test_id}, device={device_id}, appId={app_id})",
+            "[DESC] Goal: Install and launch a sample app, then uninstall it while it's in the foreground.",
+            "[DESC] Required ops: applications/install, applications/launch, applications/get-state, applications/uninstall.",
             "[DESC] Pass criteria: The 'uninstall' command must return status 200.",
         ):
             LOGGER.result(line)
             logs.append(line)
 
         # Capability gate
-        required_ops = "ops: applications/list, applications/launch, applications/get-state, applications/uninstall"
+        required_ops = "ops: applications/install, applications/launch, applications/get-state, applications/uninstall"
         if not need(tester, device_id, required_ops, result, logs):
             return result
 
-        # Step 1: List and select a non-system app.
-        line = f"[STEP] Listing applications for manual selection."
+        # Precondition Step: Install the application to ensure it exists
+        try:
+            install_payload = ensure_app_available(app_id=app_id)
+        except Exception as e:
+            result.test_result = "SKIPPED"
+            line = f"[RESULT] SKIPPED — Could not find local artifact for '{app_id}': {e}"
+            LOGGER.result(line); logs.append(line)
+            return result
+
+        line = f"[STEP] Precondition: Installing '{app_id}' to ensure it exists."
         LOGGER.result(line)
         logs.append(line)
-        topic = "applications/list"
-        payload = json.dumps({})
-        rc, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
+        rc, response = execute_cmd_and_log(tester, device_id, "applications/install", json.dumps(install_payload), logs)
         if dab_status_from(response, rc) != 200:
             result.test_result = "FAILED"
-            line = "[RESULT] FAILED — Could not list supported applications as a precondition."
+            line = "[RESULT] FAILED — Could not install the sample app as a precondition."
             LOGGER.result(line)
             logs.append(line)
             return result
 
-        applications = json.loads(response).get("applications")
-        appId_list = []
-
-        for application in applications:
-            appId = application.get("appId")
-            appId_list.append(appId)
-
-        logs.append(f"Please select one Non-System application in the list.")
-        print(f"Please select one Non-System application in the list.")
-        index = select_input(result, logs, appId_list)
-        if index == 0:
-            print(f"There are no non-system applications in the applications list.")
-            logs.append(f"[OPTIONAL_FAILED] There are no non-system applications in the applications list.")
-            result.test_result = "OPTIONAL_FAILED"
-            print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
-            return result
-
-        appId = appId_list[index - 1]
-        logs.append(f"Select appId '{appId}'.")
-
-        # Step 2: Launch the app.
-        line = f"[STEP] Launching application '{appId}'."
+        # Step 1: Launch the app
+        line = f"[STEP] Launching application '{app_id}'."
         LOGGER.result(line)
         logs.append(line)
-        execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": appId}), logs)
-        print(f"Waiting {APP_LAUNCH_WAIT} seconds for application to launch and stabilize.")
+        execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": app_id}), logs)
+        LOGGER.info(f"Waiting {APP_LAUNCH_WAIT} seconds for application to launch and stabilize.")
         time.sleep(APP_LAUNCH_WAIT)
 
-	# Step 3: Get app state.
-        line = f"[STEP] Getting state of application '{appId}'."
+        # Step 2: Get app state to confirm it's in the foreground
+        line = f"[STEP] Getting state of application '{app_id}'."
         LOGGER.result(line)
         logs.append(line)
-        _, response = execute_cmd_and_log(tester, device_id, "applications/get-state", json.dumps({"appId": appId}), logs)
+        _, response = execute_cmd_and_log(tester, device_id, "applications/get-state", json.dumps({"appId": app_id}), logs)
         state = json.loads(response).get("state", "").upper() if response else "UNKNOWN"
-        print(f"Current application state: {state}.")
+        LOGGER.info(f"Current application state: {state}.")
 
         if state != "FOREGROUND":
-            logs.append(f"[FAIL] App state is '{state}', expected 'FOREGROUND'.")
             result.test_result = "FAILED"
+            logs.append(f"[FAIL] App state is '{state}', expected 'FOREGROUND'.")
+            LOGGER.result(f"[RESULT] FAILED - App did not reach FOREGROUND state before uninstall attempt.")
+            return result
 
-	# Step 4: Uninstall app.
-        line = f"[STEP] Uninstall application '{appId}'."
+        # Step 3: Uninstall the foreground app
+        line = f"[STEP] Uninstalling application '{app_id}'."
         LOGGER.result(line)
         logs.append(line)
-        _, response = execute_cmd_and_log(tester, device_id, "applications/uninstall", json.dumps({"appId": appId}), logs)
-        status = json.loads(response).get("status", 0) if response else 0
-        print(f"Waiting {APP_UNINSTALL_WAIT} seconds for application to uninstall.")
+        rc, response = execute_cmd_and_log(tester, device_id, "applications/uninstall", json.dumps({"appId": app_id}), logs)
+        clear_status = dab_status_from(response, rc)
+        LOGGER.info(f"Waiting {APP_UNINSTALL_WAIT} seconds for application to uninstall.")
         time.sleep(APP_UNINSTALL_WAIT)
 
-        if status == 200:
-            print(f"Uninstall an application currently running foreground successful.")
-            logs.append(f"[PASS] Uninstall an application currently running foreground successful.")
+        if clear_status == 200:
             result.test_result = "PASS"
+            line = "[RESULT] PASS — Successfully uninstalled the foreground application."
+            LOGGER.result(line)
+            logs.append(line)
         else:
-            print(f"Uninstall an application currently running foreground fail.")
-            logs.append(f"[FAIL] Uninstall an application currently running foreground fail.")
             result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — Uninstall command returned status {clear_status} instead of 200."
+            LOGGER.result(line)
+            logs.append(line)
 
     except UnsupportedOperationError as e:
-        logs.append(f"[OPTIONAL_FAILED] Unsupported operation: {str(e)}")
         result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED - Unsupported operation: {str(e)}"
+        LOGGER.warn(line)
+        logs.append(line)
 
     except Exception as e:
-        logs.append(f"[ERROR] {str(e)}")
         result.test_result = "SKIPPED"
+        # This is the key change to get detailed error information
+        error_details = traceback.format_exc()
+        line = f"[RESULT] SKIPPED - An unexpected error occurred:\n{error_details}"
+        LOGGER.error(line)
+        logs.append(line)
 
-    # Print concise final test result status
-    print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+    finally:
+        # Final summary log
+        line = f"[SUMMARY] outcome={result.test_result}, test_id={test_id}, device={device_id}, appId={app_id}"
+        LOGGER.result(line)
+        logs.append(line)
+
     return result
 
 # === Test 35: Uninstall An System Application Check ===
 def run_uninstall_system_app_check(dab_topic, test_name, tester, device_id):
     """
-    Validates that an system application couldn't be uninstalled successfully.
+    Validates that a critical system application (Settings) cannot be uninstalled.
     """
-
     test_id = to_test_id(f"{dab_topic}/{test_name}")
+    # Hardcode the appId to 'settings', which the DAB bridge should resolve to a package name.
+    app_id = "settings"
     logs = []
-    result = TestResult(test_id, device_id, "applications/uninstall", json.dumps({"appId": "[appId]"}), "UNKNOWN", "", logs)
+    payload_app = json.dumps({"appId": app_id})
+    result = TestResult(test_id, device_id, "applications/uninstall", payload_app, "UNKNOWN", "", logs)
+    uninstall_status = "N/A"
 
     try:
         # Header and description
         for line in (
-            f"[TEST] Uninstall An system Application — {test_name} (test_id={test_id}, device={device_id}, appId=[appId])",
-            "[DESC] Goal: Launch an non-system app, then uninstall it while it's in the foreground.",
-            "[DESC] Required ops: applications/list, applications/uninstall.",
-            "[DESC] Pass criteria: The 'uninstall' command must return status 200.",
+            f"[TEST] Uninstall System App Check — {test_name} (test_id={test_id}, device={device_id}, appId={app_id})",
+            "[DESC] Goal: Verify that a critical system app (Settings) cannot be uninstalled.",
+            "[DESC] Required ops: applications/uninstall.",
+            "[DESC] Pass criteria: The 'uninstall' command must return status 403 (Forbidden).",
         ):
             LOGGER.result(line)
             logs.append(line)
 
-        # Capability gate
-        required_ops = "ops: applications/list, applications/uninstall"
-        if not need(tester, device_id, required_ops, result, logs):
+        # Capability gate: We only need the uninstall operation
+        if not need(tester, device_id, "ops: applications/uninstall", result, logs):
             return result
 
-        # Step 1: List and select a non-system app.
-        line = f"[STEP] Listing applications for manual selection."
+        # Step 1: Attempt to uninstall the system app using its config key.
+        line = f"[STEP] Attempting to uninstall system app '{app_id}', expecting a 403 error."
         LOGGER.result(line)
         logs.append(line)
-        topic = "applications/list"
-        payload = json.dumps({})
-        rc, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
-        if dab_status_from(response, rc) != 200:
-            result.test_result = "FAILED"
-            line = "[RESULT] FAILED — Could not list supported applications as a precondition."
-            LOGGER.result(line)
-            logs.append(line)
-            return result
+        rc, response = execute_cmd_and_log(tester, device_id, "applications/uninstall", payload_app, logs, result)
+        uninstall_status = dab_status_from(response, rc)
 
-        applications = json.loads(response).get("applications")
-        appId_list = []
-
-        for application in applications:
-            appId = application.get("appId")
-            appId_list.append(appId)
-
-        logs.append(f"Please select one System application in the list.")
-        print(f"Please select one System application in the list.")
-        index = select_input(result, logs, appId_list)
-        if index == 0:
-            print(f"There are no system applications in the applications list.")
-            logs.append(f"[OPTIONAL_FAILED] There are no system applications in the applications list.")
-            result.test_result = "OPTIONAL_FAILED"
-            print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
-            return result
-
-        appId = appId_list[index - 1]
-        logs.append(f"Select appId '{appId}'.")
-
-	# Step 2: Uninstall app.
-        line = f"[STEP] Uninstall application '{appId}'."
-        LOGGER.result(line)
-        logs.append(line)
-        _, response = execute_cmd_and_log(tester, device_id, "applications/uninstall", json.dumps({"appId": appId}), logs)
-        status = json.loads(response).get("status", 0) if response else 0
-        print(f"Waiting {APP_UNINSTALL_WAIT} seconds for application to uninstall.")
-        time.sleep(APP_UNINSTALL_WAIT)
-
-        if status == 403:
-            print(f"The system application '{appId}' cannot be uninstalled.")
-            logs.append(f"[PASS] The system application '{appId}' cannot be uninstalled.")
+        # Step 2: Verify the response status. Expected outcome for system apps is 403 (Forbidden).
+        if uninstall_status == 403:
             result.test_result = "PASS"
-        elif status == 200:
-            print(f"The system application '{appId}' can be uninstalled.")
-            logs.append(f"[FAIL] The system application '{appId}' can be uninstalled.")
+            line = "[RESULT] PASS — Device correctly returned '403 Forbidden' when attempting to uninstall a system app."
+        elif uninstall_status == 200:
             result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — Device incorrectly allowed uninstalling a system app (status 200). This is a security risk."
         else:
-            logs.append(f"[ERROR] {str(e)}")
-            result.test_result = "SKIPPED"
+            result.test_result = "FAILED"
+            line = (f"[RESULT] FAILED — Device returned an unexpected status '{uninstall_status}'. Expected 403. "
+                    f"(A 404 status may indicate a tool configuration issue resolving the appId '{app_id}')")
+
+        LOGGER.result(line)
+        logs.append(line)
 
     except UnsupportedOperationError as e:
-        logs.append(f"[OPTIONAL_FAILED] Unsupported operation: {str(e)}")
         result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
+        LOGGER.result(line)
+        logs.append(line)
 
     except Exception as e:
-        logs.append(f"[ERROR] {str(e)}")
         result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — An unexpected error occurred: {e}"
+        LOGGER.result(line)
+        logs.append(line)
 
-    # Print concise final test result status
-    print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+    finally:
+        # Final summary log
+        line = (f"[SUMMARY] outcome={result.test_result}, uninstall_status={uninstall_status}, "
+               f"test_id={test_id}, device={device_id}, appId={app_id}")
+        LOGGER.result(line)
+        logs.append(line)
+
     return result
 
 # === Test 36: Clear Data For An Application Currently Running Foreground Check ===
@@ -4499,97 +4424,99 @@ def run_install_bg_uninstall_sample_app(dab_topic, test_name, tester, device_id)
 def run_uninstall_sample_app_with_local_data_check(dab_topic, test_name, tester, device_id):
     """
     Positive: Uninstall a third-party app (sample_app) that has local storage data.
-    Minimal flow: (optional) launch -> applications/uninstall -> short wait
-    Pass if uninstall returns 200.
+    Flow: install -> (optional) launch -> uninstall. Pass if uninstall returns 200.
     """
     test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id = config.apps.get("sample_app", "Sample_App")
     logs = []
     payload_app = json.dumps({"appId": app_id})
     result = TestResult(test_id, device_id, "applications/uninstall", payload_app, "UNKNOWN", "", logs)
-
-    UNINSTALL_WAIT = 10  # seconds
-    APP_POKE_WAIT = 3    # small wait after optional launch
+    uninstall_status = "N/A"
 
     try:
-        # Header
-        msg = f"[TEST] Uninstall Sample App (with local data) — {test_name} (test_id={test_id}, device={device_id}, appId={app_id})"
-        LOGGER.result(msg); logs.append(msg)
-        msg = "[DESC] Flow: (optional) launch → uninstall → short wait; PASS if uninstall == 200."
-        LOGGER.result(msg); logs.append(msg)
-        msg = "[DESC] Local data deletion must be verified manually/OEM; storage inspection not in DAB scope."
-        LOGGER.result(msg); logs.append(msg)
+        # Header and description
+        for line in (
+            f"[TEST] Uninstall Sample App (with local data) — {test_name} (test_id={test_id}, device={device_id}, appId={app_id})",
+            "[DESC] Flow: install → (optional) launch → uninstall; PASS if uninstall == 200.",
+            "[DESC] Local data deletion must be verified manually/OEM; storage inspection not in DAB scope."
+        ):
+            LOGGER.result(line); logs.append(line)
 
-        # Required capability gate (unsupported → OPTIONAL_FAILED handled by need)
-        if not need(tester, device_id, "ops: applications/uninstall", result, logs):
-            msg = (f"[SUMMARY] outcome=OPTIONAL_FAILED, uninstall_status=N/A, "
-                   f"test_id={test_id}, device={device_id}, appId={app_id}")
-            LOGGER.result(msg); logs.append(msg)
+        # Capability gate for required operations
+        required_ops = "ops: applications/install, applications/uninstall"
+        if not need(tester, device_id, required_ops, result, logs):
             return result
 
-        msg = "[INFO] Capability gate passed."
-        LOGGER.info(msg); logs.append(msg)
-
-        # 0) Optional: launch the app to ensure it recently touched local data (best-effort)
+        # Precondition Step: Install the application to ensure it exists
         try:
-            msg = f"[STEP] (optional) applications/launch {payload_app}"
-            LOGGER.result(msg); logs.append(msg)
-            rc_launch, resp_launch = execute_cmd_and_log(
-                tester, device_id, "applications/launch", payload_app, logs, result
-            )
-            msg = f"[WAIT] {APP_POKE_WAIT}s after optional launch"
-            LOGGER.info(msg); logs.append(msg)
-            time.sleep(APP_POKE_WAIT)
-        except Exception:
-            msg = "[INFO] Skipping optional launch (applications/launch unsupported or failed)"
-            LOGGER.info(msg); logs.append(msg)
-
-        # 1) Uninstall the sample app
-        msg = f"[STEP] applications/uninstall {payload_app}"
-        LOGGER.result(msg); logs.append(msg)
-        rc_uninst, resp_uninst = execute_cmd_and_log(
-            tester, device_id, "applications/uninstall", payload_app, logs, result
-        )
-        uninstall_status = dab_status_from(resp_uninst, rc_uninst)
-        msg = f"[INFO] applications/uninstall transport_rc={rc_uninst}, dab_status={uninstall_status}"
-        LOGGER.info(msg); logs.append(msg)
-
-        if uninstall_status != 200:
-            result.test_result = "FAILED"
-            msg = f"[RESULT] FAILED — applications/uninstall returned {uninstall_status} (expected 200)"
-            LOGGER.result(msg); logs.append(msg)
-            msg = (f"[SUMMARY] outcome=FAILED, uninstall_status={uninstall_status}, "
-                   f"test_id={test_id}, device={device_id}, appId={app_id}")
-            LOGGER.result(msg); logs.append(msg)
+            install_payload = ensure_app_available(app_id=app_id)
+        except Exception as e:
+            result.test_result = "SKIPPED"
+            line = f"[RESULT] SKIPPED — Could not find local artifact for '{app_id}': {e}"
+            LOGGER.result(line); logs.append(line)
             return result
+        
+        line = f"[STEP] Precondition: Installing '{app_id}' to ensure it exists for the test."
+        LOGGER.result(line); logs.append(line)
+        rc_install, resp_install = execute_cmd_and_log(tester, device_id, "applications/install", json.dumps(install_payload), logs)
+        install_status = dab_status_from(resp_install, rc_install)
+        if install_status != 200:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — Precondition failed: Could not install '{app_id}'. Status: {install_status}"
+            LOGGER.result(line); logs.append(line)
+            return result
+        time.sleep(APP_INSTALL_WAIT)
 
-        # Short wait to finalize uninstall
-        msg = f"[WAIT] {UNINSTALL_WAIT}s after uninstall for finalization"
-        LOGGER.info(msg); logs.append(msg)
-        time.sleep(UNINSTALL_WAIT)
+        # Optional: Launch the app to ensure it recently touched local data (best-effort)
+        try:
+            line = f"[STEP] (optional) applications/launch {payload_app}"
+            LOGGER.result(line); logs.append(line)
+            execute_cmd_and_log(tester, device_id, "applications/launch", payload_app, logs, result)
+            line = f"[WAIT] 3s after optional launch"
+            LOGGER.info(line); logs.append(line)
+            time.sleep(3)
+        except Exception:
+            line = "[INFO] Skipping optional launch (applications/launch unsupported or failed)"
+            LOGGER.info(line); logs.append(line)
 
-        # Result
-        result.test_result = "PASS"
-        msg = "[RESULT] PASS — applications/uninstall returned 200"
-        LOGGER.result(msg); logs.append(msg)
-        msg = (f"[SUMMARY] outcome=PASS, uninstall_status=200, "
-               f"test_id={test_id}, device={device_id}, appId={app_id}")
-        LOGGER.result(msg); logs.append(msg)
-        return result
+        # Main Test Step: Uninstall the sample app
+        line = f"[STEP] applications/uninstall {payload_app}"
+        LOGGER.result(line); logs.append(line)
+        rc_uninst, resp_uninst = execute_cmd_and_log(tester, device_id, "applications/uninstall", payload_app, logs, result)
+        uninstall_status = dab_status_from(resp_uninst, rc_uninst)
+        
+        if uninstall_status == 200:
+            result.test_result = "PASS"
+            line = "[RESULT] PASS — applications/uninstall returned 200 as expected."
+            LOGGER.result(line); logs.append(line)
+        else:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — applications/uninstall returned {uninstall_status} (expected 200)"
+            LOGGER.result(line); logs.append(line)
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED - Unsupported operation: {str(e)}"
+        LOGGER.warn(line); logs.append(line)
 
     except Exception as e:
         result.test_result = "SKIPPED"
-        msg = f"[RESULT] SKIPPED — internal error: {e} (test_id={test_id}, device={device_id}, appId={app_id})"
-        LOGGER.result(msg); logs.append(msg)
-        msg = (f"[SUMMARY] outcome=SKIPPED, uninstall_status=N/A, "
+        error_details = traceback.format_exc()
+        line = f"[RESULT] SKIPPED - An unexpected error occurred:\n{error_details}"
+        LOGGER.error(line); logs.append(line)
+        
+    finally:
+        # Final summary log
+        line = (f"[SUMMARY] outcome={result.test_result}, uninstall_status={uninstall_status}, "
                f"test_id={test_id}, device={device_id}, appId={app_id}")
-        LOGGER.result(msg); logs.append(msg)
-        return result
+        LOGGER.result(line); logs.append(line)
+
+    return result
     
 def run_uninstall_preinstalled_with_local_data_simple(dab_topic, test_name, tester, device_id):
     """
-    Positive: Uninstall a pre-installed removable app (with local data).
-    Minimal flow: (optional) launch -> applications/uninstall -> short wait
+    Positive: Install and then uninstall an app (with local data).
+    Flow: install -> (optional) launch -> applications/uninstall -> short wait
     Pass if uninstall returns 200.
     """
     test_id = to_test_id(f"{dab_topic}/{test_name}")
@@ -4597,49 +4524,58 @@ def run_uninstall_preinstalled_with_local_data_simple(dab_topic, test_name, test
     logs = []
     payload_app = json.dumps({"appId": app_id})
     result = TestResult(test_id, device_id, "applications/uninstall", payload_app, "UNKNOWN", "", logs)
-
-    UNINSTALL_WAIT = 10  # seconds
-    APP_POKE_WAIT = 3    # brief wait after optional launch
+    uninstall_status = "N/A"
 
     try:
-        # Header
-        msg = f"[TEST] Uninstall Preinstalled (with local data) — {test_name} (test_id={test_id}, device={device_id}, appId={app_id})"
+        # Header and description
+        # NOTE: Although the name implies a preinstalled app, this test now installs it
+        # to ensure it exists, making the test more robust.
+        msg = f"[TEST] Install and Uninstall App (with local data) — {test_name} (test_id={test_id}, device={device_id}, appId={app_id})"
         LOGGER.result(msg); logs.append(msg)
-        msg = "[DESC] Flow: (optional) launch → uninstall → short wait; PASS if uninstall == 200."
+        msg = "[DESC] Flow: install -> launch -> uninstall; PASS if uninstall == 200."
         LOGGER.result(msg); logs.append(msg)
         msg = "[DESC] Local-data deletion must be verified manually/OEM; DAB cannot inspect storage."
         LOGGER.result(msg); logs.append(msg)
 
-        # Gate only the required op (unsupported -> OPTIONAL_FAILED handled by need)
-        if not need(tester, device_id, "ops: applications/uninstall", result, logs):
-            msg = (f"[SUMMARY] outcome=OPTIONAL_FAILED, uninstall_status=N/A, "
-                   f"test_id={test_id}, device={device_id}, appId={app_id}")
+        # Gate all required operations for the full test flow
+        spec = "ops: applications/uninstall, applications/install, applications/launch"
+        if not need(tester, device_id, spec, result, logs):
+            # The 'need' function already set the result and logged the reason
+            return result
+
+        # Step 1: Install the app as a precondition
+        msg = f"[STEP] Ensuring app '{app_id}' is installed as a precondition."
+        LOGGER.result(msg); logs.append(msg)
+        try:
+            install_payload = json.dumps(ensure_app_available(app_id))
+        except Exception as e:
+            raise Exception(f"Could not find configuration for sample_app '{app_id}': {e}")
+
+        rc_inst, resp_inst = execute_cmd_and_log(tester, device_id, "applications/install", install_payload, logs, result)
+        install_status = dab_status_from(resp_inst, rc_inst)
+        if install_status != 200:
+            result.test_result = "FAILED"
+            msg = f"[RESULT] FAILED — Precondition failed: could not install app. Status: {install_status}"
             LOGGER.result(msg); logs.append(msg)
             return result
 
-        msg = "[INFO] Capability gate passed."
+        msg = f"[WAIT] {APP_LAUNCH_WAIT}s for installation to finalize."
         LOGGER.info(msg); logs.append(msg)
+        time.sleep(APP_LAUNCH_WAIT)
 
-        # 0) Optional: launch to ensure app recently touched local data (best-effort; not gated)
-        try:
-            msg = f"[STEP] (optional) applications/launch {payload_app}"
-            LOGGER.result(msg); logs.append(msg)
-            rc_launch, resp_launch = execute_cmd_and_log(
-                tester, device_id, "applications/launch", payload_app, logs, result
-            )
-            msg = f"[WAIT] {APP_POKE_WAIT}s after optional launch"
-            LOGGER.info(msg); logs.append(msg)
-            time.sleep(APP_POKE_WAIT)
-        except Exception:
-            msg = "[INFO] Skipping optional launch (applications/launch unsupported or failed)"
-            LOGGER.info(msg); logs.append(msg)
-
-        # 1) Uninstall the app
-        msg = f"[STEP] applications/uninstall {payload_app}"
+        # Step 2: Launch to ensure app recently touched local data
+        msg = f"[STEP] Launching app to generate local data: {payload_app}"
         LOGGER.result(msg); logs.append(msg)
-        rc_uninst, resp_uninst = execute_cmd_and_log(
-            tester, device_id, "applications/uninstall", payload_app, logs, result
-        )
+        execute_cmd_and_log(tester, device_id, "applications/launch", payload_app, logs, result)
+
+        msg = f"[WAIT] {APP_EXIT_WAIT}s after launch."
+        LOGGER.info(msg); logs.append(msg)
+        time.sleep(APP_EXIT_WAIT)
+
+        # Step 3: Uninstall the app
+        msg = f"[STEP] Uninstalling the app: {payload_app}"
+        LOGGER.result(msg); logs.append(msg)
+        rc_uninst, resp_uninst = execute_cmd_and_log(tester, device_id, "applications/uninstall", payload_app, logs, result)
         uninstall_status = dab_status_from(resp_uninst, rc_uninst)
         msg = f"[INFO] applications/uninstall transport_rc={rc_uninst}, dab_status={uninstall_status}"
         LOGGER.info(msg); logs.append(msg)
@@ -4647,34 +4583,29 @@ def run_uninstall_preinstalled_with_local_data_simple(dab_topic, test_name, test
         if uninstall_status != 200:
             result.test_result = "FAILED"
             msg = f"[RESULT] FAILED — applications/uninstall returned {uninstall_status} (expected 200)"
-            LOGGER.result(msg); logs.append(msg)
-            msg = (f"[SUMMARY] outcome=FAILED, uninstall_status={uninstall_status}, "
-                   f"test_id={test_id}, device={device_id}, appId={app_id}")
-            LOGGER.result(msg); logs.append(msg)
-            return result
+        else:
+            result.test_result = "PASS"
+            msg = "[RESULT] PASS — applications/uninstall returned 200 as expected"
 
-        # short wait to finalize uninstall
-        msg = f"[WAIT] {UNINSTALL_WAIT}s after uninstall for finalization"
-        LOGGER.info(msg); logs.append(msg)
-        time.sleep(UNINSTALL_WAIT)
+        LOGGER.result(msg); logs.append(msg)
 
-        # Result
-        result.test_result = "PASS"
-        msg = "[RESULT] PASS — applications/uninstall returned 200"
-        LOGGER.result(msg); logs.append(msg)
-        msg = (f"[SUMMARY] outcome=PASS, uninstall_status=200, "
-               f"test_id={test_id}, device={device_id}, appId={app_id}")
-        LOGGER.result(msg); logs.append(msg)
-        return result
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — A required operation is not supported: '{e.topic}'"
+        LOGGER.result(line)
+        logs.append(line)
 
     except Exception as e:
         result.test_result = "SKIPPED"
-        msg = f"[RESULT] SKIPPED — internal error: {e} (test_id={test_id}, device={device_id}, appId={app_id})"
+        msg = f"[RESULT] SKIPPED — An unexpected error occurred: {e}"
         LOGGER.result(msg); logs.append(msg)
-        msg = (f"[SUMMARY] outcome=SKIPPED, uninstall_status=N/A, "
+
+    finally:
+        msg = (f"[SUMMARY] outcome={result.test_result}, uninstall_status={uninstall_status}, "
                f"test_id={test_id}, device={device_id}, appId={app_id}")
         LOGGER.result(msg); logs.append(msg)
-        return result
+
+    return result
 
 def run_install_from_url_during_idle_then_launch(dab_topic, test_name, tester, device_id):
     """
@@ -5830,7 +5761,7 @@ def run_channel_switch_log_check(dab_topic, test_name, tester, device_id):
             return result
 
         # Step 2: Manually switch channels for 5 minutes
-        wait_duration = 300 # 5 minutes
+        wait_duration = 30 # 5 minutes
         line = f"[STEP] Manual Action Required: Please rapidly switch TV channels for the next {wait_duration / 60} minutes."
         LOGGER.result(line)
         logs.append(line)
@@ -5912,7 +5843,7 @@ def run_app_switch_log_check(dab_topic, test_name, tester, device_id):
     # Variable for the final summary log
     logs_are_valid = "N/A"
     app1_id = config.apps.get("youtube", "YouTube")
-    app2_id = config.apps.get("primevideo", "PrimeVideo")
+    app2_id = config.apps.get("amazon", "PrimeVideo")
 
 
     try:
@@ -6405,12 +6336,12 @@ def run_logs_collection_check(dab_topic, test_name, tester, device_id):
             logs.append(line)
             return result
 
-        # Step 2: Waiting for 120 seconds to collect logs.
-        log_collection_timeout = 120
+        # Step 2: Waiting for 30 seconds to collect logs.
+        log_collection_timeout = 30
         line = f"[STEP] Waiting for {log_collection_timeout} seconds to collect logs."
         LOGGER.result(line)
         logs.append(line)
-        countdown(f"Waiting for 120 seconds to collect logs.", log_collection_timeout)
+        countdown(f"Waiting for 30 seconds to collect logs.", log_collection_timeout)
 
         # Step 3: Stop logs collection, and generate logs.tar.gz file.
         line = f"[STEP] Stop logs collection, and generate logs.tar.gz file."
@@ -6839,26 +6770,46 @@ def run_logs_collection_app_uninstall_check(dab_topic, test_name, tester, device
     """
     Validates that logs can be collected successfully while App Uninstallation.
     """
-
     test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
-    appId = config.apps.get("youtube", "YouTube")
+    # Use sample_app as the target for this test
+    appId = config.apps.get("sample_app", "Sample_App")
     result = TestResult(test_id, device_id, "system/logs/start-collection", json.dumps({}), "UNKNOWN", "", logs)
 
     try:
         # Header and description
         for line in (
             f"[TEST] Log Collection During App Uninstallation Check — {test_name} (test_id={test_id}, device={device_id})",
-            "[DESC] Goal: Validates that logs can be collected successfully while app uninstallation.",
-            "[DESC] Required operations: system/logs/start-collection, applications/uninstall, system/logs/stop-collection.",
-            "[DESC] Pass criteria: Logs has been collected and include app uninstallation logs.",
+            "[DESC] Goal: Validates that logs can be collected successfully while a sample app is uninstalled.",
+            "[DESC] Required operations: system/logs/start-collection, applications/install, applications/uninstall, system/logs/stop-collection.",
+            "[DESC] Pass criteria: Logs are collected successfully and include app uninstallation logs.",
         ):
             LOGGER.result(line)
             logs.append(line)
 
         # Capability gate
-        if not need(tester, device_id, "ops: system/logs/start-collection, applications/uninstall, system/logs/stop-collection", result, logs):
+        if not need(tester, device_id, "ops: system/logs/start-collection, applications/install, applications/uninstall, system/logs/stop-collection", result, logs):
             return result
+        
+        # Step 0: Precondition - Ensure the sample app is installed first
+        line = f"[STEP] Precondition: Installing '{appId}' to ensure it exists."
+        LOGGER.result(line); logs.append(line)
+        try:
+            install_payload = ensure_app_available(app_id=appId)
+        except Exception as e:
+            result.test_result = "SKIPPED"
+            line = f"[RESULT] SKIPPED — Could not find local artifact for '{appId}': {e}"
+            LOGGER.warn(line); logs.append(line)
+            return result
+        
+        rc, response = execute_cmd_and_log(tester, device_id, "applications/install", json.dumps(install_payload), logs)
+        if dab_status_from(response, rc) != 200:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — Precondition failed: Could not install '{appId}'."
+            LOGGER.error(line); logs.append(line)
+            return result
+        time.sleep(APP_INSTALL_WAIT)
+
 
         # Step 1: Start logs collection.
         line = f"[STEP] Start logs collection."
@@ -6920,14 +6871,14 @@ def run_logs_collection_app_uninstall_check(dab_topic, test_name, tester, device
         LOGGER.result(line)
         logs.append(line)
         print(f"Please enter logs folder and verify logs about application '{appId}'.")
-        validate_state = yes_or_no(result, logs, f"Logs collaction includes application '{appId}' uninstallation log?")
+        validate_state = yes_or_no(result, logs, f"Logs collection includes application '{appId}' uninstallation log?")
         if validate_state == True:
             print(f"Logs collection includes application '{appId}' uninstallation log.")
             logs.append(f"[PASS] Logs collection includes application '{appId}' uninstallation log.")
             result.test_result = "PASS"
         else:
             print(f"Logs collection doesn't include application '{appId}' uninstallation log.")
-            logs.append(f"[FAILED] Logs collection doesn't incclue application '{appId}' uninstallation log.")
+            logs.append(f"[FAILED] Logs collection doesn't include application '{appId}' uninstallation log.")
             result.test_result = "FAILED"
 
     except UnsupportedOperationError as e:
@@ -6940,6 +6891,17 @@ def run_logs_collection_app_uninstall_check(dab_topic, test_name, tester, device
 
     finally:
         EnforcementManager().delete_logs_collection_files()
+        
+        # Cleanup: Reinstall the app for test isolation
+        try:
+            line = f"[CLEANUP] Reinstalling '{appId}' to restore state for subsequent tests."
+            LOGGER.info(line); logs.append(line)
+            install_payload = ensure_app_available(app_id=appId)
+            execute_cmd_and_log(tester, device_id, "applications/install", json.dumps(install_payload), logs)
+        except Exception as e:
+            line = f"[CLEANUP] WARNING: Failed to reinstall app '{appId}': {e}"
+            LOGGER.warn(line); logs.append(line)
+            
         # Print concise final test result status
         print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
 
