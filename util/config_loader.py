@@ -94,9 +94,6 @@ def _allowed_ids() -> List[str]:
 def make_app_id_list(count=3, base_name="Sample_App"):
     return [base_name if i == 0 else f"{base_name}{i}" for i in range(count)]
 
-def make_app_id_list(count=3, base_name="Sample_App"):
-    return [base_name if i == 0 else f"{base_name}{i}" for i in range(count)]
-
 def _enforce_allowed(app_id: str) -> str:
     """Raise if app_id is not in the allowed list; return normalized safe id otherwise."""
     sid = _safe_app_id(app_id)
@@ -362,7 +359,7 @@ def get_apps_payloads(
     )
 
 # -------------------------------------------------------------------------
-# Global App Store helpers (universal, no hard-coded defaults)
+# Global App Store helpers 
 # -------------------------------------------------------------------------
 
 def load_appstore_url(

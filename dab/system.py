@@ -16,6 +16,7 @@ def restart(test_result, durationInMs=0,expectedLatencyMs=0):
     response  = jsons.loads(test_result.response)
     if response['status'] != 200:
         return False
+    LOGGER.info("system/restart issued. Device will reboot; subsequent preflight health-check will wait for readiness.")
     return YesNoQuestion(test_result, "Device re-started?")
 
 def settings_get(test_result, durationInMs=0,expectedLatencyMs=0):

@@ -3743,8 +3743,8 @@ def run_uninstall_system_app_check(dab_topic, test_name, tester, device_id):
         rc, response = execute_cmd_and_log(tester, device_id, "applications/uninstall", payload_app, logs, result)
         uninstall_status = dab_status_from(response, rc)
 
-        # Step 2: Verify the response status. The expected outcome is a failure with status 500.
-        if uninstall_status == 500:
+        # Step 2: Verify the response status. Expected outcome for system apps is 403 (Forbidden).
+        if uninstall_status == 403:
             result.test_result = "PASS"
             line = "[RESULT] PASS — Device correctly returned '403 Forbidden' when attempting to uninstall a system app."
         elif uninstall_status == 200:

@@ -16,7 +16,8 @@ from util.config_loader import resolve_body_or_raise, PayloadConfigError
 from util.output_image_handler import handle_output_image_response
 from sys import exit as sys_exit
 import re
-import time  
+import time
+from packaging.version import Version, InvalidVersion
 
 DAB_VERSION = "2.0" # default dab version is 2.0, this global value will be used in system/settings/... operations.
 
@@ -448,23 +449,19 @@ class DabTester:
             # treat this as OPTIONAL_FAILED instead of skipping or erroring out.
             # This ensures transparency in test result reporting.
             # ------------------------------------------------------------------------
-            # Get dab version version (default "2.0") and convert both to float
             dab_version = self.dab_version or "2.0"
-            required_version = float(test_version)
 
-            # If the required test version > current dab version, mark as OPTIONAL_FAILED
+            # MODIFIED: Use packaging.version for robust comparison
             try:
-                required_version = float(test_version)
-                dab_version_float = float(dab_version)
-                if dab_version_float < required_version:
+                if Version(dab_version) < Version(test_version):
                     test_result.test_result = "OPTIONAL_FAILED"
-                    log(test_result, f"\033[1;33m[ OPTIONAL_FAILED - Requires DAB Version {required_version}, but DAB version is {dab_version_float} ]\033[0m")
+                    log(test_result, f"\033[1;33m[ OPTIONAL_FAILED - Requires DAB Version {test_version}, but device version is {dab_version} ]\033[0m")
                     # close section before returning
                     total_ms = int((time.time() - section_wall_start) * 1000)
                     self.logger.test_end(outcome=test_result.test_result, duration_ms=total_ms)
                     return test_result
-            except Exception as e:
-                log(test_result, f"[WARNING] Version comparison failed: {e}")
+            except InvalidVersion as e:
+                log(test_result, f"[WARNING] Version comparison failed (invalid version string): {e}")
 
             # ------------------------------------------------------------------------
             # Capability filter 
@@ -682,13 +679,11 @@ class DabTester:
             outcome_for_end = "SKIPPED"  # default if we bail early
             # --------------------------------------------------
 
-            # ***** START: New DAB Version Pre-check Filter *****
+            # MODIFIED: Use packaging.version for robust comparison
             try:
-                required_version = float(test_version)
-                dab_version_float = float(dab_version)
-                if dab_version_float < required_version:
+                if Version(dab_version) < Version(test_version):
                     outcome_for_end = "OPTIONAL_FAILED"
-                    log_msg = f"[OPTIONAL_FAILED] Requires DAB Version {required_version}, but device version is {dab_version_float}. Skipping test."
+                    log_msg = f"[OPTIONAL_FAILED] Requires DAB Version {test_version}, but device version is {dab_version}. Skipping test."
                     self.logger.warn(log_msg)
                     tr = TestResult(
                         test_id, device_id, dab_topic, "{}", outcome_for_end, "",
@@ -698,10 +693,9 @@ class DabTester:
                     total_ms = int((time.time() - section_wall_start) * 1000)
                     self.logger.test_end(outcome=outcome_for_end, duration_ms=total_ms)
                     continue  # Skip to the next test in the loop
-            except (ValueError, TypeError) as e:
+            except InvalidVersion as e:
                 # Log a warning but allow the test to proceed if versions are malformed
                 self.logger.warn(f"[WARNING] Could not compare DAB versions (required: '{test_version}', device: '{dab_version}'): {e}")
-            # ***** END: New DAB Version Pre-check Filter *****
 
             try:
                 # preflight (may raise PreflightTermination)
