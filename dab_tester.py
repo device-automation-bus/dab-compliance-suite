@@ -76,8 +76,9 @@ class DabTester:
 
     def _resolve_body_or_skip(self, device_id: str, topic: str, title: str, body_spec):
         """
-        Build the request body. If it fails (e.g., missing APK/App Store URL),
-        return a SKIPPED TestResult with a precise reason and hint.
+        Build the request body. If it fails, return a SKIPPED or OPTIONAL_FAILED TestResult.
+        - For DAB 2.0, app install failures become OPTIONAL_FAILED.
+        - For all other cases, failures become SKIPPED.
         Returns: (ok: bool, body_str: Optional[str], tr_if_skipped: Optional[TestResult])
         """
         test_id = to_test_id(f"{topic}/{title}")
@@ -86,21 +87,39 @@ class DabTester:
             return True, body_str, None
         except PayloadConfigError as e:
             reason = str(e)
-            hint = getattr(e, "hint", "")
-            if hint:
-                self.logger.warn(f"[SKIPPED] {test_id} — payload/config missing: {reason}. {hint}")
-            else:
-                self.logger.warn(f"[SKIPPED] {test_id} — payload/config missing: {reason}.")
+            is_app_install_topic = "applications/install" in topic
+            is_app_related_error = (
+                "app store url" in reason.lower()
+                or "install artifact" in reason.lower()
+                or "not found" in reason.lower()
+            )
 
-            tr = TestResult(test_id, device_id, topic, "{}", "SKIPPED", "", [])
-            tr.test_result = "SKIPPED"  # ensure it’s counted in results
+            # ----- START: MODIFIED LOGIC -----
+            # If the test is for app installation on a DAB 2.0 device and the payload failed
+            # because an app file/URL is missing, mark it as OPTIONAL_FAILED.
+            if self.dab_version == "2.0" and is_app_install_topic and is_app_related_error:
+                outcome = "OPTIONAL_FAILED"
+                self.logger.warn(f"[{outcome}] {test_id} — {reason} (Optional for DAB 2.0).")
+                hint = "This test is optional for DAB 2.0 devices and is skipped."
+            else:
+                # Fallback to the original behavior for all other cases.
+                outcome = "SKIPPED"
+                hint = getattr(e, "hint", "")
+                log_msg = f"[{outcome}] {test_id} — payload/config missing: {reason}."
+                if hint:
+                    log_msg += f" {hint}"
+                self.logger.warn(log_msg)
+            # ----- END: MODIFIED LOGIC -----
+
+            tr = TestResult(test_id, device_id, topic, "{}", outcome, "", [])
+            tr.test_result = outcome
             log(tr, f"[TEST] {title} (test_id={test_id}, device={device_id})")
             log(tr, "[DESC] Skipped because request payload could not be generated.")
             log(tr, f"[REASON] {reason}")
             if hint:
                 log(tr, f"[HINT] {hint}")
-            return False, None, tr
 
+            return False, None, tr
     # -----------------------------
     # Preflight helpers
     # “Preflight” just means the quick checks we run before a test starts—like an aviation pre-flight checklist.
