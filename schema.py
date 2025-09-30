@@ -267,7 +267,7 @@ device_information_schema = {
         "displayType": {"type": "string"},
         "screenWidthPixels": {"type": "integer"},
         "screenHeightPixels": {"type": "integer"},
-        "uptimeSince": {"type": "integer"},
+        "uptimeSince": {"type": ["string", "integer"]},
         "deviceId": {"type": "string"}
     },
     "required": ["status", "manufacturer", "model", "serialNumber", "chipset", 
