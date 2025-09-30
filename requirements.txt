@@ -5,3 +5,4 @@ FileCache
 jsons
 jsonschema
 singleton_decorator
+packaging
