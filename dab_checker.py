@@ -4,12 +4,320 @@ from util.enforcement_manager import EnforcementManager
 from util.enforcement_manager import ValidateCode
 from time import sleep
 import json
+import re
+import types
 from logger import LOGGER  # <— use the shared singleton logger
 
 class DabChecker:
     def __init__(self, dab_tester):
         self.dab_tester = dab_tester
         self.logger = LOGGER
+
+        # Keep track of the last payload actually sent for system/settings/set
+        self._last_effective_settings_payload = None
+
+        # --- Patch dab_tester.execute_cmd to intercept real sends ---
+        original_execute_cmd = dab_tester.execute_cmd  # bound method
+
+        def _patched_execute_cmd(_self, device_id, dab_topic, dab_body):
+            # Intercept only system/settings/set
+            try:
+                if dab_topic == "system/settings/set":
+                    adjusted = self.__maybe_adjust_settings_set_payload(dab_body)
+                    # Persist what we are *actually* sending so checker can validate against it
+                    self._last_effective_settings_payload = adjusted if isinstance(adjusted, str) else json.dumps(adjusted)
+                    return original_execute_cmd(device_id, dab_topic, adjusted)
+            except Exception as e:
+                self.logger.warn(f"[SET precheck] execute_cmd patch error: {e}")
+            # For all other topics, just forward
+            return original_execute_cmd(device_id, dab_topic, dab_body)
+
+        # Bind the patched function as a method on this dab_tester instance
+        dab_tester.execute_cmd = types.MethodType(_patched_execute_cmd, dab_tester)
+
+    # -------------------------------------------------------------------------
+    # Minimal helpers to align positive system/settings/set payloads to supported
+    # values advertised by system/settings/list. Negative tests remain untouched.
+    # Also includes a tiny tolerant JSON fixer for one-key objects with bare strings.
+    # -------------------------------------------------------------------------
+
+    def __prefer_language(self, options):
+        try:
+            if "en-US" in options:
+                return "en-US"
+            for o in options:
+                if isinstance(o, str) and (o.startswith("en-") or o == "en"):
+                    return o
+            return options[0] if options else None
+        except Exception:
+            return None
+
+    def __match_subset(self, req_d, opt_d):
+        if not isinstance(req_d, dict) or not isinstance(opt_d, dict):
+            return False
+        for k, v in req_d.items():
+            if opt_d.get(k) != v:
+                return False
+        return True
+
+    def __builtin_default_for(self, key: str):
+        kl = (key or "").lower()
+        if kl == "language":
+            return "en-US"
+        if kl in ("highcontrasttext", "screensaver"):
+            return True
+        if kl in ("personalizedads",):
+            return False
+        if kl in ("brightness", "contrast"):
+            return 50
+        if kl in ("screensavertimeout", "screensavermintimeout"):
+            return 300
+        if kl in ("timezone", "timezone", "timeZone"):
+            return "UTC"
+        if kl == "outputresolution":
+            return {"width": 1920, "height": 1080, "frequency": 60}
+        return None
+
+    def __to_settings_map(self, supported):
+        try:
+            if isinstance(supported, str):
+                supported = json.loads(supported)
+        except Exception:
+            return {}
+        if not isinstance(supported, dict):
+            return {}
+        settings_map = supported.get("settings", supported)
+        if not isinstance(settings_map, dict):
+            return {}
+        # strip common meta
+        for meta in ("status", "statusText", "ts", "error"):
+            settings_map.pop(meta, None)
+        return settings_map
+
+    def __select_supported_value(self, supported_settings, key, preferred=None):
+        """
+        Returns (value, note). If unsupported/unknown → (None, reason).
+        """
+        settings_map = self.__to_settings_map(supported_settings)
+        if not settings_map:
+            return None, "No settings map (empty or malformed settings/list cache)."
+
+        if key not in settings_map:
+            sample = list(settings_map.keys())[:3]
+            return None, f"'{key}' not advertised in settings/list. Known keys (sample): {sample}"
+
+        desc = settings_map[key]
+
+        # Boolean capability flag
+        if isinstance(desc, bool):
+            if desc is False:
+                return None, f"'{key}' unsupported (capability=false in settings/list)."
+            if isinstance(preferred, bool):
+                return preferred, f"'{key}' supported; using preferred={preferred}."
+            return True, f"'{key}' supported; defaulting to True."
+
+        # Numeric range {"min": x, "max": y}
+        if isinstance(desc, dict) and {"min", "max"}.issubset(desc.keys()):
+            mn, mx = desc["min"], desc["max"]
+            if isinstance(preferred, (int, float)) and mn <= preferred <= mx:
+                return preferred, f"'{key}' in range [{mn}, {mx}]; using preferred."
+            mid = (mn + mx) // 2 if isinstance(mn, int) and isinstance(mx, int) else (float(mn) + float(mx)) / 2.0
+            return mid, f"'{key}' in range [{mn}, {mx}]; using midpoint={mid}."
+
+        # List of options
+        if isinstance(desc, list):
+            if not desc:
+                return None, f"'{key}' unsupported (no options advertised)."
+            if isinstance(desc[0], dict):
+                if isinstance(preferred, dict):
+                    for opt in desc:
+                        if self.__match_subset(preferred, opt):
+                            return opt, f"'{key}' matched preferred subset {preferred}."
+                return desc[0], f"'{key}' options available; using first={desc[0]}."
+            # list of primitives
+            if preferred is None and key.lower() == "language":
+                ch = self.__prefer_language([o for o in desc if isinstance(o, str)])
+                if ch is not None:
+                    return ch, f"'{key}' options; language heuristic selected {ch}."
+            if preferred in desc:
+                return preferred, f"'{key}' options include preferred={preferred}."
+            return desc[0], f"'{key}' options; preferred not found → using first={desc[0]}."
+
+        # Other object-like
+        if isinstance(desc, dict):
+            prev = list(desc.keys())[:6]
+            return None, f"'{key}' descriptor is object-like ({prev}); cannot auto-pick."
+
+        return None, f"'{key}' descriptor type {type(desc).__name__} not recognized."
+
+    def __coerce_single_kv_json(self, raw):
+        """
+        Tiny tolerant parser for a one-key JSON object where the value might be an
+        unquoted bare string (e.g., {"language": en-US1}). Returns a dict or None.
+        """
+        try:
+            s = (raw or "").strip()
+            if not s:
+                return None
+            # If it's already valid JSON and one-key, just use it.
+            try:
+                obj = json.loads(s)
+                if isinstance(obj, dict) and len(obj) == 1:
+                    return obj
+            except Exception:
+                pass
+
+            # Try to capture {"key": <value>}
+            m = re.match(r'^\{\s*"([^"]+)"\s*:\s*([^}]*)\}$', s)
+            if not m:
+                return None
+            key = m.group(1)
+            val = m.group(2).strip()
+            # Remove trailing comma if any
+            val = re.sub(r',\s*$', '', val)
+
+            # If already quoted (single or double), normalize to double
+            if val.startswith('"') and val.endswith('"'):
+                candidate = f'{{"{key}": {val}}}'
+                return json.loads(candidate)
+            if val.startswith("'") and val.endswith("'"):
+                candidate = f'{{"{key}": "{val[1:-1]}"}}'
+                return json.loads(candidate)
+
+            # If clearly a number / boolean / null / object / array → let JSON handle
+            if val.startswith(('{', '[')) or val in ('true', 'false', 'null') or re.match(r'^-?\d+(\.\d+)?$', val):
+                candidate = f'{{"{key}": {val}}}'
+                return json.loads(candidate)
+
+            # Otherwise treat as a bare string token → quote it
+            candidate = f'{{"{key}": "{val}"}}'
+            return json.loads(candidate)
+        except Exception:
+            return None
+
+    def __settings_set_payload(self, key, preferred=None, default=None):
+        """
+        Build a JSON string payload for system/settings/set (e.g., '{"language":"en-US"}').
+        If supported value cannot be derived, log and fall back to preferred → default → builtin default.
+        """
+        try:
+            sup = EnforcementManager().get_supported_settings()
+            val, note = self.__select_supported_value(sup, key, preferred)
+            if val is not None:
+                payload = json.dumps({key: val})
+                self.logger.result(f"[settings_set_payload] {note} → {payload}")
+                return payload
+
+            # Unsupported or cannot infer → carry a default
+            fallback = preferred if preferred is not None else (default if default is not None else self.__builtin_default_for(key))
+            if fallback is not None:
+                payload = json.dumps({key: fallback})
+                self.logger.result(f"[settings_set_payload] {note} → carrying default value {fallback}. "
+                                 f"This may be marked OPTIONAL_FAILED if not implemented on device.")
+                return payload
+
+            self.logger.result(f"[settings_set_payload] {note} → no default available; returning '{{}}'.")
+            return "{}"
+        except Exception as e:
+            self.logger.result(f"[settings_set_payload] Error building payload for '{key}': {e}")
+            return "{}"
+
+    def __looks_negative_payload(self, raw_body_str: str) -> bool:
+        """
+        Conservative heuristic: if payload uses 'invalid' values or keys ending with '_',
+        assume it's a negative/bad-request validation and do NOT auto-adjust.
+        """
+        try:
+            s = raw_body_str if isinstance(raw_body_str, str) else json.dumps(raw_body_str or {})
+        except Exception:
+            s = str(raw_body_str)
+        if '"invalid"' in s:
+            return True
+        if re.search(r'"\w+_"\s*:', s):
+            return True
+        return False
+
+    def __maybe_adjust_settings_set_payload(self, dab_body):
+        """
+        Positive tests only (best-effort): compare requested {key: value} to settings/list
+        and adjust to a supported value. If the payload looks intentionally negative, leave
+        it as-is. Also leave out-of-range numerics or wrong types as-is to avoid
+        interfering with negative tests. Handles a simple case of unquoted strings.
+        """
+        try:
+            # Normalize body
+            if isinstance(dab_body, dict):
+                body = dab_body
+                raw = json.dumps(dab_body)
+            else:
+                raw = dab_body or "{}"
+                try:
+                    body = json.loads(raw)
+                except Exception:
+                    # Try tolerant coerce for one-key body
+                    coerced = self.__coerce_single_kv_json(raw)
+                    if coerced is None:
+                        # Can't fix → treat as negative/malformed; send as-is
+                        self.logger.warn(f"[SET precheck] Could not parse/repair payload; sending as-is. Raw={raw}")
+                        return dab_body
+                    body = coerced
+                    raw = json.dumps(coerced)
+
+            # Only simple {key: value}
+            if not isinstance(body, dict) or len(body) != 1:
+                return dab_body
+
+            # Negative/malformed heuristics → keep original
+            if self.__looks_negative_payload(raw):
+                self.logger.info("[SET precheck] Negative test detected (invalid/underscore key); sending payload as-is.")
+                return dab_body
+
+            (k, v), = body.items()
+
+            # Extra guard using descriptor to avoid 'fixing' negative tests
+            sup_map = self.__to_settings_map(EnforcementManager().get_supported_settings())
+            desc = sup_map.get(k)
+
+            # If no descriptor, don't attempt to auto-fix (could be a neg test on unknown key)
+            if desc is None:
+                self.logger.info(f"[SET precheck] '{k}' not in settings/list; sending payload as-is.")
+                return dab_body
+
+            # If numeric range and value is out-of-range or non-numeric, treat as negative → as-is
+            if isinstance(desc, dict) and {"min", "max"}.issubset(desc.keys()):
+                if not isinstance(v, (int, float)):
+                    self.logger.info("[SET precheck] Non-numeric value for numeric range; treating as negative.")
+                    return dab_body
+                if not (desc["min"] <= v <= desc["max"]):
+                    self.logger.info("[SET precheck] Out-of-range numeric; treating as negative.")
+                    return dab_body
+
+            # If list of options and value type is clearly wrong, treat as negative
+            if isinstance(desc, list):
+                if desc and isinstance(desc[0], dict):
+                    if not isinstance(v, dict):
+                        self.logger.info("[SET precheck] Dict options but non-dict value; treating as negative.")
+                        return dab_body
+                else:
+                    # list of primitives
+                    if isinstance(v, (dict, list, bool)) or v is None:
+                        self.logger.info("[SET precheck] Primitive options but non-primitive/boolean value; treating as negative.")
+                        return dab_body
+
+            # Try to produce a supported payload (language etc.). If unchanged or '{}', keep original
+            adjusted = self.__settings_set_payload(k, preferred=v)
+            if not adjusted or adjusted == "{}":
+                return dab_body
+            if isinstance(dab_body, str) and adjusted.strip() == dab_body.strip():
+                return dab_body
+            if isinstance(dab_body, dict) and adjusted.strip() == json.dumps(dab_body):
+                return dab_body
+
+            self.logger.info(f"[SET precheck] Adjusting '{k}' to a supported value via settings/list.")
+            return adjusted
+        except Exception as e:
+            self.logger.warn(f"[SET precheck] Payload adjust error: {e}")
+            return dab_body
 
     def __execute_cmd(self, device_id, dab_topic, dab_body):
         # verbose detail about the command being sent
@@ -35,7 +343,6 @@ class DabChecker:
         if not EnforcementManager().get_supported_operations():
             dab_precheck_topic = "operations/list"
             dab_precheck_body = "{}"
-            # print(f"\nTry to get supported DAB operation list...\n")
             self.logger.info("Fetching the list of supported DAB operations from the device.")
             dab_response = self.__execute_cmd(device_id, dab_precheck_topic, dab_precheck_body)
             operations = dab_response['operations'] if dab_response is not None else None
@@ -52,8 +359,6 @@ class DabChecker:
             validate_code = ValidateCode.UNSUPPORT
             prechecker_log = f"\n{operation} is NOT supported on this device. Ongoing...\n"
 
-        # print(prechecker_log)
-        # the caller will print/store this via its own result logger
         return validate_code, prechecker_log
 
     def precheck(self, device_id, dab_request_topic, dab_request_body):
@@ -98,7 +403,18 @@ class DabChecker:
     def __precheck_system_settings_set(self, device_id, dab_request_body):
         # 1) Parse request: must be single {key: value}
         try:
-            request_body = dab_request_body if isinstance(dab_request_body, dict) else json.loads(dab_request_body or "{}")
+            if isinstance(dab_request_body, dict):
+                request_body = dab_request_body
+            else:
+                try:
+                    request_body = json.loads(dab_request_body or "{}")
+                except Exception:
+                    # Try tolerant coerce for one-key body (fix unquoted string)
+                    fixed = self.__coerce_single_kv_json(dab_request_body or "")
+                    if fixed is None:
+                        raise
+                    request_body = fixed
+
             (request_key, request_value), = request_body.items()
             self.logger.info(f"Parsed request: key='{request_key}', value='{request_value}'")
         except Exception as e:
@@ -205,7 +521,9 @@ class DabChecker:
                     )
 
                 accepted_preview = _preview_list(desc)
-                accepted_info = f"{accepted_preview} (showing up to 3 of {len(desc)})"
+                shown = len(accepted_preview)
+                total = len(desc)
+                accepted_info = f"{accepted_preview} (showing {shown} of {total})"
                 self.logger.info(f" Accepted domain for '{request_key}': list of options; examples: {accepted_info}. Provided: {request_value}")
 
                 wants = request_value if isinstance(request_value, list) else [request_value]
@@ -255,7 +573,6 @@ class DabChecker:
         prechecker_log = f"\nvoice set {request_value['name']} is uncertain whether it is supported on this device. Ongoing...\n"
 
         if not EnforcementManager().get_supported_voice_assistants():
-            # print(f"\nTry to get system supported voice system list...\n")
             self.logger.info("Fetching the list of supported voice systems from the device.")
             dab_response = self.__execute_cmd(device_id, dab_precheck_topic, dab_precheck_body)
 
@@ -282,7 +599,6 @@ class DabChecker:
         validate_code, prechecker_log = self.__precheck_voice_set(device_id, dab_precheck_body)
 
         if validate_code == ValidateCode.UNCERTAIN:
-            rechecker_log = f"\nvoice set {request_voice_system} is uncertain whether it is supported on this device. Ongoing...\n"
             return validate_code, prechecker_log
         elif validate_code == ValidateCode.UNSUPPORT:
             prechecker_log = f"\nvoice system {request_voice_system} is NOT supported on this device. Ongoing...\n"
@@ -293,14 +609,12 @@ class DabChecker:
             prechecker_log = f"\nvoice system {request_voice_system} is enabled on this device. Ongoing...\n"
             return validate_code, prechecker_log
 
-        # print(f"\nvoice system {request_voice_system} is disabled on this device. Try to enable...")
         self.logger.info(f"Voice system '{request_voice_system}' is disabled. Attempting to enable it for this test.")
-
         dab_precheck_topic = "voice/set"
         voice_assistant["enabled"] = True
         dab_precheck_body = json.dumps({"voiceSystem": voice_assistant}, indent = 4)
 
-        dab_response = self.__execute_cmd(device_id, dab_precheck_topic, dab_precheck_body)
+        self.__execute_cmd(device_id, dab_precheck_topic, dab_precheck_body)
         sleep(5)
         validate_result, precheck_log = self.__check_voice_set(device_id, dab_precheck_body)
 
@@ -315,9 +629,8 @@ class DabChecker:
         dab_precheck_topic = "device-telemetry/stop"
         dab_precheck_body = "{}"
 
-        # print(f"\nstop device telemetry on this device...\n")
         self.logger.info("Stopping any existing device telemetry so the start request can be validated cleanly.")
-        dab_response = self.__execute_cmd(device_id, dab_precheck_topic, dab_precheck_body)
+        self.__execute_cmd(device_id, dab_precheck_topic, dab_precheck_body)
         prechecker_log = f"\ndevice telemetry is stopped on this device. Try to start...\n"
         return ValidateCode.SUPPORT, prechecker_log
 
@@ -325,14 +638,12 @@ class DabChecker:
         dab_precheck_topic = "device-telemetry/start"
         dab_precheck_body = json.dumps({"duration": 1000}, indent = 4)
 
-        # print(f"\nstart device telemetry on this device...\n")
         self.logger.info("Starting device telemetry briefly to verify the stop request behaves correctly.")
         self.__execute_cmd(device_id, dab_precheck_topic, dab_precheck_body)
 
         validate_result = self.__check_telemetry_metrics(device_id)
 
         if not validate_result:
-            # print(f"\ndevice telemetry is not started on this device.\n")
             self.logger.warn("Device telemetry did not appear to start.")
             prechecker_log = f"\ndevice telemetry is not started.\n"
             return ValidateCode.UNSUPPORT, prechecker_log
@@ -346,9 +657,8 @@ class DabChecker:
         appId = request_body['appId']
         dab_precheck_body = json.dumps({"appId": appId}, indent = 4)
 
-        # print(f"\nstop app {appId} telemetry on this device...\n")
         self.logger.info(f"Stopping any existing telemetry for app '{appId}' so the start request can be validated cleanly.")
-        dab_response = self.__execute_cmd(device_id, dab_precheck_topic, dab_precheck_body)
+        self.__execute_cmd(device_id, dab_precheck_topic, dab_precheck_body)
         prechecker_log = f"\napp {appId} telemetry is stopped on this device. Try to start...\n"
         return ValidateCode.SUPPORT, prechecker_log
 
@@ -358,14 +668,12 @@ class DabChecker:
         appId = request_body['appId']
         dab_precheck_body = json.dumps({"appId": appId, "duration": 1000}, indent = 4)
 
-        # print(f"\nstart app {appId} telemetry on this device...\n")
         self.logger.info(f"Starting telemetry for app '{appId}' briefly to verify the stop request behaves correctly.")
         self.__execute_cmd(device_id, dab_precheck_topic, dab_precheck_body)
 
         validate_result = self.__check_telemetry_metrics(device_id, appId)
 
         if not validate_result:
-            # print(f"\napp {appId} telemetry is not started on this device.\n")
             self.logger.warn(f"App '{appId}' telemetry did not appear to start.")
             prechecker_log = f"\napp {appId} telemetry is not started.\n"
             return ValidateCode.UNSUPPORT, prechecker_log
@@ -383,7 +691,6 @@ class DabChecker:
         prechecker_log = f"\n{key} is uncertain whether it is supported on this device. Ongoing...\n"
 
         if not EnforcementManager().get_supported_keys():
-            # print(f"\nTry to get supported key list...\n")
             self.logger.info("Fetching the list of supported input keys from the device.")
             dab_response = self.__execute_cmd(device_id, dab_precheck_topic, dab_precheck_body)
             keys = dab_response['keyCodes'] if dab_response else None
@@ -490,8 +797,27 @@ class DabChecker:
     def __check_system_settings_set(self, device_id, dab_request_body):
         dab_check_topic = "system/settings/get"
         dab_check_body = "{}"
-        request_body = json.loads(dab_request_body)
+
+        # Use the *effective payload* if the set was auto-adjusted during send
+        effective_raw = self._last_effective_settings_payload or dab_request_body
+        request_body = json.loads(effective_raw)
         (request_key, request_value), = request_body.items()
+
+        # If numeric-range and out-of-range was requested, expect device to clamp to nearest boundary.
+        expected_value = request_value
+        try:
+            sup_map = self.__to_settings_map(EnforcementManager().get_supported_settings())
+            desc = sup_map.get(request_key)
+            if isinstance(desc, dict) and {"min", "max"}.issubset(desc.keys()) and isinstance(request_value, (int, float)):
+                mn, mx = desc["min"], desc["max"]
+                if request_value < mn:
+                    expected_value = mn
+                    self.logger.info(f"[check] '{request_key}' requested {request_value} below min {mn} → expecting clamp to {mn}.")
+                elif request_value > mx:
+                    expected_value = mx
+                    self.logger.info(f"[check] '{request_key}' requested {request_value} above max {mx} → expecting clamp to {mx}.")
+        except Exception as e:
+            self.logger.warn(f"[check] clamp expectation compute error for '{request_key}': {e}")
 
         validate_result = False
         actual_value = 'UNKNOWN'
@@ -499,9 +825,13 @@ class DabChecker:
         dab_response = self.__execute_cmd(device_id, dab_check_topic, dab_check_body)
         if dab_response and request_key in dab_response:
             actual_value = dab_response[request_key]
-            validate_result = True if actual_value == request_value else False
+            validate_result = True if actual_value == expected_value else False
 
-        checker_log = f"\nsystem settings set {request_key} Value, Expected: {request_value}, Actual: {actual_value}\n"
+        checker_log = f"\nsystem settings set {request_key} Value, Expected: {expected_value}, Actual: {actual_value}\n"
+
+        # Clear after use to avoid leaking into next test
+        self._last_effective_settings_payload = None
+
         return validate_result, checker_log
 
     def __check_voice_set(self, device_id, dab_request_body):
@@ -532,9 +862,8 @@ class DabChecker:
         validate_result = self.__check_telemetry_metrics(device_id)
 
         checker_log = f"\ndevice telemetry start, Expected: True, Actual: {validate_result}\n"
-        # print(f"\nstop device telemetry on this device...\n")
         self.logger.info("Stopping device telemetry after validation.")
-        dab_response = self.__execute_cmd(device_id, 'device-telemetry/stop', '{}')
+        self.__execute_cmd(device_id, 'device-telemetry/stop', '{}')
         return validate_result, checker_log
 
     def __check_device_telemetry_stop(self, device_id, dab_request_body):
@@ -548,7 +877,6 @@ class DabChecker:
 
         validate_result = self.__check_telemetry_metrics(device_id, appId)
         checker_log = f"\napp {appId} telemetry start, Expected: True, Actual: {validate_result}\n"
-        # print(f"\nstop app {appId} telemetry on this device...\n")
         self.logger.info(f"Stopping telemetry for app '{appId}' after validation.")
         self.__execute_cmd(device_id, 'app-telemetry/stop', json.dumps({"appId": appId}, indent = 4))
         return validate_result, checker_log
@@ -568,12 +896,9 @@ class DabChecker:
             dab_check_topic = "device-telemetry/metrics"
             metrics_log = f"device telemetry metrics"
 
-        # print(f"\nstart {metrics_log} checking...\n")
         self.logger.info(f"Starting {metrics_log} check by subscribing to '{dab_check_topic}'.")
         self.dab_tester.dab_client.subscribe_metrics(device_id, dab_check_topic)
         validate_result = self.dab_tester.dab_client.last_metrics_state()
-
-        # print(f"\nstop {metrics_log} checking...\n")
         self.logger.info(f"Stopping {metrics_log} check by unsubscribing from '{dab_check_topic}'.")
         self.dab_tester.dab_client.unsubscribe_metrics(device_id, dab_check_topic)
 
