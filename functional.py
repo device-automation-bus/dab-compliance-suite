@@ -8,6 +8,7 @@ from readchar import readchar
 from util.enforcement_manager import EnforcementManager
 from util.config_loader import ensure_app_available_anyext
 from util.config_loader import ensure_app_available
+from util.config_loader import ensure_apps_available as _ensure_many
 from paho.mqtt.properties import Properties
 from paho.mqtt.packettypes import PacketTypes
 from dab_checker import DabChecker
@@ -418,7 +419,6 @@ def get_install_targets(default_app_ids=("Sample_App", "Sample_App1")):
             app_ids = list(default_app_ids)
 
         # legacy alias maps to any-extension implementation
-        from util.config_loader import ensure_apps_available as _ensure_many
         payloads = _ensure_many(app_ids=app_ids)  # [{"appId","url","format","timeout"}, ...]
         for p in payloads:
             app_id = p["appId"]
@@ -2952,8 +2952,6 @@ def run_launch_when_uninstalled_check(dab_topic, test_name, tester, device_id):
     Cleanup: reinstall from local artifact (any extension) via util.config_loader.ensure_app_available.
     Keeps results.json lean (no raw response lines stored).
     """
-    import json, time
-    from util.config_loader import ensure_app_available  # alias → any-extension payload
 
     # ---------- ids & setup ----------
     test_id = to_test_id(f"{dab_topic}/{test_name}")
@@ -3595,7 +3593,6 @@ def run_personalized_ads_manual_check(dab_topic, test_name, tester, device_id):
     return result
 
 # === Test 34: Uninstall An Application Currently Running Foreground Check ===
-import traceback # Make sure this import is at the top of your file
 
 def run_uninstall_foreground_app_check(dab_topic, test_name, tester, device_id):
     """
@@ -4341,9 +4338,6 @@ def run_install_bg_uninstall_sample_app(dab_topic, test_name, tester, device_id)
     Flow: applications/install (Sample_App from local path) -> launch -> HOME (background) -> uninstall
     Pass if install == 200 and uninstall == 200. No launcher fallback; only KEY_HOME.
     """
-    import json, time
-    from util.config_loader import ensure_app_available  # alias -> any-extension local payload
-
     test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id  = config.apps.get("sample_app", "Sample_App")
     logs    = []
@@ -4613,8 +4607,6 @@ def run_install_from_url_during_idle_then_launch(dab_topic, test_name, tester, d
     Flow: sleep (best-effort) -> applications/install(<local payload>) -> short wait -> wake (best-effort) -> applications/launch
     Pass if install == 200 and launch == 200.
     """
-    import json, time
-    from util.config_loader import ensure_app_available  # returns {"appId","url","format","timeout"}
 
     test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id  = config.apps.get("sample_app", "Sample_App")
@@ -4960,8 +4952,6 @@ def run_install_after_reboot_then_launch(dab_topic, test_name, tester, device_id
     Flow: restart -> wait -> applications/install(local path) -> wait -> applications/launch
     PASS if install == 200 and launch == 200.
     """
-    import json, time
-    from util.config_loader import ensure_app_available  # alias → any-extension local artifact
 
     test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id = config.apps.get("sample_app", "Sample_App")
@@ -5080,8 +5070,6 @@ def run_sequential_installs_then_launch(dab_topic, test_name, tester, device_id)
     """
     Positive: Sequentially install N applications then launch each.
     """
-    import json, time
-
     test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
 
@@ -5181,8 +5169,6 @@ def run_install_from_url_then_launch_simple(dab_topic, test_name, tester, device
     Flow: applications/install(<local path payload>) -> wait -> applications/launch
     Pass if install == 200 and launch == 200.
     """
-    import json, time
-    from util.config_loader import ensure_app_available  # alias -> any-extension local payload
 
     test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id  = config.apps.get("sample_app", "Sample_App")  # target app ID
@@ -7055,6 +7041,1086 @@ def run_logs_collection_app_install_and_launch_check(dab_topic, test_name, teste
 
     return result
 
+# === Test: Network Reset – Wi-Fi Settings Default Restoration ===
+def run_network_reset_wifi_default_restoration(dab_topic, test_name, tester, device_id):
+    """
+    Verifies that system/network-reset resets Wi-Fi settings to defaults and requires manual reconnection.
+    """
+    NETWORK_RESET_WAIT = 20  # seconds
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
+    logs = []
+    payload_reset = json.dumps({})
+
+    # TestResult(test_id, device_id, dab_topic, request_payload, test_result, details, logs)
+    result = TestResult(test_id, device_id, "system/network-reset", payload_reset, "UNKNOWN", "", logs)
+
+    try:
+        # Always-on header + description (printed and stored)
+        for line in (
+            f"[TEST] Network Reset — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: confirm network reset clears Wi-Fi custom config (static IP/DNS/proxy/saved SSIDs) and requires manual reconnection.",
+            "[DESC] Preconditions: device on Wi-Fi with custom config; DAB reachable.",
+            "[DESC] Required operations: system/network-reset.",
+            "[DESC] Pass criteria: reset returns 200, saved networks cleared, IP/DNS/Proxy defaulted, manual reconnection required.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Capability gate
+        required_ops = "ops: system/network-reset"
+        if not need(tester, device_id, required_ops, result, logs):
+            return result  # 'need' already logged and set result
+
+        # Preconditions (manual)
+        line = "[STEP] Ensure device is currently connected to Wi-Fi with a custom setting applied (static IP / DNS / proxy)."
+        LOGGER.result(line); logs.append(line)
+        if not yes_or_no("Confirm custom Wi-Fi configuration is active on the device [y/N]: "):
+            result.test_result = "SKIPPED"
+            line = f"[RESULT] SKIPPED — precondition not met (no custom Wi-Fi config). (test_id={test_id}, device={device_id})"
+            LOGGER.result(line); logs.append(line)
+            line = f"[SUMMARY] outcome={result.test_result}, test_id={test_id}, device={device_id}"
+            LOGGER.result(line); logs.append(line)
+            return result
+
+        # Initiate network reset
+        line = f"[STEP] Initiating network reset via {dab_topic} with payload: {payload_reset}"
+        LOGGER.result(line); logs.append(line)
+        code, resp = execute_cmd_and_log(tester, device_id, "system/network-reset", payload_reset, logs, result)
+
+        # Handle 501 or unexpected status
+        if code == 501:
+            result.test_result = "OPTIONAL_FAILED"
+            line = f"[RESULT] OPTIONAL_FAILED — 501 Not Implemented returned by system/network-reset. (test_id={test_id}, device={device_id})"
+            LOGGER.result(line); logs.append(line)
+            line = f"[SUMMARY] outcome={result.test_result}, test_id={test_id}, device={device_id}"
+            LOGGER.result(line); logs.append(line)
+            return result
+
+        if code != 200:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — expected 200 from system/network-reset but got {code}. Response: {resp}"
+            LOGGER.result(line); logs.append(line)
+            line = f"[SUMMARY] outcome={result.test_result}, test_id={test_id}, device={device_id}"
+            LOGGER.result(line); logs.append(line)
+            return result
+
+        line = f"[RESULT] system/network-reset returned 200 OK. Response: {resp}"
+        LOGGER.result(line); logs.append(line)
+
+        # Wait for reset side-effects (Wi-Fi stack restart / MQTT drop)
+        line = f"[WAIT] Allowing {NETWORK_RESET_WAIT}s for network stack to reset."
+        LOGGER.info(line); logs.append(line)
+        time.sleep(NETWORK_RESET_WAIT)
+
+        # Manual validations
+        LOGGER.result("[STEP] Validate on device UI that Wi-Fi settings are reset to defaults.")
+        cleared_saved = yes_or_no("Are saved Wi-Fi networks cleared? [y/N]: ")
+        defaults_ip  = yes_or_no("Are IP settings back to DHCP/Automatic (not static)? [y/N]: ")
+        defaults_dns = yes_or_no("Are DNS/Proxy settings cleared/reset to defaults? [y/N]: ")
+        manual_reconnect = yes_or_no("Did the device require manual reconnection (credentials prompted)? [y/N]: ")
+
+        # Decide outcome
+        if cleared_saved and defaults_ip and defaults_dns and manual_reconnect:
+            result.test_result = "PASS"
+            line = f"[RESULT] PASS — Wi-Fi config cleared and manual reconnection required."
+            LOGGER.result(line); logs.append(line)
+        else:
+            result.test_result = "FAILED"
+            missing = []
+            if not cleared_saved:   missing.append("saved networks not cleared")
+            if not defaults_ip:     missing.append("IP not default/DHCP")
+            if not defaults_dns:    missing.append("DNS/Proxy not default")
+            if not manual_reconnect: missing.append("no manual reconnection required")
+            reason = "; ".join(missing) if missing else "validation failed"
+            line = f"[RESULT] FAILED — {reason}."
+            LOGGER.result(line); logs.append(line)
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — operation '{e.topic}' not supported (test_id={test_id}, device={device_id})"
+        LOGGER.result(line); logs.append(line)
+
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — internal error during network reset validation: {e} (test_id={test_id}, device={device_id})"
+        LOGGER.result(line); logs.append(line)
+
+    finally:
+        # Final summary log for easy parsing
+        line = (
+            f"[SUMMARY] outcome={result.test_result}, "
+            f"cleared_saved={str(cleared_saved) if 'cleared_saved' in locals() else 'N/A'}, "
+            f"default_ip={str(defaults_ip) if 'defaults_ip' in locals() else 'N/A'}, "
+            f"default_dns_proxy={str(defaults_dns) if 'defaults_dns' in locals() else 'N/A'}, "
+            f"manual_reconnect={str(manual_reconnect) if 'manual_reconnect' in locals() else 'N/A'}, "
+            f"test_id={test_id}, device={device_id}"
+        )
+        LOGGER.result(line); logs.append(line)
+
+    return result
+
+# === Test: Setup Skip – Privacy Settings Screen Bypass (fixed locals init) ===
+def run_setup_skip_privacy_bypass(dab_topic, test_name, tester, device_id):
+    """
+    Verifies that calling system/setup/skip from the Privacy Settings screen exits setup wizard and lands on Home.
+    """
+    RESET_REBOOT_WAIT = 90
+    SETUP_RESUME_WAIT = 30
+    SKIP_TRANSITION_WAIT = 45
+
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
+    logs = []
+    payload_empty = json.dumps({})
+
+    # TestResult(test_id, device_id, dab_topic, request_payload, test_result, details, logs)
+    result = TestResult(test_id, device_id, "system/setup/skip", payload_empty, "UNKNOWN", "", logs)
+
+    # --- SAFE DEFAULTS so summary never crashes ---
+    do_reset = False
+    at_privacy = False
+    code_skip = None
+    resp_skip = None
+    on_home = False
+    opt_features_disabled = None  # None → N/A in summary
+
+    try:
+        # Header + description
+        for line in (
+            f"[TEST] Setup Skip — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: from Privacy Settings screen during setup wizard, call system/setup/skip and verify device lands on Home.",
+            "[DESC] Preconditions: device at setup wizard; target screen = Privacy Settings; DAB reachable.",
+            "[DESC] Required operations: system/setup/skip. Optional: system/factory-reset.",
+            "[DESC] Pass criteria: skip accepted (200), device exits setup wizard and shows Home screen.",
+        ):
+            LOGGER.result(line); logs.append(line)
+
+        # Capability gate
+        required_ops = "ops: system/setup/skip; optional: system/factory-reset"
+        if not need(tester, device_id, required_ops, result, logs):
+            return result  # 'need' already handled
+
+        # Optional factory reset to ensure clean setup state
+        LOGGER.result("[STEP] If not already at setup wizard, trigger factory reset via system/factory-reset (optional).")
+        do_reset = yes_or_no("Do you want to perform system/factory-reset now? This will erase the device. [y/N]: ")
+        if do_reset:
+            LOGGER.result(f"[STEP] Calling system/factory-reset with payload: {payload_empty}")
+            code_fr, resp_fr = execute_cmd_and_log(tester, device_id, "system/factory-reset", payload_empty, logs, result)
+            if code_fr == 501:
+                LOGGER.result("[RESULT] OPTIONAL_FAILED — system/factory-reset not implemented on this device. Proceeding manually to setup wizard.")
+            elif code_fr != 200:
+                result.test_result = "FAILED"
+                line = f"[RESULT] FAILED — expected 200 from system/factory-reset, got {code_fr}. Response: {resp_fr}"
+                LOGGER.result(line); logs.append(line)
+                return result
+            else:
+                LOGGER.result(f"[RESULT] system/factory-reset returned 200 OK. Response: {resp_fr}")
+                line = f"[WAIT] Allowing {RESET_REBOOT_WAIT}s for reboot/reset to complete."
+                LOGGER.info(line); logs.append(line)
+                time.sleep(RESET_REBOOT_WAIT)
+
+        # Manually advance to Privacy Settings
+        LOGGER.result("[STEP] Manually progress through setup until 'Privacy Settings' screen is displayed.")
+        line = f"[WAIT] Allowing {SETUP_RESUME_WAIT}s for UI to stabilize."
+        LOGGER.info(line); logs.append(line)
+        time.sleep(SETUP_RESUME_WAIT)
+
+        at_privacy = yes_or_no("Is the device on the Privacy Settings screen now? [y/N]: ")
+        if not at_privacy:
+            result.test_result = "SKIPPED"
+            line = "[RESULT] SKIPPED — device not at Privacy Settings screen."
+            LOGGER.result(line); logs.append(line)
+            return result
+
+        # Invoke skip at Privacy Settings
+        LOGGER.result(f"[STEP] Invoking {dab_topic} with payload: {payload_empty}")
+        code_skip, resp_skip = execute_cmd_and_log(tester, device_id, "system/setup/skip", payload_empty, logs, result)
+
+        if code_skip == 501:
+            result.test_result = "OPTIONAL_FAILED"
+            line = "[RESULT] OPTIONAL_FAILED — 501 Not Implemented for system/setup/skip."
+            LOGGER.result(line); logs.append(line)
+            return result
+
+        if code_skip != 200:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — expected 200 from system/setup/skip, got {code_skip}. Response: {resp_skip}"
+            LOGGER.result(line); logs.append(line)
+            return result
+
+        LOGGER.result(f"[RESULT] system/setup/skip returned 200 OK. Response: {resp_skip}")
+        line = f"[WAIT] Allowing {SKIP_TRANSITION_WAIT}s for device to exit setup and load Home."
+        LOGGER.info(line); logs.append(line)
+        time.sleep(SKIP_TRANSITION_WAIT)
+
+        # Verify Home
+        on_home = yes_or_no("Did the device exit setup wizard and land on the Home screen? [y/N]: ")
+        opt_features_disabled = yes_or_no("Optional: Are account-based/personalized features disabled until configured? [y/N]: ")
+
+        if on_home:
+            result.test_result = "PASS"
+            LOGGER.result("[RESULT] PASS — setup skipped from Privacy Settings and Home screen is visible.")
+        else:
+            result.test_result = "FAILED"
+            LOGGER.result("[RESULT] FAILED — device did not reach Home after skip.")
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — operation '{e.topic}' not supported (test_id={test_id}, device={device_id})"
+        LOGGER.result(line); logs.append(line)
+
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — internal error during setup skip validation: {e} (test_id={test_id}, device={device_id})"
+        LOGGER.result(line); logs.append(line)
+
+    finally:
+        def yn(v):
+            return "Y" if v is True else ("N" if v is False else "N/A")
+        line = (
+            f"[SUMMARY] outcome={result.test_result}, "
+            f"did_reset={yn(do_reset)}, "
+            f"at_privacy={yn(at_privacy)}, "
+            f"skip_status={code_skip if code_skip is not None else 'N/A'}, "
+            f"home_visible={yn(on_home)}, "
+            f"features_disabled_opt={yn(opt_features_disabled)}, "
+            f"test_id={test_id}, device={device_id}"
+        )
+        LOGGER.result(line); logs.append(line)
+
+    return result
+
+
+# === Test: Content Search – Special-Character-Only Query Validation ===
+def run_content_search_special_chars_validation(dab_topic, test_name, tester, device_id):
+    """
+    Validates that content/search handles special-character-only queries gracefully:
+    - Either returns 4xx with a clear validation error (JSON), or
+    - Returns 200 with a well-formed JSON body and an empty results array.
+    """
+
+    SPECIAL_QUERY = "!@#$%^&*()"
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
+    logs = []
+    payload = json.dumps({"query": SPECIAL_QUERY})
+
+    # TestResult(test_id, device_id, dab_topic, request_payload, test_result, details, logs)
+    result = TestResult(test_id, device_id, "content/search", payload, "UNKNOWN", "", logs)
+
+    # For final summary fields
+    status_code = None
+    json_ok = False
+    mode = "N/A"             # "200_empty" | "4xx_error" | "other"
+    ui_ok = "N/A"
+
+    try:
+        # Header + description
+        for line in (
+            f"[TEST] Content Search — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: send a special-character-only query and ensure robust handling without crashes or malformed JSON.",
+            "[DESC] Preconditions: device reachable via DAB; content service reachable; user at search interface.",
+            "[DESC] Required operations: content/search.",
+            "[DESC] Pass criteria: valid JSON with either 4xx clear validation error or 200 with empty results.",
+        ):
+            LOGGER.result(line); logs.append(line)
+
+        # Capability gate
+        required_ops = "ops: content/search"
+        if not need(tester, device_id, required_ops, result, logs):
+            return result  # 'need' already logged and set result
+
+        # Optional precondition confirmation about UI
+        if not yes_or_no("Is the device currently on the search interface? [y/N]: "):
+            result.test_result = "SKIPPED"
+            line = f"[RESULT] SKIPPED — device not on search interface."
+            LOGGER.result(line); logs.append(line)
+            line = f"[SUMMARY] outcome={result.test_result}, test_id={test_id}, device={device_id}"
+            LOGGER.result(line); logs.append(line)
+            return result
+
+        # Step — Send special-character-only query
+        line = f"[STEP] Calling content/search with payload: {payload}"
+        LOGGER.result(line); logs.append(line)
+        status_code, raw_resp = execute_cmd_and_log(tester, device_id, "content/search", payload, logs, result)
+
+        # 501 path: optional/unsupported
+        if status_code == 501:
+            result.test_result = "OPTIONAL_FAILED"
+            line = f"[RESULT] OPTIONAL_FAILED — 501 Not Implemented for content/search."
+            LOGGER.result(line); logs.append(line)
+            line = f"[SUMMARY] outcome={result.test_result}, status={status_code}, test_id={test_id}, device={device_id}"
+            LOGGER.result(line); logs.append(line)
+            return result
+
+        # Capture raw response for debugging
+        LOGGER.info(f"[INFO] content/search raw response: {raw_resp}")
+        logs.append(f"[INFO] content/search raw response: {raw_resp}")
+
+        # Validate JSON
+        try:
+            obj = json.loads(raw_resp) if raw_resp else {}
+            json_ok = True
+        except Exception:
+            obj = None
+            json_ok = False
+
+        # Decision logic
+        if 200 <= (status_code or 0) < 300:
+            # Expect empty results array on success
+            mode = "200_empty"
+            # Accept either "results": [] or "items": []
+            results = None
+            if isinstance(obj, dict):
+                if "results" in obj:
+                    results = obj.get("results")
+                elif "items" in obj:
+                    results = obj.get("items")
+
+            if not json_ok:
+                result.test_result = "FAILED"
+                line = "[RESULT] FAILED — 200 OK but response is not valid JSON."
+                LOGGER.result(line); logs.append(line)
+            elif isinstance(results, list) and len(results) == 0:
+                # Optional UI stability check
+                ui_stable = yes_or_no("Did the UI remain stable (no crash/hang) and show no results or a validation message? [y/N]: ")
+                ui_ok = "Y" if ui_stable else "N"
+                if ui_stable:
+                    result.test_result = "PASS"
+                    line = "[RESULT] PASS — 200 OK with empty results and stable UI."
+                    LOGGER.result(line); logs.append(line)
+                else:
+                    result.test_result = "FAILED"
+                    line = "[RESULT] FAILED — UI instability observed."
+                    LOGGER.result(line); logs.append(line)
+            else:
+                result.test_result = "FAILED"
+                line = "[RESULT] FAILED — 200 OK but expected an empty 'results' (or 'items') array."
+                LOGGER.result(line); logs.append(line)
+
+        elif 400 <= (status_code or 0) < 500:
+            mode = "4xx_error"
+            # Expect clear validation error in JSON (common shapes)
+            clear_error = False
+            if json_ok and isinstance(obj, dict):
+                if "error" in obj:
+                    err_obj = obj["error"]
+                    if isinstance(err_obj, dict):
+                        msg = str(err_obj.get("message", "")).strip()
+                        code = str(err_obj.get("code", "")).strip()
+                        status = str(err_obj.get("status", "")).strip()
+                        clear_error = bool(msg or code or status)
+                else:
+                    # Fallback: top-level code/message/status
+                    msg = str(obj.get("message", "")).strip()
+                    code = str(obj.get("code", "")).strip()
+                    status = str(obj.get("status", "")).strip()
+                    clear_error = bool(msg or code or status)
+
+            if json_ok and clear_error:
+                # Optional UI stability check
+                ui_stable = yes_or_no("Did the UI remain stable (no crash/hang) and show an appropriate validation message? [y/N]: ")
+                ui_ok = "Y" if ui_stable else "N"
+                if ui_stable:
+                    result.test_result = "PASS"
+                    line = "[RESULT] PASS — 4xx with clear validation error in JSON and stable UI."
+                    LOGGER.result(line); logs.append(line)
+                else:
+                    result.test_result = "FAILED"
+                    line = "[RESULT] FAILED — UI instability observed with validation error."
+                    LOGGER.result(line); logs.append(line)
+            else:
+                result.test_result = "FAILED"
+                if not json_ok:
+                    line = "[RESULT] FAILED — 4xx but response is not valid JSON."
+                else:
+                    line = "[RESULT] FAILED — 4xx without a clear validation error in JSON."
+                LOGGER.result(line); logs.append(line)
+
+        else:
+            mode = "other"
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — unexpected status: {status_code}. Expected 200(empty) or 4xx(error)."
+            LOGGER.result(line); logs.append(line)
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — operation '{e.topic}' not supported (test_id={test_id}, device={device_id})"
+        LOGGER.result(line); logs.append(line)
+
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — internal error during special-char search validation: {e} (test_id={test_id}, device={device_id})"
+        LOGGER.result(line); logs.append(line)
+
+    finally:
+        # Final summary (concise, machine-parsable)
+        line = (
+            f"[SUMMARY] outcome={result.test_result}, "
+            f"status={status_code if status_code is not None else 'N/A'}, "
+            f"json_valid={'Y' if json_ok else 'N'}, "
+            f"mode={mode}, "
+            f"ui_ok={ui_ok}, "
+            f"query='{SPECIAL_QUERY}', "
+            f"test_id={test_id}, device={device_id}"
+        )
+        LOGGER.result(line); logs.append(line)
+
+    return result
+
+# === Test: Power Mode Get – STANDBY State Verification ===
+def run_power_mode_get_standby_verify(dab_topic, test_name, tester, device_id):
+    """
+    Validates that system/power-mode/get reports STANDBY (or Background) when the device is in standby.
+    """
+
+    STANDBY_ALIASES = {"STANDBY", "BACKGROUND"}
+
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
+    logs = []
+    payload = json.dumps({})
+
+    # TestResult(test_id, device_id, dab_topic, request_payload, test_result, details, logs)
+    result = TestResult(test_id, device_id, "system/power-mode/get", payload, "UNKNOWN", "", logs)
+
+    status = None
+    parsed_state = "UNKNOWN"
+    state_source = "N/A"
+
+    try:
+        # Header + description
+        for line in (
+            f"[TEST] Power Mode — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: when device is in STANDBY, verify system/power-mode/get returns STANDBY (or Background).",
+            "[DESC] Preconditions: device already in STANDBY and connected; DAB reachable.",
+            "[DESC] Required operations: system/power-mode/get.",
+            "[DESC] Pass criteria: 2xx and state/mode == STANDBY or Background.",
+        ):
+            LOGGER.result(line); logs.append(line)
+
+        # Capability gate
+        required_ops = "ops: system/power-mode/get"
+        if not need(tester, device_id, required_ops, result, logs):
+            return result  # 'need' already handled
+
+        # Preconditions (manual confirmation)
+        if not yes_or_no("Confirm the device is currently in STANDBY and network/DAB connectivity is stable [y/N]: "):
+            result.test_result = "SKIPPED"
+            line = "[RESULT] SKIPPED — precondition not met (device not confirmed in STANDBY/connected)."
+            LOGGER.result(line); logs.append(line)
+            line = f"[SUMMARY] outcome={result.test_result}, test_id={test_id}, device={device_id}"
+            LOGGER.result(line); logs.append(line)
+            return result
+
+        # Step — Send GET
+        line = f"[STEP] Calling system/power-mode/get with payload: {payload}"
+        LOGGER.result(line); logs.append(line)
+        status, raw_resp = execute_cmd_and_log(tester, device_id, "system/power-mode/get", payload, logs, result)
+
+        # 501 path (optional on some devices)
+        if status == 501:
+            result.test_result = "OPTIONAL_FAILED"
+            line = "[RESULT] OPTIONAL_FAILED — system/power-mode/get not implemented (501)."
+            LOGGER.result(line); logs.append(line)
+            line = f"[SUMMARY] outcome={result.test_result}, status={status}, test_id={test_id}, device={device_id}"
+            LOGGER.result(line); logs.append(line)
+            return result
+
+        # Non-2xx → fail
+        if not (200 <= (status or 0) < 300):
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — expected 2xx, got {status}. Response: {raw_resp}"
+            LOGGER.result(line); logs.append(line)
+            line = f"[SUMMARY] outcome={result.test_result}, status={status}, state={parsed_state}, test_id={test_id}, device={device_id}"
+            LOGGER.result(line); logs.append(line)
+            return result
+
+        # Parse JSON and extract state/mode
+        obj = {}
+        try:
+            obj = json.loads(raw_resp) if raw_resp else {}
+        except Exception:
+            result.test_result = "FAILED"
+            line = "[RESULT] FAILED — response is not valid JSON."
+            LOGGER.result(line); logs.append(line)
+            line = f"[SUMMARY] outcome={result.test_result}, status={status}, state=UNKNOWN, test_id={test_id}, device={device_id}"
+            LOGGER.result(line); logs.append(line)
+            return result
+
+        # Try typical locations
+        candidates = []
+        if isinstance(obj, dict):
+            if "state" in obj: candidates.append(("state", obj.get("state")))
+            if "mode" in obj:  candidates.append(("mode", obj.get("mode")))
+            pm = obj.get("powerMode")
+            if isinstance(pm, dict):
+                if "state" in pm: candidates.append(("powerMode.state", pm.get("state")))
+                if "mode" in pm:  candidates.append(("powerMode.mode", pm.get("mode")))
+
+        # First non-empty candidate wins
+        for k, v in candidates:
+            if v is not None and str(v).strip() != "":
+                parsed_state = str(v).strip().upper()
+                state_source = k
+                break
+
+        LOGGER.info(f"[INFO] system/power-mode/get raw response: {raw_resp}")
+        logs.append(f"[INFO] system/power-mode/get raw response: {raw_resp}")
+        LOGGER.info(f"[INFO] Parsed state='{parsed_state}' (source={state_source})")
+        logs.append(f"[INFO] Parsed state='{parsed_state}' (source={state_source})")
+
+        if parsed_state in STANDBY_ALIASES:
+            result.test_result = "PASS"
+            line = "[RESULT] PASS — power mode reports STANDBY/Background as expected."
+            LOGGER.result(line); logs.append(line)
+        else:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — expected STANDBY/Background, got '{parsed_state}' (source={state_source})."
+            LOGGER.result(line); logs.append(line)
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — operation '{e.topic}' not supported (test_id={test_id}, device={device_id})"
+        LOGGER.result(line); logs.append(line)
+
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — internal error during power mode validation: {e} (test_id={test_id}, device={device_id})"
+        LOGGER.result(line); logs.append(line)
+
+    finally:
+        line = (
+            f"[SUMMARY] outcome={result.test_result}, "
+            f"status={status if status is not None else 'N/A'}, "
+            f"state={parsed_state}, source={state_source}, "
+            f"test_id={test_id}, device={device_id}"
+        )
+        LOGGER.result(line); logs.append(line)
+
+    return result
+
+# === Test: Power Mode Get – ON State Verification ===
+def run_power_mode_get_on_verify(dab_topic, test_name, tester, device_id):
+    """
+    Validates that system/power-mode/get reports ON when the device is powered ON and connected.
+    Acceptance: 2xx + state/mode == "ON" (exact). Anything else → FAILED. 501 → OPTIONAL_FAILED.
+    """
+
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
+    logs = []
+    payload = json.dumps({})
+
+    # TestResult(test_id, device_id, dab_topic, request_payload, test_result, details, logs)
+    result = TestResult(test_id, device_id, "system/power-mode/get", payload, "UNKNOWN", "", logs)
+
+    # Safe defaults for summary
+    status = None
+    parsed_state = "UNKNOWN"
+    state_source = "N/A"
+
+    try:
+        # Header + description
+        for line in (
+            f"[TEST] Power Mode — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: when device is ON, verify system/power-mode/get returns ON.",
+            "[DESC] Preconditions: device ON, network connected, DAB reachable, on Home screen.",
+            "[DESC] Required operations: system/power-mode/get.",
+            "[DESC] Pass criteria: 2xx and state/mode == ON.",
+        ):
+            LOGGER.result(line); logs.append(line)
+
+        # Capability gate
+        required_ops = "ops: system/power-mode/get"
+        if not need(tester, device_id, required_ops, result, logs):
+            return result  # 'need' already handled
+
+        # Preconditions (manual confirmation)
+        if not yes_or_no("Confirm the device is ON (Home screen visible) and connectivity is stable [y/N]: "):
+            result.test_result = "SKIPPED"
+            line = "[RESULT] SKIPPED — precondition not met (device not confirmed ON/connected)."
+            LOGGER.result(line); logs.append(line)
+            line = f"[SUMMARY] outcome={result.test_result}, test_id={test_id}, device={device_id}"
+            LOGGER.result(line); logs.append(line)
+            return result
+
+        # Step — Send GET
+        line = f"[STEP] Calling system/power-mode/get with payload: {payload}"
+        LOGGER.result(line); logs.append(line)
+        status, raw_resp = execute_cmd_and_log(tester, device_id, "system/power-mode/get", payload, logs, result)
+
+        # 501 path (optional on some devices)
+        if status == 501:
+            result.test_result = "OPTIONAL_FAILED"
+            line = "[RESULT] OPTIONAL_FAILED — system/power-mode/get not implemented (501)."
+            LOGGER.result(line); logs.append(line)
+            line = f"[SUMMARY] outcome={result.test_result}, status={status}, state={parsed_state}, test_id={test_id}, device={device_id}"
+            LOGGER.result(line); logs.append(line)
+            return result
+
+        # Non-2xx → fail
+        if not (200 <= (status or 0) < 300):
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — expected 2xx, got {status}. Response: {raw_resp}"
+            LOGGER.result(line); logs.append(line)
+            line = f"[SUMMARY] outcome={result.test_result}, status={status}, state={parsed_state}, test_id={test_id}, device={device_id}"
+            LOGGER.result(line); logs.append(line)
+            return result
+
+        # Parse JSON and extract state/mode
+        obj = {}
+        try:
+            obj = json.loads(raw_resp) if raw_resp else {}
+        except Exception:
+            result.test_result = "FAILED"
+            line = "[RESULT] FAILED — response is not valid JSON."
+            LOGGER.result(line); logs.append(line)
+            line = f"[SUMMARY] outcome={result.test_result}, status={status}, state=UNKNOWN, test_id={test_id}, device={device_id}"
+            LOGGER.result(line); logs.append(line)
+            return result
+
+        # Common shapes: {"state": "..."} | {"mode": "..."} | {"powerMode": {"state": "...", "mode": "..." }}
+        candidates = []
+        if isinstance(obj, dict):
+            if "state" in obj: candidates.append(("state", obj.get("state")))
+            if "mode" in obj:  candidates.append(("mode", obj.get("mode")))
+            pm = obj.get("powerMode")
+            if isinstance(pm, dict):
+                if "state" in pm: candidates.append(("powerMode.state", pm.get("state")))
+                if "mode" in pm:  candidates.append(("powerMode.mode", pm.get("mode")))
+
+        for k, v in candidates:
+            if v is not None and str(v).strip() != "":
+                parsed_state = str(v).strip().upper()
+                state_source = k
+                break
+
+        LOGGER.info(f"[INFO] system/power-mode/get raw response: {raw_resp}")
+        logs.append(f"[INFO] system/power-mode/get raw response: {raw_resp}")
+        LOGGER.info(f"[INFO] Parsed state='{parsed_state}' (source={state_source})")
+        logs.append(f"[INFO] Parsed state='{parsed_state}' (source={state_source})")
+
+        if parsed_state == "ON":
+            result.test_result = "PASS"
+            line = "[RESULT] PASS — power mode reports ON as expected."
+            LOGGER.result(line); logs.append(line)
+        else:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — expected ON, got '{parsed_state}' (source={state_source})."
+            LOGGER.result(line); logs.append(line)
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — operation '{e.topic}' not supported (test_id={test_id}, device={device_id})"
+        LOGGER.result(line); logs.append(line)
+
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — internal error during power mode ON validation: {e} (test_id={test_id}, device={device_id})"
+        LOGGER.result(line); logs.append(line)
+
+    finally:
+        line = (
+            f"[SUMMARY] outcome={result.test_result}, "
+            f"status={status if status is not None else 'N/A'}, "
+            f"state={parsed_state}, source={state_source}, "
+            f"test_id={test_id}, device={device_id}"
+        )
+        LOGGER.result(line); logs.append(line)
+
+    return result
+# === Test: Power Mode Get – Operation Not Supported Handling (fixed yes_or_no usage) ===
+def run_power_mode_get_unsupported_handling(dab_topic, test_name, tester, device_id):
+    """
+    Negative test:
+      Validate proper 501 'Operation Not Supported' handling for system/power-mode/get
+      when the target device does NOT support this operation.
+    """
+    import json
+
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
+    logs = []
+    payload = json.dumps({})
+
+    # TestResult(test_id, device_id, dab_topic, request_payload, test_result, details, logs)
+    result = TestResult(test_id, device_id, "system/power-mode/get", payload, "UNKNOWN", "", logs)
+
+    # Safe defaults used in summary
+    status = None
+    raw_resp = None
+    json_ok = False
+    msg_ok = False
+    err_msg = ""
+    err_status = ""
+
+    # Compat wrapper for different yes_or_no signatures
+    def yn(prompt: str) -> bool:
+        try:
+            return yes_or_no(prompt, logs)  # preferred: with logs
+        except TypeError:
+            return yes_or_no(prompt)        # fallback: without logs
+
+    try:
+        # Header + description
+        for line in (
+            f"[TEST] Power Mode — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: on a device that does NOT support system/power-mode/get, verify it returns 501 Not Implemented / Operation Not Supported.",
+            "[DESC] Preconditions: device ON and connected; DAB reachable; operation unsupported on target device.",
+            "[DESC] Required operations: none (we intentionally call an unsupported op).",
+            "[DESC] Pass criteria: status==501 and error indicates 'not supported' / 'not implemented'.",
+        ):
+            LOGGER.result(line); logs.append(line)
+
+        # (Manual) precondition confirmation to avoid false failures on supported devices
+        if not yn("Confirm the device does NOT support system/power-mode/get [y/N]: "):
+            result.test_result = "SKIPPED"
+            line = "[RESULT] SKIPPED — precondition not met (device may support the operation)."
+            LOGGER.result(line); logs.append(line)
+            line = f"[SUMMARY] outcome={result.test_result}, status=N/A, msg_ok=N/A, test_id={test_id}, device={device_id}"
+            LOGGER.result(line); logs.append(line)
+            return result
+
+        # Step — Attempt the unsupported operation
+        line = f"[STEP] Calling system/power-mode/get with payload: {payload}"
+        LOGGER.result(line); logs.append(line)
+        status, raw_resp = execute_cmd_and_log(tester, device_id, "system/power-mode/get", payload, logs, result)
+
+        # Parse response JSON (best-effort)
+        obj = {}
+        try:
+            obj = json.loads(raw_resp) if raw_resp else {}
+            json_ok = True
+        except Exception:
+            json_ok = False
+
+        # Extract typical error fields
+        if json_ok and isinstance(obj, dict):
+            if "error" in obj and isinstance(obj["error"], dict):
+                err = obj["error"]
+                err_msg = str(err.get("message", "")).strip()
+                err_status = str(err.get("status", "")).strip().upper()
+            else:
+                err_msg = str(obj.get("message", "")).strip()
+                err_status = str(obj.get("status", "")).strip().upper()
+
+        text = (err_msg or err_status).lower()
+        msg_ok = ("not supported" in text) or ("unsupported" in text) or ("not_implemented" in text) or ("unimplemented" in text)
+
+        # Decision logic
+        if status == 501 and (json_ok and msg_ok):
+            result.test_result = "PASS"
+            line = "[RESULT] PASS — device returned 501 with a clear 'operation not supported' indication."
+            LOGGER.result(line); logs.append(line)
+        elif status == 501 and json_ok and not msg_ok:
+            result.test_result = "FAILED"
+            line = "[RESULT] FAILED — status 501 but error message/status does not clearly indicate 'not supported'."
+            LOGGER.result(line); logs.append(line)
+        elif status == 501 and not json_ok:
+            result.test_result = "FAILED"
+            line = "[RESULT] FAILED — status 501 but response is not valid JSON."
+            LOGGER.result(line); logs.append(line)
+        elif status is not None and 200 <= status < 300:
+            result.test_result = "SKIPPED"
+            line = "[RESULT] SKIPPED — operation returned 2xx; device supports system/power-mode/get (negative unsupported test not applicable)."
+            LOGGER.result(line); logs.append(line)
+        else:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — unexpected status={status}; expected 501 with clear unsupported indication. Response: {raw_resp}"
+            LOGGER.result(line); logs.append(line)
+
+    except UnsupportedOperationError as e:
+        # Some wrappers may raise instead of returning 501; treat as PASS for this negative case.
+        result.test_result = "PASS"
+        line = f"[RESULT] PASS — raised UnsupportedOperationError for '{e.topic}', treated as 'operation not supported'."
+        LOGGER.result(line); logs.append(line)
+
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — internal error during unsupported-op validation: {e} (test_id={test_id}, device={device_id})"
+        LOGGER.result(line); logs.append(line)
+
+    finally:
+        line = (
+            f"[SUMMARY] outcome={result.test_result}, "
+            f"status={status if status is not None else 'N/A'}, "
+            f"json_valid={'Y' if json_ok else 'N'}, "
+            f"msg_ok={'Y' if msg_ok else 'N'}, "
+            f"error_status='{err_status}' error_message='{err_msg}', "
+            f"test_id={test_id}, device={device_id}"
+        )
+        LOGGER.result(line); logs.append(line)
+
+    return result
+
+# === Test: Power Mode Transition – Standby → Active ===
+def run_power_mode_transition_standby_to_active(dab_topic, test_name, tester, device_id):
+    """
+    Confirms that after transitioning from STANDBY to ACTIVE/ON, system/power-mode/get reports the final state correctly.
+    Treat 501 as OPTIONAL_FAILED per suite policy.
+    """
+
+    STANDBY_ALIASES = {"STANDBY", "BACKGROUND"}
+    ACTIVE_ALIASES  = {"ACTIVE", "ON"}
+
+    POLL_INTERVAL_SEC = 3
+    POLL_TIMEOUT_SEC  = 90
+
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
+    logs = []
+    payload_empty = json.dumps({})
+
+    # TestResult(test_id, device_id, dab_topic, request_payload, test_result, details, logs)
+    result = TestResult(test_id, device_id, "system/power-mode/get", payload_empty, "UNKNOWN", "", logs)
+
+    # Safe defaults for summary
+    status_get1 = None
+    status_set  = None
+    status_get2 = None
+    init_state  = "UNKNOWN"
+    init_src    = "N/A"
+    final_state = "UNKNOWN"
+    final_src   = "N/A"
+    set_payload_used = "{}"
+    reached_active = False
+    polls = 0
+
+    def parse_state(raw):
+        try:
+            obj = json.loads(raw) if raw else {}
+        except Exception:
+            return "UNKNOWN", "INVALID_JSON"
+        if not isinstance(obj, dict):
+            return "UNKNOWN", "NON_OBJECT"
+        # Common shapes
+        if "state" in obj and str(obj.get("state", "")).strip():
+            return str(obj["state"]).strip().upper(), "state"
+        if "mode" in obj and str(obj.get("mode", "")).strip():
+            return str(obj["mode"]).strip().upper(), "mode"
+        pm = obj.get("powerMode")
+        if isinstance(pm, dict):
+            if "state" in pm and str(pm.get("state", "")).strip():
+                return str(pm["state"]).strip().upper(), "powerMode.state"
+            if "mode" in pm and str(pm.get("mode", "")).strip():
+                return str(pm["mode"]).strip().upper(), "powerMode.mode"
+        return "UNKNOWN", "MISSING"
+
+    try:
+        # Header + description
+        for line in (
+            f"[TEST] Power Mode — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: confirm device moves from STANDBY to ACTIVE/ON and get reflects the final state.",
+            "[DESC] Preconditions: device reachable & connected; currently STANDBY; DAB connected.",
+            "[DESC] Required: system/power-mode/get; Optional: system/power-mode/set.",
+            "[DESC] Pass: final state ACTIVE/ON after transition; 501 → OPTIONAL_FAILED.",
+        ):
+            LOGGER.result(line); logs.append(line)
+
+        # Gate capabilities via operations/list
+        required_ops = "ops: system/power-mode/get; optional: system/power-mode/set"
+        if not need(tester, device_id, required_ops, result, logs):
+            return result  # 'need' already logged and set result
+
+        # Step 1 — Confirm initial state is STANDBY/BACKGROUND
+        line = f"[STEP] Initial check: calling system/power-mode/get with payload: {payload_empty}"
+        LOGGER.result(line); logs.append(line)
+        status_get1, raw1 = execute_cmd_and_log(tester, device_id, "system/power-mode/get", payload_empty, logs, result)
+
+        if status_get1 == 501:
+            result.test_result = "OPTIONAL_FAILED"
+            LOGGER.result("[RESULT] OPTIONAL_FAILED — system/power-mode/get not implemented (501).")
+            return result
+
+        if not (200 <= (status_get1 or 0) < 300):
+            result.test_result = "FAILED"
+            LOGGER.result(f"[RESULT] FAILED — expected 2xx from get, got {status_get1}. Response: {raw1}")
+            return result
+
+        init_state, init_src = parse_state(raw1)
+        LOGGER.info(f"[INFO] Initial raw: {raw1}"); logs.append(f"[INFO] Initial raw: {raw1}")
+        LOGGER.info(f"[INFO] Parsed initial state='{init_state}' (source={init_src})"); logs.append(f"[INFO] Parsed initial state='{init_state}' (source={init_src})")
+
+        if init_state not in STANDBY_ALIASES:
+            result.test_result = "SKIPPED"
+            LOGGER.result(f"[RESULT] SKIPPED — precondition not met (expected STANDBY/BACKGROUND, got '{init_state}').")
+            return result
+
+        # Step 2 — Request transition to ACTIVE/ON (try 'state': 'ACTIVE' then fallback 'mode': 'ON')
+        # Only attempt set if device supports it; treat 501 as OPTIONAL_FAILED.
+        try_state_payload = json.dumps({"state": "ACTIVE"})
+        LOGGER.result(f"[STEP] Transition request: system/power-mode/set with payload: {try_state_payload}")
+        status_set, raw_set = execute_cmd_and_log(tester, device_id, "system/power-mode/set", try_state_payload, logs, result)
+        set_payload_used = try_state_payload
+
+        if status_set == 501:
+            # Try alternate schema if first attempt returns 501? 501 means op not supported at all → OPTIONAL_FAILED.
+            result.test_result = "OPTIONAL_FAILED"
+            LOGGER.result("[RESULT] OPTIONAL_FAILED — system/power-mode/set not implemented (501).")
+            return result
+
+        if status_set == 400:
+            # Fallback to alternate schema
+            try_mode_payload = json.dumps({"mode": "ON"})
+            LOGGER.result(f"[STEP] Fallback schema: system/power-mode/set with payload: {try_mode_payload}")
+            status_set, raw_set = execute_cmd_and_log(tester, device_id, "system/power-mode/set", try_mode_payload, logs, result)
+            set_payload_used = try_mode_payload
+            if status_set == 501:
+                result.test_result = "OPTIONAL_FAILED"
+                LOGGER.result("[RESULT] OPTIONAL_FAILED — system/power-mode/set not implemented (501).")
+                return result
+
+        if not (200 <= (status_set or 0) < 300):
+            result.test_result = "FAILED"
+            LOGGER.result(f"[RESULT] FAILED — set did not return 2xx (status={status_set}). Response: {raw_set}")
+            return result
+
+        # Step 3 — Wait/poll for readiness
+        end_time = time.time() + POLL_TIMEOUT_SEC
+        LOGGER.info(f"[WAIT] Polling system/power-mode/get every {POLL_INTERVAL_SEC}s up to {POLL_TIMEOUT_SEC}s for ACTIVE/ON.")
+        logs.append(f"[WAIT] Polling system/power-mode/get every {POLL_INTERVAL_SEC}s up to {POLL_TIMEOUT_SEC}s for ACTIVE/ON.")
+
+        while time.time() < end_time:
+            time.sleep(POLL_INTERVAL_SEC)
+            polls += 1
+            status_get2, raw2 = execute_cmd_and_log(tester, device_id, "system/power-mode/get", payload_empty, logs, result)
+            if status_get2 == 501:
+                result.test_result = "OPTIONAL_FAILED"
+                LOGGER.result("[RESULT] OPTIONAL_FAILED — get became unsupported (501) during polling.")
+                return result
+            if not (200 <= (status_get2 or 0) < 300):
+                continue
+            final_state, final_src = parse_state(raw2)
+            LOGGER.info(f"[INFO] Poll#{polls}: state='{final_state}' (source={final_src}), raw={raw2}")
+            logs.append(f"[INFO] Poll#{polls}: state='{final_state}' (source={final_src}), raw={raw2}")
+            if final_state in ACTIVE_ALIASES:
+                reached_active = True
+                break
+
+        # Step 4 — Decide outcome
+        if reached_active:
+            result.test_result = "PASS"
+            LOGGER.result("[RESULT] PASS — device transitioned to ACTIVE/ON and get reflects the final state.")
+        else:
+            result.test_result = "FAILED"
+            LOGGER.result(f"[RESULT] FAILED — device did not report ACTIVE/ON within timeout (last='{final_state}').")
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — operation '{e.topic}' not supported (test_id={test_id}, device={device_id})"
+        LOGGER.result(line); logs.append(line)
+
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — internal error during power mode transition validation: {e} (test_id={test_id}, device={device_id})"
+        LOGGER.result(line); logs.append(line)
+
+    finally:
+        line = (
+            f"[SUMMARY] outcome={result.test_result}, "
+            f"init_status={status_get1 if status_get1 is not None else 'N/A'}, init_state={init_state}({init_src}), "
+            f"set_status={status_set if status_set is not None else 'N/A'}, set_payload={set_payload_used}, "
+            f"final_status={status_get2 if status_get2 is not None else 'N/A'}, final_state={final_state}({final_src}), "
+            f"polls={polls}, reached_active={'Y' if reached_active else 'N'}, "
+            f"test_id={test_id}, device={device_id}"
+        )
+        LOGGER.result(line); logs.append(line)
+
+    return result
+
+def run_screensaver_timeout_invalid_value_check(dab_topic, test_name, tester, device_id):
+   """
+   Verifies that setting screenSaverTimeout with a non-integer value is rejected. This is a negative test.
+   """
+   test_id = to_test_id(f"{dab_topic}/{test_name}")
+   logs = []
+   result = TestResult(test_id, device_id, "system/settings/set", "{}", "UNKNOWN", "", logs)
+   initial_timeout = "N/A"
+   set_status = "N/A"
+
+   try:
+       # Header and description
+       for line in (
+           f"[TEST] Set Screensaver Timeout Invalid Value (Negative) — {test_name} (test_id={test_id}, device={device_id})",
+           "[DESC] Goal: Send a system/settings/set request with a non-integer value for screenSaverTimeout.",
+           "[DESC] Required ops: system/settings/set, system/settings/get.",
+           "[DESC] Pass criteria: The set operation must fail with a 400 error, and the original timeout value must remain unchanged.",
+       ):
+           LOGGER.result(line)
+           logs.append(line)
+
+       # Capability gate
+       if not need(tester, device_id, "ops: system/settings/set, system/settings/get | settings: screenSaverTimeout", result, logs):
+           return result
+
+       # Step 1: Enable screensaver as a precondition
+       line = "[STEP] Precondition: Enabling screensaver."
+       LOGGER.result(line); logs.append(line)
+       rc, response = execute_cmd_and_log(tester, device_id, "system/settings/set", json.dumps({"screenSaver": True}), logs)
+       if dab_status_from(response, rc) != 200:
+           result.test_result = "FAILED"
+           line = "[RESULT] FAILED — Could not enable screensaver as a precondition."
+           LOGGER.result(line); logs.append(line)
+           return result
+
+       # Step 2: Get the initial timeout value
+       line = "[STEP] Getting initial screenSaverTimeout value."
+       LOGGER.result(line); logs.append(line)
+       rc, response = execute_cmd_and_log(tester, device_id, "system/settings/get", "{}", logs)
+       if dab_status_from(response, rc) == 200:
+           initial_timeout = json.loads(response).get("screenSaverTimeout", "N/A")
+           logs.append(f"[INFO] Initial screenSaverTimeout is: {initial_timeout}")
+       else:
+           result.test_result = "FAILED"
+           line = "[RESULT] FAILED — Could not get initial settings."
+           LOGGER.result(line); logs.append(line)
+           return result
+
+       # Step 3: Send the invalid request
+       invalid_payload = json.dumps({"screenSaverTimeout": "@@!!"})
+       line = f"[STEP] Sending invalid request: {invalid_payload}"
+       LOGGER.result(line); logs.append(line)
+       rc, response = execute_cmd_and_log(tester, device_id, "system/settings/set", invalid_payload, logs)
+       set_status = dab_status_from(response, rc)
+
+       if set_status != 400:
+           result.test_result = "FAILED"
+           line = f"[RESULT] FAILED — Expected status 400 but received {set_status}."
+           LOGGER.result(line); logs.append(line)
+           return result
+       else:
+           logs.append(f"[INFO] Received expected status 400.")
+
+       # Step 4: Confirm the timeout value has not changed
+       line = "[STEP] Verifying screenSaverTimeout value has not changed."
+       LOGGER.result(line); logs.append(line)
+       rc, response = execute_cmd_and_log(tester, device_id, "system/settings/get", "{}", logs)
+       final_timeout = "N/A"
+       if dab_status_from(response, rc) == 200:
+           final_timeout = json.loads(response).get("screenSaverTimeout", "N/A")
+           logs.append(f"[INFO] Final screenSaverTimeout is: {final_timeout}")
+
+       if initial_timeout == final_timeout:
+           result.test_result = "PASS"
+           line = "[RESULT] PASS — Device correctly rejected the invalid value and the setting remained unchanged."
+           LOGGER.result(line); logs.append(line)
+       else:
+           result.test_result = "FAILED"
+           line = f"[RESULT] FAILED — Device's setting was incorrectly changed from {initial_timeout} to {final_timeout}."
+           LOGGER.result(line); logs.append(line)
+
+   except UnsupportedOperationError as e:
+       result.test_result = "OPTIONAL_FAILED"
+       line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
+       LOGGER.result(line); logs.append(line)
+
+   except Exception as e:
+       result.test_result = "SKIPPED"
+       line = f"[RESULT] SKIPPED — An unexpected error occurred: {e}"
+       LOGGER.result(line); logs.append(line)
+
+   finally:
+       line = f"[SUMMARY] outcome={result.test_result}, set_status={set_status}, initial_value={initial_timeout}, test_id={test_id}, device={device_id}"
+       LOGGER.result(line); logs.append(line)
+
+   return result
+
+
 # === Functional Test Case List ===
 FUNCTIONAL_TEST_CASE = [
     ("applications/get-state", "functional", run_app_foreground_check, "AppForegroundCheck", "2.0", False),
@@ -7121,4 +8187,13 @@ FUNCTIONAL_TEST_CASE = [
     ("system/logs/start-collection", "functional", run_logs_collection_app_force_stop_check, "LogsCollectionAppForceStopCheck", "2.1", False),
     ("system/logs/start-collection", "functional", run_logs_collection_app_uninstall_check, "LogsCollectionAppUninstallCheck", "2.1", False),
     ("system/logs/start-collection", "functional", run_logs_collection_app_install_and_launch_check, "LogsCollectionAppinstallAndLaunchCheck", "2.1", False),
+    ("system/network-reset", "functional", run_network_reset_wifi_default_restoration, "Network Reset  Wi-Fi Settings Default Restoration", "2.1", False),
+    ("system/setup/skip", "functional", run_setup_skip_privacy_bypass, "Setup Skip Privacy Settings Screen Bypass", "2.1", False),
+    ("content/search", "functional", run_content_search_special_chars_validation, "Content Search  Special-Character-Only Query Validation", "2.1", True),
+    ("system/power-mode/get", "functional", run_power_mode_get_standby_verify, "Power Mode Get STANDBY State Verification", "2.1", False),
+    ("system/power-mode/get", "functional", run_power_mode_get_on_verify, "Power Mode Get ON State Verification", "2.1", False),
+    ("system/power-mode/get", "functional", run_power_mode_get_unsupported_handling, "Power Mode Get Operation Not Supported Handling", "2.1", True),
+    ("system/power-mode/get", "functional", run_power_mode_transition_standby_to_active, "Power Mode Transition Standby Active", "2.1", False),
+    ("system/settings/set", "functional", run_screensaver_timeout_invalid_value_check, "SetScreenSaverTimeoutInvalidValue", "2.1", True),
+
 ]
