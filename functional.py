@@ -8215,6 +8215,941 @@ def run_screensaver_timeout_invalid_value_check(dab_topic, test_name, tester, de
 
     return result
 
+
+# === Test: Set Contrast to Maximum Value ===
+def run_set_contrast_to_max(dab_topic, test_name, tester, device_id):
+    """
+    DAB 2.1 Positive Test:
+      - Set 'contrast' to its maximum supported value.
+      - Confirm device reports max contrast via system/settings/get.
+      - (Optionally) prompt operator to visually verify max contrast on screen.
+    """
+
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
+    logs = []
+    result = TestResult(test_id, device_id, dab_topic, "{}", "UNKNOWN", "", logs)
+
+    # --- Step 1: Capability check (contrast setting support) ---
+    cap_spec = "ops: system/settings/get, system/settings/set | settings: contrast"
+    if not require_capabilities(tester, device_id, cap_spec, result, logs):
+        return result  # OPTIONAL_FAILED already set
+
+    # --- Step 2: Get supported range for 'contrast' ---
+    try:
+        setting_info, _ = get_supported_setting(tester, device_id, "contrast", result, logs)
+        # Expecting something like {"min": 0, "max": 100} or [0,100]
+        if isinstance(setting_info, dict) and "max" in setting_info:
+            max_contrast = setting_info["max"]
+        elif isinstance(setting_info, (list, tuple)) and len(setting_info) == 2:
+            max_contrast = max(setting_info)
+        else:
+            msg = f"[FAILED] Could not determine max value for contrast from supported setting: {setting_info}"
+            LOGGER.error(msg)
+            logs.append(LOGGER.stamp(msg))
+            result.test_result = "FAILED"
+            result.details = msg
+            return result
+    except Exception as ex:
+        msg = f"[FAILED] Exception while fetching contrast supported range: {ex}"
+        LOGGER.error(msg)
+        logs.append(LOGGER.stamp(msg))
+        result.test_result = "FAILED"
+        result.details = msg
+        return result
+
+    # --- Step 3: Store original contrast value ---
+    try:
+        _, resp_get = execute_cmd_and_log(tester, device_id, "system/settings/get", json.dumps({"id": "contrast"}), logs, result)
+        resp_data = json.loads(resp_get) if isinstance(resp_get, str) else resp_get
+        original_contrast = resp_data.get("contrast")
+        logs.append(LOGGER.stamp(f"[INFO] Original contrast value: {original_contrast}"))
+    except Exception as ex:
+        msg = f"[FAILED] Could not read original contrast: {ex}"
+        LOGGER.error(msg)
+        logs.append(LOGGER.stamp(msg))
+        result.test_result = "FAILED"
+        result.details = msg
+        return result
+
+    # --- Step 4: Set contrast to maximum ---
+    try:
+        set_payload = json.dumps({"contrast": max_contrast})
+        status, resp_set = execute_cmd_and_log(
+            tester, device_id, "system/settings/set", set_payload, logs, result
+        )
+        if status != 200:
+            msg = f"[FAILED] Failed to set contrast to max {max_contrast}. Status: {status}, Response: {resp_set}"
+            LOGGER.error(msg)
+            logs.append(LOGGER.stamp(msg))
+            result.test_result = "FAILED"
+            result.details = msg
+            # Proceed to restore original value below
+        else:
+            LOGGER.ok(f"[STEP] Set contrast to {max_contrast} successfully.")
+            logs.append(LOGGER.stamp(f"[STEP] Set contrast to {max_contrast} successfully."))
+    except Exception as ex:
+        msg = f"[FAILED] Exception during contrast set: {ex}"
+        LOGGER.error(msg)
+        logs.append(LOGGER.stamp(msg))
+        result.test_result = "FAILED"
+        result.details = msg
+
+    # --- Step 5: Verify contrast is set to max ---
+    try:
+        _, resp_verify = execute_cmd_and_log(tester, device_id, "system/settings/get", json.dumps({"id": "contrast"}), logs, result)
+        verify_data = json.loads(resp_verify) if isinstance(resp_verify, str) else resp_verify
+        current_contrast = verify_data.get("contrast")
+        if current_contrast == max_contrast:
+            LOGGER.ok(f"[PASS] Contrast successfully set to max: {max_contrast}")
+            logs.append(LOGGER.stamp(f"[PASS] Contrast successfully set to max: {max_contrast}"))
+            # Optionally prompt for operator visual check
+            if yes_or_no(result, logs, f"Is the device screen at maximum contrast visually (should appear very bright/strong)? "):
+                result.test_result = "PASS"
+                result.details = f"Contrast set to max value {max_contrast} and operator confirmed visually."
+            else:
+                result.test_result = "FAILED"
+                result.details = f"Contrast set to max, but operator did not confirm visual effect."
+        else:
+            msg = f"[FAILED] Device did not set contrast to max: got {current_contrast}, expected {max_contrast}"
+            LOGGER.error(msg)
+            logs.append(LOGGER.stamp(msg))
+            result.test_result = "FAILED"
+            result.details = msg
+    except Exception as ex:
+        msg = f"[FAILED] Exception during verification of contrast: {ex}"
+        LOGGER.error(msg)
+        logs.append(LOGGER.stamp(msg))
+        result.test_result = "FAILED"
+        result.details = msg
+
+    # --- Step 6: Restore original contrast value (always best-effort) ---
+    try:
+        if original_contrast is not None and current_contrast != original_contrast:
+            LOGGER.info(f"[STEP] Restoring original contrast value: {original_contrast}")
+            logs.append(LOGGER.stamp(f"[STEP] Restoring original contrast value: {original_contrast}"))
+            restore_payload = json.dumps({"contrast": original_contrast})
+            execute_cmd_and_log(
+                tester, device_id, "system/settings/set", restore_payload, logs, result
+            )
+            # Optionally verify restore
+    except Exception:
+        LOGGER.warn("[WARN] Best-effort contrast restore failed")
+        logs.append(LOGGER.stamp("[WARN] Best-effort contrast restore failed"))
+
+    return result
+
+# === Test: Screensaver Timeout Invalid Value (-1) — Negative Test ===
+def run_screensaver_timeout_invalid_time(dab_topic, test_name, tester, device_id):
+    """
+    Negative Test:
+      - Validate system rejects invalid screensaver timeout (-1)
+      - Only 400 is considered correct negative behaviour
+      - 200 → FAILED
+      - Any other error (500, timeout 100) → FAILED
+      - 501 is handled by capability check → OPTIONAL_FAILED
+      - Restore original value after test
+    """
+
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
+    logs = []
+    payload_invalid = json.dumps({"screenSaverTimeout": -1})
+    result = TestResult(test_id, device_id, dab_topic, payload_invalid, "UNKNOWN", "", logs)
+
+    try:
+        # === Header ===
+        for line in (
+            f"[TEST] Screensaver Timeout Invalid Test — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: Ensure device rejects negative timeout (-1) with HTTP 400.",
+            "[DESC] Preconditions: Device ON → DAB reachable → settings supported."
+        ):
+            LOGGER.result(line); logs.append(line)
+
+        # === Capability Gate (handles 501 automatically) ===
+        if not require_capabilities(tester, device_id, "ops: system/settings/get, system/settings/set | settings: screenSaverTimeout", result, logs):
+            return result
+
+        # === Read original value ===
+        LOGGER.result("[STEP] Reading current screensaver timeout (system/settings/get)")
+        _, resp_get0 = execute_cmd_and_log(tester, device_id, "system/settings/get", json.dumps({"id": "screenSaverTimeout"}), logs, result)
+
+        try:
+            orig_timeout = json.loads(resp_get0).get("screenSaverTimeout", None)
+        except Exception:
+            orig_timeout = None
+
+        LOGGER.result(f"[INFO] Original screenSaverTimeout captured: {orig_timeout}")
+
+        # === STEP: Send invalid value (-1) ===
+        LOGGER.result(f"[STEP] Sending invalid timeout → {payload_invalid}")
+        status, resp_json = execute_cmd_and_log(tester, device_id, "system/settings/set", payload_invalid, logs, result)
+
+        # === Validation logic ===
+        if status == 400:
+            result.test_result = "NEGATIVE_TEST_PASSED"
+            LOGGER.result("[RESULT] NEGATIVE_TEST_PASSED — Device correctly rejected -1 with HTTP 400.")
+        elif status == 200:
+            result.test_result = "FAILED"
+            LOGGER.result("[RESULT] FAILED — Device incorrectly accepted negative timeout (-1).")
+        else:
+            result.test_result = "FAILED"
+            LOGGER.result(f"[RESULT] FAILED — Unexpected status={status}, expected 400 only.")
+
+        # === Summary ===
+        LOGGER.result(
+            f"[SUMMARY] outcome={result.test_result}, status={status}, "
+            f"original={orig_timeout}, test_id={test_id}, device={device_id}"
+        )
+
+        return result
+
+    except UnsupportedOperationError:
+        # Should not happen because capability gate covers this
+        result.test_result = "OPTIONAL_FAILED"
+        LOGGER.warn("[RESULT] OPTIONAL_FAILED — Operation not supported (from capability layer).")
+        return result
+
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        LOGGER.error(f"[RESULT] SKIPPED — Internal error: {e}")
+        return result
+
+    finally:
+        # === Restore original value (best-effort) ===
+        try:
+            if orig_timeout is not None:
+                payload_restore = json.dumps({"screenSaverTimeout": orig_timeout})
+                LOGGER.result(f"[STEP] Restoring original timeout → {payload_restore}")
+                execute_cmd_and_log(tester, device_id, "system/settings/set", payload_restore, logs, result)
+
+                # verify restore
+                _, resp_v = execute_cmd_and_log(tester, device_id, "system/settings/get",
+                                                json.dumps({"id": "screenSaverTimeout"}), logs, result)
+                try:
+                    new_val = json.loads(resp_v).get("screenSaverTimeout")
+                    if new_val == orig_timeout:
+                        LOGGER.result("[INFO] Restore verified successfully.")
+                except Exception:
+                    pass
+        except Exception:
+            LOGGER.warn("[WARN] Restore best-effort failed.")
+
+# === Test: Rapid Contrast Change Min to Max ===
+def run_contrast_rapid_change_min_to_max(dab_topic, test_name, tester, device_id):
+    """
+    DAB 2.1 Positive Test:
+      - Rapidly set 'contrast' to min, then max.
+      - Confirm device reports changes immediately.
+      - Operator confirms screen reflects new contrast.
+    """
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
+    logs = []
+    result = TestResult(test_id, device_id, dab_topic, "{}", "UNKNOWN", "", logs)
+
+    # --- Step 1: Capability check (contrast setting support) ---
+    cap_spec = "ops: system/settings/get, system/settings/set | settings: contrast"
+    if not require_capabilities(tester, device_id, cap_spec, result, logs):
+        return result  # OPTIONAL_FAILED already set
+
+    # --- Step 2: Get supported min/max for 'contrast' ---
+    try:
+        setting_info, _ = get_supported_setting(tester, device_id, "contrast", result, logs)
+        if isinstance(setting_info, dict) and "min" in setting_info and "max" in setting_info:
+            min_contrast = setting_info["min"]
+            max_contrast = setting_info["max"]
+        elif isinstance(setting_info, (list, tuple)) and len(setting_info) == 2:
+            min_contrast, max_contrast = min(setting_info), max(setting_info)
+        else:
+            msg = f"[FAILED] Could not determine min/max for contrast from supported setting: {setting_info}"
+            LOGGER.error(msg)
+            logs.append(LOGGER.stamp(msg))
+            result.test_result = "FAILED"
+            result.details = msg
+            return result
+    except Exception as ex:
+        msg = f"[FAILED] Exception while fetching contrast supported range: {ex}"
+        LOGGER.error(msg)
+        logs.append(LOGGER.stamp(msg))
+        result.test_result = "FAILED"
+        result.details = msg
+        return result
+
+    # --- Step 3: Store original contrast value ---
+    try:
+        _, resp_get = execute_cmd_and_log(
+            tester, device_id, "system/settings/get", json.dumps({"id": "contrast"}), logs, result
+        )
+        resp_data = json.loads(resp_get) if isinstance(resp_get, str) else resp_get
+        original_contrast = resp_data.get("contrast")
+        logs.append(LOGGER.stamp(f"[INFO] Original contrast value: {original_contrast}"))
+    except Exception as ex:
+        msg = f"[FAILED] Could not read original contrast: {ex}"
+        LOGGER.error(msg)
+        logs.append(LOGGER.stamp(msg))
+        result.test_result = "FAILED"
+        result.details = msg
+        return result
+
+    # --- Step 4: Rapidly set contrast min, then max ---
+    try:
+        # Set to min
+        set_min = json.dumps({"contrast": min_contrast})
+        status_min, resp_min = execute_cmd_and_log(
+            tester, device_id, "system/settings/set", set_min, logs, result
+        )
+        if status_min != 200:
+            msg = f"[FAILED] Failed to set contrast to min {min_contrast}. Status: {status_min}, Response: {resp_min}"
+            LOGGER.error(msg)
+            logs.append(LOGGER.stamp(msg))
+            result.test_result = "FAILED"
+            result.details = msg
+
+        # Quickly set to max
+        set_max = json.dumps({"contrast": max_contrast})
+        status_max, resp_max = execute_cmd_and_log(
+            tester, device_id, "system/settings/set", set_max, logs, result
+        )
+        if status_max != 200:
+            msg = f"[FAILED] Failed to set contrast to max {max_contrast}. Status: {status_max}, Response: {resp_max}"
+            LOGGER.error(msg)
+            logs.append(LOGGER.stamp(msg))
+            result.test_result = "FAILED"
+            result.details = msg
+    except Exception as ex:
+        msg = f"[FAILED] Exception during rapid contrast change: {ex}"
+        LOGGER.error(msg)
+        logs.append(LOGGER.stamp(msg))
+        result.test_result = "FAILED"
+        result.details = msg
+
+    # --- Step 5: Verify contrast is set to max ---
+    try:
+        _, resp_verify = execute_cmd_and_log(
+            tester, device_id, "system/settings/get", json.dumps({"id": "contrast"}), logs, result
+        )
+        verify_data = json.loads(resp_verify) if isinstance(resp_verify, str) else resp_verify
+        current_contrast = verify_data.get("contrast")
+        if current_contrast == max_contrast:
+            LOGGER.ok(f"[PASS] Contrast successfully set to max: {max_contrast}")
+            logs.append(LOGGER.stamp(f"[PASS] Contrast successfully set to max: {max_contrast}"))
+            # Optionally prompt for operator visual check
+            if yes_or_no(result, logs, f"Did the screen immediately update to maximum contrast (visibly)? "):
+                result.test_result = "PASS"
+                result.details = f"Contrast changed rapidly min→max, device responded correctly and operator confirmed."
+            else:
+                result.test_result = "FAILED"
+                result.details = f"Contrast set to max, but operator did not confirm visual update."
+        else:
+            msg = f"[FAILED] Device did not set contrast to max: got {current_contrast}, expected {max_contrast}"
+            LOGGER.error(msg)
+            logs.append(LOGGER.stamp(msg))
+            result.test_result = "FAILED"
+            result.details = msg
+    except Exception as ex:
+        msg = f"[FAILED] Exception during verification of contrast: {ex}"
+        LOGGER.error(msg)
+        logs.append(LOGGER.stamp(msg))
+        result.test_result = "FAILED"
+        result.details = msg
+
+    # --- Step 6: Restore original contrast value (always best-effort) ---
+    try:
+        if original_contrast is not None and current_contrast != original_contrast:
+            LOGGER.info(f"[STEP] Restoring original contrast value: {original_contrast}")
+            logs.append(LOGGER.stamp(f"[STEP] Restoring original contrast value: {original_contrast}"))
+            restore_payload = json.dumps({"contrast": original_contrast})
+            execute_cmd_and_log(
+                tester, device_id, "system/settings/set", restore_payload, logs, result
+            )
+            # Optionally verify restore
+    except Exception:
+        LOGGER.warn("[WARN] Best-effort contrast restore failed")
+        logs.append(LOGGER.stamp("[WARN] Best-effort contrast restore failed"))
+
+    return result
+
+
+# === Test: Personalized Ads Invalid Value (Negative Test) ===
+def run_personalized_ads_invalid_value(dab_topic, test_name, tester, device_id):
+    """
+    DAB 2.1 NEGATIVE TEST:
+        - Send invalid value for personalizedAds → {"personalizedAds": "invalidValue"}
+        - Expected: 400 BAD REQUEST only.
+        - Device must not change the original value.
+    """
+
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
+    logs = []
+    invalid_payload = json.dumps({"personalizedAds": "invalidValue"})   # invalid type/value
+    result = TestResult(test_id, device_id, dab_topic, invalid_payload, "UNKNOWN", "", logs)
+
+    # STEP 1: Capability Gate — personalizedAds must be supported
+    cap = "ops: system/settings/get, system/settings/set | settings: personalizedAds"
+    if not require_capabilities(tester, device_id, cap, result, logs):
+        return result  # OPTIONAL_FAILED already set
+
+    # STEP 2: Read Original personalizedAds Value
+    try:
+        _, resp0 = execute_cmd_and_log(
+            tester, device_id,
+            "system/settings/get",
+            json.dumps({"id": "personalizedAds"}),
+            logs, result
+        )
+        parsed0 = json.loads(resp0) if isinstance(resp0, str) else resp0
+        original_value = parsed0.get("personalizedAds")
+        logs.append(LOGGER.stamp(f"[INFO] Original personalizedAds value: {original_value}"))
+
+    except Exception as ex:
+        msg = f"[FAILED] Unable to read original personalizedAds value: {ex}"
+        LOGGER.error(msg); logs.append(LOGGER.stamp(msg))
+        result.test_result = "FAILED"; result.details = msg
+        return result
+
+    # STEP 3: Send invalid payload (string instead of boolean)
+    try:
+        status, resp_json = execute_cmd_and_log(
+            tester, device_id,
+            "system/settings/set",
+            invalid_payload,
+            logs, result
+        )
+
+        # Timeout / Internal error → SKIPPED
+        if status == 100:
+            result.test_result = "SKIPPED"
+            result.details = "Timeout occurred (100)."
+            logs.append(LOGGER.stamp("[RESULT] SKIPPED — Timeout (100)."))
+            return result
+
+        if status == 500:
+            result.test_result = "SKIPPED"
+            result.details = "Internal error (500)."
+            logs.append(LOGGER.stamp("[RESULT] SKIPPED — Internal error (500)."))
+            return result
+
+        # Expected Negative Behavior → 400 BAD REQUEST
+        if status != 400:
+            msg = f"[FAILED] Expected 400 for invalid value but received status={status}"
+            LOGGER.error(msg); logs.append(LOGGER.stamp(msg))
+            result.test_result = "FAILED"; result.details = msg
+            return result
+
+        logs.append(LOGGER.stamp("[INFO] Device correctly rejected invalid personalizedAds value with 400 BAD REQUEST."))
+
+    except UnsupportedOperationError:
+        # Should not happen due to capability check
+        result.test_result = "OPTIONAL_FAILED"
+        logs.append(LOGGER.stamp("[RESULT] OPTIONAL_FAILED — Operation unexpectedly unsupported after capability gate."))
+        return result
+
+    except Exception as ex:
+        msg = f"[SKIPPED] Unexpected internal exception: {ex}"
+        LOGGER.error(msg); logs.append(LOGGER.stamp(msg))
+        result.test_result = "SKIPPED"; result.details = msg
+        return result
+
+    # STEP 4: Verify the value did NOT change    
+    try:
+        _, resp_ver = execute_cmd_and_log(
+            tester, device_id,
+            "system/settings/get",
+            json.dumps({"id": "personalizedAds"}),
+            logs, result
+        )
+        parsed_ver = json.loads(resp_ver) if isinstance(resp_ver, str) else resp_ver
+        after_value = parsed_ver.get("personalizedAds")
+
+        if after_value != original_value:
+            msg = f"[FAILED] personalizedAds changed! Before={original_value}, After={after_value}"
+            LOGGER.error(msg); logs.append(LOGGER.stamp(msg))
+            result.test_result = "FAILED"; result.details = msg
+            return result
+
+        logs.append(LOGGER.stamp("[PASS] Device preserved original personalizedAds value."))
+
+    except Exception as ex:
+        msg = f"[SKIPPED] Verification failed: {ex}"
+        LOGGER.error(msg); logs.append(LOGGER.stamp(msg))
+        result.test_result = "SKIPPED"; result.details = msg
+        return result
+
+    
+    # FINAL RESULT    
+    result.test_result = "PASS"
+    result.details = "Negative test passed — invalid value rejected with 400 and original value preserved."
+    return result
+
+def run_factory_reset_and_verify_initial_state(dab_topic, test_name, tester, device_id):
+    """
+    Installs sample apps, performs a factory reset, waits for completion, then verifies all sample apps are uninstalled.
+    DAB 2.1 required.
+    """
+
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
+    logs = []
+    SAMPLE_APPS = [
+        config.apps.get("sample_app", "Sample_App"),
+        config.apps.get("sample_app1", "Sample_App1"),
+    ]
+    result = TestResult(test_id, device_id, dab_topic, "N/A", "UNKNOWN", "", logs)
+
+    # STEP 1: CAPABILITY CHECK (DAB 2.1 required)
+    if not require_capabilities(
+        tester, device_id,
+        "ops: applications/install, applications/list, system/factory-reset"
+    ):
+        result.test_result = "OPTIONAL_FAILED"
+        result.details = "Required DAB 2.1 operations not supported."
+        logs.append(LOGGER.stamp("[RESULT] OPTIONAL_FAILED — Missing required capabilities for DAB 2.1."))
+        return result
+
+    try:
+        # STEP 2: INSTALL SAMPLE APPS
+        logs.append(LOGGER.stamp("[STEP] Installing sample apps for factory reset test."))
+        for app_id in SAMPLE_APPS:
+            status, resp = execute_cmd_and_log(
+                tester, device_id,
+                "applications/install",
+                json.dumps({"appId": app_id}),
+                logs, result
+            )
+            if status != 200:
+                logs.append(LOGGER.stamp(f"[WARN] Failed to install app: {app_id}. Status: {status}"))
+        
+        # Confirm all sample apps are installed
+        _, installed_list = execute_cmd_and_log(
+            tester, device_id,
+            "applications/list",
+            "{}", logs, result
+        )
+        installed_apps = []
+        try:
+            installed_apps = json.loads(installed_list).get("applications", [])
+        except Exception:
+            pass
+        for app_id in SAMPLE_APPS:
+            if app_id not in [a.get("appId") for a in installed_apps]:
+                logs.append(LOGGER.stamp(f"[FAILED] App not installed: {app_id}"))
+                result.test_result = "FAILED"
+                result.details = f"App {app_id} not installed before factory reset."
+                return result
+
+        # STEP 3: FACTORY RESET
+        logs.append(LOGGER.stamp("[STEP] Triggering system/factory-reset..."))
+        status, resp = execute_cmd_and_log(
+            tester, device_id,
+            "system/factory-reset",
+            "{}", logs, result
+        )
+        if status != 200:
+            logs.append(LOGGER.stamp("[FAILED] Factory reset operation failed."))
+            result.test_result = "FAILED"
+            result.details = "Factory reset operation failed."
+            return result
+
+        # STEP 4: WAIT FOR FACTORY RESET COMPLETION
+        logs.append(LOGGER.stamp("[WAIT] Waiting for factory reset to complete (device will reboot)..."))
+        wait_ok = wait_for_factory_reset_complete(tester, device_id, logs, timeout=180)
+        if not wait_ok:
+            logs.append(LOGGER.stamp("[FAILED] Device did not complete factory reset within timeout."))
+            result.test_result = "FAILED"
+            result.details = "Device did not reboot or complete reset in time."
+            return result
+
+        # STEP 5: VERIFY INITIAL STATE (No sample apps installed)
+        logs.append(LOGGER.stamp("[STEP] Verifying device is in initial state (no sample apps installed)..."))
+        _, installed_list_post = execute_cmd_and_log(
+            tester, device_id,
+            "applications/list",
+            "{}", logs, result
+        )
+        installed_apps_post = []
+        try:
+            installed_apps_post = json.loads(installed_list_post).get("applications", [])
+        except Exception:
+            pass
+        remaining = [a.get("appId") for a in installed_apps_post if a.get("appId") in SAMPLE_APPS]
+        if remaining:
+            logs.append(LOGGER.stamp(f"[FAILED] Sample apps still present after factory reset: {remaining}"))
+            result.test_result = "FAILED"
+            result.details = f"Sample apps still present after factory reset: {remaining}"
+        else:
+            logs.append(LOGGER.stamp("[PASS] Device is in initial state, sample apps successfully removed by factory reset."))
+            result.test_result = "PASS"
+            result.details = "Factory reset successful; device restored to initial state."
+
+    except UnsupportedOperationError:
+        result.test_result = "OPTIONAL_FAILED"
+        logs.append(LOGGER.stamp("[RESULT] OPTIONAL_FAILED — Operation not supported."))
+    except Exception as ex:
+        logs.append(LOGGER.stamp(f"[SKIPPED] Exception during factory reset test: {ex}"))
+        result.test_result = "SKIPPED"
+        result.details = f"Exception during test: {ex}"
+
+    return result
+
+# === Test: Power Mode Set - Case Sensitivity (Negative Test) ===
+def run_power_mode_case_sensitive_negative(dab_topic, test_name, tester, device_id):
+    """
+    DAB 2.1 NEGATIVE TEST:  
+      - Set power-mode to "Active" (should succeed)
+      - Confirm mode is "Active"
+      - Set power-mode with mode="standby" (lowercase, should fail)
+      - Confirm error (status=400)
+      - Confirm mode remains "Active"
+    """
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
+    logs = []
+    result = TestResult(test_id, device_id, dab_topic, "", "UNKNOWN", "", logs)
+
+    cap = "ops: system/power-mode/set, system/power-mode/get"
+    if not require_capabilities(tester, device_id, cap, result, logs):
+        return result
+
+    # STEP 1: Set mode to "Active"
+    try:
+        payload_active = json.dumps({"mode": "Active"})
+        status1, _ = execute_cmd_and_log(
+            tester, device_id,
+            "system/power-mode/set", payload_active, logs, result
+        )
+        if status1 != 200:
+            result.test_result = "FAILED"
+            msg = f"[FAILED] Unable to set power mode to 'Active'. Status={status1}"
+            LOGGER.error(msg); logs.append(LOGGER.stamp(msg))
+            result.details = msg
+            return result
+        logs.append(LOGGER.stamp("[STEP] Set power-mode to 'Active' - Success."))
+    except Exception as ex:
+        result.test_result = "SKIPPED"
+        msg = f"[SKIPPED] Exception during set to Active: {ex}"
+        LOGGER.error(msg); logs.append(LOGGER.stamp(msg))
+        result.details = msg
+        return result
+
+    # STEP 2: Confirm mode is "Active"
+    try:
+        _, resp2 = execute_cmd_and_log(
+            tester, device_id,
+            "system/power-mode/get", "{}", logs, result
+        )
+        actual_mode = None
+        try:
+            parsed = json.loads(resp2) if isinstance(resp2, str) else resp2
+            actual_mode = parsed.get("mode")
+        except Exception:
+            pass
+        if actual_mode != "Active":
+            result.test_result = "FAILED"
+            msg = f"[FAILED] Power mode not 'Active' after set. Actual: {actual_mode}"
+            LOGGER.error(msg); logs.append(LOGGER.stamp(msg))
+            result.details = msg
+            return result
+        logs.append(LOGGER.stamp("[STEP] Confirmed power-mode is 'Active'."))
+    except Exception as ex:
+        result.test_result = "SKIPPED"
+        msg = f"[SKIPPED] Exception during get after set to Active: {ex}"
+        LOGGER.error(msg); logs.append(LOGGER.stamp(msg))
+        result.details = msg
+        return result
+
+    # STEP 3: Set power-mode with mode="standby" (lowercase)
+    try:
+        payload_invalid = json.dumps({"mode": "standby"})
+        status3, resp3 = execute_cmd_and_log(
+            tester, device_id,
+            "system/power-mode/set", payload_invalid, logs, result
+        )
+        if status3 == 400:
+            logs.append(LOGGER.stamp("[PASS] Device correctly rejected lowercase 'standby' with 400 BAD REQUEST."))
+        else:
+            result.test_result = "FAILED"
+            msg = f"[FAILED] Expected status 400 for invalid value, got {status3}."
+            LOGGER.error(msg); logs.append(LOGGER.stamp(msg))
+            result.details = msg
+            return result
+    except Exception as ex:
+        result.test_result = "SKIPPED"
+        msg = f"[SKIPPED] Exception during set to invalid standby: {ex}"
+        LOGGER.error(msg); logs.append(LOGGER.stamp(msg))
+        result.details = msg
+        return result
+
+    # STEP 4: Confirm mode remains "Active"
+    try:
+        _, resp4 = execute_cmd_and_log(
+            tester, device_id,
+            "system/power-mode/get", "{}", logs, result
+        )
+        after_mode = None
+        try:
+            parsed = json.loads(resp4) if isinstance(resp4, str) else resp4
+            after_mode = parsed.get("mode")
+        except Exception:
+            pass
+        if after_mode != "Active":
+            result.test_result = "FAILED"
+            msg = f"[FAILED] Power mode changed after invalid set! Expected 'Active', got: {after_mode}"
+            LOGGER.error(msg); logs.append(LOGGER.stamp(msg))
+            result.details = msg
+        else:
+            logs.append(LOGGER.stamp("[PASS] Device preserved power-mode as 'Active' after invalid request."))
+
+    except Exception as ex:
+        result.test_result = "SKIPPED"
+        msg = f"[SKIPPED] Exception during final get: {ex}"
+        LOGGER.error(msg); logs.append(LOGGER.stamp(msg))
+        result.details = msg
+        return result
+
+    # FINAL RESULT
+    if result.test_result not in ("FAILED", "SKIPPED", "OPTIONAL_FAILED"):
+        result.test_result = "PASS"
+        result.details = "Negative test passed: device rejected invalid value and power mode did not change."
+
+    return result
+
+# === Test: Power Mode Set - Missing Mode Parameter (Negative Test) ===
+def run_power_mode_set_missing_param(dab_topic, test_name, tester, device_id):
+    """
+    DAB 2.1 NEGATIVE TEST:
+      - Set power-mode to "Active" (should succeed)
+      - Confirm mode is "Active"
+      - Send system/power-mode/set WITHOUT 'mode' parameter (should fail)
+      - Confirm error (status=400)
+      - Confirm mode remains "Active"
+    """
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
+    logs = []
+    result = TestResult(test_id, device_id, dab_topic, "", "UNKNOWN", "", logs)
+
+    cap = "ops: system/power-mode/set, system/power-mode/get"
+    if not require_capabilities(tester, device_id, cap, result, logs):
+        return result
+
+    # STEP 1: Set mode to "Active"
+    try:
+        payload_active = json.dumps({"mode": "Active"})
+        status1, _ = execute_cmd_and_log(
+            tester, device_id,
+            "system/power-mode/set", payload_active, logs, result
+        )
+        if status1 != 200:
+            result.test_result = "FAILED"
+            msg = f"[FAILED] Unable to set power mode to 'Active'. Status={status1}"
+            LOGGER.error(msg); logs.append(LOGGER.stamp(msg))
+            result.details = msg
+            return result
+        logs.append(LOGGER.stamp("[STEP] Set power-mode to 'Active' - Success."))
+    except Exception as ex:
+        result.test_result = "SKIPPED"
+        msg = f"[SKIPPED] Exception during set to Active: {ex}"
+        LOGGER.error(msg); logs.append(LOGGER.stamp(msg))
+        result.details = msg
+        return result
+
+    # STEP 2: Confirm mode is "Active"
+    try:
+        _, resp2 = execute_cmd_and_log(
+            tester, device_id,
+            "system/power-mode/get", "{}", logs, result
+        )
+        actual_mode = None
+        try:
+            parsed = json.loads(resp2) if isinstance(resp2, str) else resp2
+            actual_mode = parsed.get("mode")
+        except Exception:
+            pass
+        if actual_mode != "Active":
+            result.test_result = "FAILED"
+            msg = f"[FAILED] Power mode not 'Active' after set. Actual: {actual_mode}"
+            LOGGER.error(msg); logs.append(LOGGER.stamp(msg))
+            result.details = msg
+            return result
+        logs.append(LOGGER.stamp("[STEP] Confirmed power-mode is 'Active'."))
+    except Exception as ex:
+        result.test_result = "SKIPPED"
+        msg = f"[SKIPPED] Exception during get after set to Active: {ex}"
+        LOGGER.error(msg); logs.append(LOGGER.stamp(msg))
+        result.details = msg
+        return result
+
+    # STEP 3: Send system/power-mode/set WITHOUT 'mode' field
+    try:
+        payload_missing = json.dumps({})  # No 'mode' key
+        status3, resp3 = execute_cmd_and_log(
+            tester, device_id,
+            "system/power-mode/set", payload_missing, logs, result
+        )
+        if status3 == 400:
+            logs.append(LOGGER.stamp("[PASS] Device correctly rejected missing 'mode' parameter with 400 BAD REQUEST."))
+        else:
+            result.test_result = "FAILED"
+            msg = f"[FAILED] Expected status 400 for missing 'mode', got {status3}."
+            LOGGER.error(msg); logs.append(LOGGER.stamp(msg))
+            result.details = msg
+            return result
+    except Exception as ex:
+        result.test_result = "SKIPPED"
+        msg = f"[SKIPPED] Exception during set with missing mode: {ex}"
+        LOGGER.error(msg); logs.append(LOGGER.stamp(msg))
+        result.details = msg
+        return result
+
+    # STEP 4: Confirm mode remains "Active"
+    try:
+        _, resp4 = execute_cmd_and_log(
+            tester, device_id,
+            "system/power-mode/get", "{}", logs, result
+        )
+        after_mode = None
+        try:
+            parsed = json.loads(resp4) if isinstance(resp4, str) else resp4
+            after_mode = parsed.get("mode")
+        except Exception:
+            pass
+        if after_mode != "Active":
+            result.test_result = "FAILED"
+            msg = f"[FAILED] Power mode changed after missing-param set! Expected 'Active', got: {after_mode}"
+            LOGGER.error(msg); logs.append(LOGGER.stamp(msg))
+            result.details = msg
+        else:
+            logs.append(LOGGER.stamp("[PASS] Device preserved power-mode as 'Active' after invalid request."))
+    except Exception as ex:
+        result.test_result = "SKIPPED"
+        msg = f"[SKIPPED] Exception during final get: {ex}"
+        LOGGER.error(msg); logs.append(LOGGER.stamp(msg))
+        result.details = msg
+        return result
+
+    # FINAL RESULT
+    if result.test_result not in ("FAILED", "SKIPPED", "OPTIONAL_FAILED"):
+        result.test_result = "PASS"
+        result.details = "Negative test passed: device rejected missing parameter and power mode did not change."
+
+    return result
+
+# === Test: Power Mode Transition (Active -> Standby) and DAB Liveness ===
+def run_power_mode_active_to_standby_check(dab_topic, test_name, tester, device_id):
+    """
+    DAB 2.1 POSITIVE TEST:
+      - Ensure device is in "Active"
+      - Set power mode to "Standby"
+      - Confirm power mode is now "Standby"
+      - Confirm DAB is still alive by running a simple op (e.g., system/settings/get)
+    """
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
+    logs = []
+    result = TestResult(test_id, device_id, dab_topic, "", "UNKNOWN", "", logs)
+
+    cap = "ops: system/power-mode/set, system/power-mode/get, system/settings/get"
+    if not require_capabilities(tester, device_id, cap, result, logs):
+        return result
+
+    # STEP 1: Ensure device is "Active"
+    try:
+        # set "Active" for test precondition
+        payload_active = json.dumps({"mode": "Active"})
+        status1, _ = execute_cmd_and_log(tester, device_id, "system/power-mode/set", payload_active, logs, result)
+        if status1 != 200:
+            result.test_result = "FAILED"
+            msg = f"[FAILED] Could not set to 'Active' precondition. Status={status1}"
+            LOGGER.error(msg); logs.append(LOGGER.stamp(msg))
+            result.details = msg
+            return result
+
+        # confirm "Active"
+        _, resp2 = execute_cmd_and_log(tester, device_id, "system/power-mode/get", "{}", logs, result)
+        actual_mode = None
+        try:
+            parsed = json.loads(resp2) if isinstance(resp2, str) else resp2
+            actual_mode = parsed.get("mode")
+        except Exception:
+            pass
+        if actual_mode != "Active":
+            result.test_result = "FAILED"
+            msg = f"[FAILED] Device not in 'Active' state for precondition. Actual: {actual_mode}"
+            LOGGER.error(msg); logs.append(LOGGER.stamp(msg))
+            result.details = msg
+            return result
+        logs.append(LOGGER.stamp("[STEP] Device confirmed in 'Active' mode for precondition."))
+    except Exception as ex:
+        result.test_result = "SKIPPED"
+        msg = f"[SKIPPED] Exception during 'Active' precondition: {ex}"
+        LOGGER.error(msg); logs.append(LOGGER.stamp(msg))
+        result.details = msg
+        return result
+
+    # STEP 2: Set power mode to "Standby"
+    try:
+        payload_standby = json.dumps({"mode": "Standby"})
+        status2, _ = execute_cmd_and_log(tester, device_id, "system/power-mode/set", payload_standby, logs, result)
+        if status2 != 200:
+            result.test_result = "FAILED"
+            msg = f"[FAILED] Could not set power mode to 'Standby'. Status={status2}"
+            LOGGER.error(msg); logs.append(LOGGER.stamp(msg))
+            result.details = msg
+            return result
+        logs.append(LOGGER.stamp("[STEP] Set power-mode to 'Standby' - Success."))
+    except Exception as ex:
+        result.test_result = "SKIPPED"
+        msg = f"[SKIPPED] Exception during set to Standby: {ex}"
+        LOGGER.error(msg); logs.append(LOGGER.stamp(msg))
+        result.details = msg
+        return result
+
+    # STEP 3: Confirm mode is now "Standby"
+    try:
+        _, resp3 = execute_cmd_and_log(tester, device_id, "system/power-mode/get", "{}", logs, result)
+        after_mode = None
+        try:
+            parsed = json.loads(resp3) if isinstance(resp3, str) else resp3
+            after_mode = parsed.get("mode")
+        except Exception:
+            pass
+        if after_mode != "Standby":
+            result.test_result = "FAILED"
+            msg = f"[FAILED] Power mode did not become 'Standby'. Actual: {after_mode}"
+            LOGGER.error(msg); logs.append(LOGGER.stamp(msg))
+            result.details = msg
+            return result
+        logs.append(LOGGER.stamp("[STEP] Confirmed power-mode is now 'Standby'."))
+    except Exception as ex:
+        result.test_result = "SKIPPED"
+        msg = f"[SKIPPED] Exception during get after Standby: {ex}"
+        LOGGER.error(msg); logs.append(LOGGER.stamp(msg))
+        result.details = msg
+        return result
+
+    # STEP 4: Confirm DAB liveness by system/settings/get
+    try:
+        dab_status, resp4 = execute_cmd_and_log(
+            tester, device_id, "system/settings/get",
+            json.dumps({"id": "highContrastText"}), logs, result
+        )
+        if dab_status == 200:
+            logs.append(LOGGER.stamp("[PASS] DAB subsystem responded to system/settings/get after Standby. DAB is alive."))
+        else:
+            result.test_result = "FAILED"
+            msg = f"[FAILED] DAB subsystem did not respond after Standby. Status={dab_status}"
+            LOGGER.error(msg); logs.append(LOGGER.stamp(msg))
+            result.details = msg
+            return result
+    except Exception as ex:
+        result.test_result = "SKIPPED"
+        msg = f"[SKIPPED] Exception during DAB liveness check: {ex}"
+        LOGGER.error(msg); logs.append(LOGGER.stamp(msg))
+        result.details = msg
+        return result
+
+    # FINAL RESULT
+    if result.test_result not in ("FAILED", "SKIPPED", "OPTIONAL_FAILED"):
+        result.test_result = "PASS"
+        result.details = "Device successfully transitioned to 'Standby', DAB remained active."
+
+    return result
+
+
 # === Functional Test Case List ===
 FUNCTIONAL_TEST_CASE = [
     ("applications/get-state", "functional", run_app_foreground_check, "AppForegroundCheck", "2.0", False),
@@ -8289,5 +9224,13 @@ FUNCTIONAL_TEST_CASE = [
     ("system/power-mode/get", "functional", run_power_mode_get_adaptive_support_check, "Power Mode GET Adaptive Support Check", "2.1", False),
     ("system/power-mode/get", "functional", run_power_mode_transition_standby_to_active, "Power Mode Transition Standby Active", "2.1", False),
     ("system/settings/set", "functional", run_screensaver_timeout_invalid_value_check, "SetScreenSaverTimeoutInvalidValue", "2.1", True),
+    ("system/settings/set", "functional", run_set_contrast_to_max, "Set Contrast to Maximum", "2.1", False),
+    ("system/settings/set", "functional", run_screensaver_timeout_invalid_time, "Screensaver Timeout Invalid negetive value", "2.1", True),
+    ("system/settings/set", "functional", run_contrast_rapid_change_min_to_max, "Contrast Rapid Change Min→Max", "2.1", False),
+    ("system/settings/set", "functional", run_personalized_ads_invalid_value, "PersonalizedAds Invalid Value", "2.1", True),
+    ("system/factory-reset", "functional", run_factory_reset_and_verify_initial_state, "FactoryResetRestoreInitialState", "2.1", False),
+    ("system/power-mode/set", "functional", run_power_mode_case_sensitive_negative, "PowerModeSetCaseSensitivityNegative", "2.1", True),
+    ("system/power-mode/set", "functional", run_power_mode_set_missing_param, "PowerModeSetMissingModeNegative", "2.1", True),
+    ("system/power-mode/set", "functional", run_power_mode_active_to_standby_check, "PowerModeActiveToStandbyPositive", "2.1", False),
 
 ]
