@@ -8,6 +8,7 @@ from readchar import readchar
 from util.enforcement_manager import EnforcementManager
 from util.config_loader import ensure_app_available_anyext
 from util.config_loader import ensure_app_available
+from util.config_loader import ensure_apps_available as _ensure_many
 from paho.mqtt.properties import Properties
 from paho.mqtt.packettypes import PacketTypes
 from dab_checker import DabChecker
@@ -15,19 +16,19 @@ from util.enforcement_manager import ValidateCode
 from logger import LOGGER
 
 # --- Sleep Time Constants ---
-APP_LAUNCH_WAIT = 5
+APP_LAUNCH_WAIT = 10
 APP_UNINSTALL_WAIT = 5
 APP_CLEAR_DATA_WAIT = 5
 APP_EXIT_WAIT = 3
 APP_STATE_CHECK_WAIT = 2
-APP_RELAUNCH_WAIT = 4
+APP_RELAUNCH_WAIT = 10
 CONTENT_LOAD_WAIT = 20
 DEVICE_REBOOT_WAIT = 180  # Max wait for device reboot
 TELEMETRY_DURATION_MS = 5000
 TELEMETRY_METRICS_WAIT = 30  # Max wait for telemetry metrics (seconds)
 HEALTH_CHECK_INTERVAL = 5   # Seconds between health check polls
 ASSISTANT_INIT = 10
-APP_INSTALL_WAIT = 3
+APP_INSTALL_WAIT = 10
 ASSISTANT_WAIT = 10
 LOGS_COLLECTION_WAIT = 30  # Seconds for logs collection wait
 SCREENSAVER_TIMEOUT_WAIT = 30  # Screensaver timeout for idle wait
@@ -43,7 +44,7 @@ class UnsupportedOperationError(Exception):
 def _split_items(s: str):
     return [x.strip() for x in s.split(",") if x and x.strip()]
 
-def _parse_need_spec(spec: str):
+def _parse_require_capabilities_spec(spec: str):
     """
     Parse a spec like:
       'ops: a,b | settings: x,y | keys: K_HOME,K_BACK | voices: GoogleAssistant'
@@ -65,18 +66,18 @@ def _parse_need_spec(spec: str):
         else:
             ops_req.update(_split_items(seg))  # default to ops
     LOGGER.info(
-        f"Parsed need spec → ops={sorted(ops_req)}, "
+        f"Parsed require_capabilities spec → ops={sorted(ops_req)}, "
         f"settings={sorted(set_req)}, keys={sorted(key_req)}"
         + (f", voices={sorted(voice_req)}" if voice_req else "")
     )
     return ops_req, set_req, key_req, voice_req
 
-def need(tester, device_id, spec, result=None, logs=None):
+def require_capabilities(tester, device_id, spec, result=None, logs=None):
     """
     One-line capability precheck to run before each test case.
 
     Example:
-        need(
+        require_capabilities(
             tester, device_id,
             "ops: applications/launch, applications/get-state | "
             "settings: personalizedAds, screenSaver | keys: KEY_HOME | voices: GoogleAssistant",
@@ -92,7 +93,7 @@ def need(tester, device_id, spec, result=None, logs=None):
     If any required item is missing, marks OPTIONAL_FAILED and returns False.
     """
     # Parse what this test requires
-    ops_req, set_req, key_req, voice_req = _parse_need_spec(spec)
+    ops_req, set_req, key_req, voice_req = _parse_require_capabilities_spec(spec)
 
     # Get or create a checker instance attached to the tester
     checker = getattr(tester, "dab_checker", None)
@@ -160,32 +161,65 @@ def need(tester, device_id, spec, result=None, logs=None):
         if result is not None:
             result.test_result = "OPTIONAL_FAILED"
         return False
-
 def execute_cmd_and_log(tester, device_id, topic, payload, logs=None, result=None):
     """
     Executes a DAB command and logs the request and response.
-    Relies on need() to have already checked for operation support.
+
+    Returns:
+        (status_code: int, resp_json: str)
     """
-    # The capability check is assumed to have been performed by need() before this call.
-    # For safety, we can still check the cache, but the primary validation is in need().
     em = EnforcementManager()
     supported_ops_raw = em.get_supported_operations() or []
-    supported_ops = {op.get("operation") if isinstance(op, dict) else op for op in supported_ops_raw}
+    supported_ops = {op.get("operation") if isinstance(op, dict) else op
+                     for op in supported_ops_raw}
 
     if topic not in supported_ops and topic != "operations/list":
         line = f"[OPTIONAL_FAILED] Operation '{topic}' is not supported by the device (checked from cache)."
         LOGGER.warn(line)
-        if logs is not None:
-            logs.append(line)
+        if logs is not None: logs.append(LOGGER.stamp(line))
+        if result is not None:
+            result.test_result = "OPTIONAL_FAILED"
         raise UnsupportedOperationError(topic)
+
+    # Stamp request context (safe)
+    if result is not None:
+        try:
+            result.dab_topic = topic
+            result.request_payload = payload
+        except Exception:
+            pass
 
     LOGGER.info(f"Executing {topic} with payload {payload}")
     rc = tester.execute_cmd(device_id, topic, payload)
-    resp = tester.dab_client.response()
-    LOGGER.info(f"[{topic}] Response: {resp}")
-    if logs is not None:
-        logs.append(f"[{topic}] Response: {resp}")
-    return rc, resp
+    resp = tester.dab_client.response()  # may be str, dict, list, None
+
+    # Normalize response to JSON string
+    if isinstance(resp, (dict, list)):
+        resp_json = json.dumps(resp)
+    elif isinstance(resp, str):
+        resp_json = resp
+    else:
+        resp_json = json.dumps({"status": rc, "raw": None if resp is None else str(resp)})
+
+    # Log
+    resp_line = f"[{topic}] Response: {resp_json}"
+    LOGGER.info(resp_line)
+    if logs is not None: logs.append(LOGGER.stamp(resp_line))
+
+    # Normalize status code (never None)
+    status_code = dab_status_from(resp_json, rc)
+    if status_code is None:
+        status_code = 500
+        warn = f"[WARN] No status code found for '{topic}'; defaulting to 500."
+        LOGGER.warn(warn)
+        if logs is not None: logs.append(LOGGER.stamp(warn))
+
+    status_line = f"[{topic}] Status: {status_code}"
+    LOGGER.info(status_line)
+    if logs is not None: logs.append(LOGGER.stamp(status_line))
+
+    # NOTE: no writes to result.details to avoid attribute errors
+    return status_code, resp_json
 
 def dab_status_from(resp, rc):
     try:
@@ -232,34 +266,51 @@ def yes_or_no(result, logs, question=""):
 
 
 def select_input(result, logs, arr):
-    print(f"*0: There is no option that meet the requirement.")
-    logs.append(f"*0: There is no option that meet the requirement.")
-    index = 0
-    for value in arr:
-        index = index + 1
-        print(f"*{index}: {value}")
-        logs.append(f"*{index}: {value}")
+    # Show options
+    line0 = "*0: There is no option that meet the requirement."
+    LOGGER.info(line0)
+    if logs is not None: logs.append(LOGGER.stamp(line0))
 
+    for idx, value in enumerate(arr, start=1):
+        line = f"*{idx}: {value}"
+        LOGGER.info(line)
+        if logs is not None: logs.append(LOGGER.stamp(line))
+
+    # Prompt loop
+    max_idx = len(arr)
     while True:
-        print(f"Please input number:")
-        user_input = readchar()
-        if user_input.isdigit() == False or int(user_input) > index:
-            continue
-        print(f"[{user_input}]")
-        logs.append(f"[{user_input}]")
-        return int(user_input)
+        prompt = f"Please input number (0–{max_idx}):"
+        LOGGER.prompt(prompt)
+        if logs is not None: logs.append(LOGGER.stamp(prompt))
+
+        ch = readchar()
+        echo = f"[{ch}]"
+        LOGGER.result(echo)
+        if logs is not None: logs.append(LOGGER.stamp(echo))
+
+        if ch.isdigit():
+            choice = int(ch)
+            if 0 <= choice <= max_idx:
+                return choice
+
+        warn = f"[WARN] Invalid choice '{ch}'. Enter 0–{max_idx}."
+        LOGGER.warn(warn)
+        if logs is not None: logs.append(LOGGER.stamp(warn))
+ 
 
 def countdown(title, count):
     LOGGER.info(f"{title} — starting {count}s")
-    while count:
-        mins, secs = divmod(count, 60)
-        timer = f"{mins:02d}:{secs:02d}"
-        sys.stdout.write("\r" + title + " --- " + timer)
-        sys.stdout.flush()
-        time.sleep(1)
-        count -= 1
-    sys.stdout.write("\r" + title + " --- Done!\n")
-    LOGGER.ok(f"{title} — done")
+    try:
+        while count:
+            mins, secs = divmod(count, 60)
+            timer = f"{mins:02d}:{secs:02d}"
+            sys.stdout.write("\r" + title + " --- " + timer)
+            sys.stdout.flush()
+            time.sleep(1)
+            count -= 1
+        sys.stdout.write("\r" + title + " --- Done!\n")
+    finally:
+        LOGGER.ok(f"{title} — done")
 
 
 def waiting_for_screensaver(result, logs, screenSaverTimeout, tips):
@@ -338,9 +389,9 @@ def get_supported_setting(tester, device_id, key, result, logs):
     system settings list. If the setting or the list itself is not supported,
     it marks the test as OPTIONAL_FAILED.
     """
-    # Use need() to ensure the settings list is fetched and cached if not already.
-    if not need(tester, device_id, f"settings: {key}", result, logs):
-        # 'need' already set the result to OPTIONAL_FAILED and logged the reason.
+    # Use require_capabilities() to ensure the settings list is fetched and cached if not already.
+    if not require_capabilities(tester, device_id, f"settings: {key}", result, logs):
+        # 'require_capabilities' already set the result to OPTIONAL_FAILED and logged the reason.
         return None, result
 
     # At this point, the setting is confirmed to be supported. Retrieve from cache.
@@ -418,7 +469,6 @@ def get_install_targets(default_app_ids=("Sample_App", "Sample_App1")):
             app_ids = list(default_app_ids)
 
         # legacy alias maps to any-extension implementation
-        from util.config_loader import ensure_apps_available as _ensure_many
         payloads = _ensure_many(app_ids=app_ids)  # [{"appId","url","format","timeout"}, ...]
         for p in payloads:
             app_id = p["appId"]
@@ -463,7 +513,7 @@ def run_app_foreground_check(dab_topic, test_name, tester, device_id):
             LOGGER.result(line); logs.append(line)
 
         # Capability gate
-        if not need(tester, device_id, "ops: applications/launch, applications/get-state", result, logs):
+        if not require_capabilities(tester, device_id, "ops: applications/launch, applications/get-state", result, logs):
             line = f"[RESULT] OPTIONAL_FAILED — missing required operations (test_id={test_id}, appId={app_id})"
             LOGGER.result(line); logs.append(line)
             line = f"[SUMMARY] outcome=OPTIONAL_FAILED, observed_state=N/A, test_id={test_id}, device={device_id}, appId={app_id}"
@@ -556,8 +606,8 @@ def run_app_background_check(dab_topic, test_name, tester, device_id):
 
         # Capability gate for all required operations
         required_ops = "ops: applications/launch, input/key-press, applications/get-state"
-        if not need(tester, device_id, required_ops, result, logs):
-            return result # 'need' function already set the result and logged
+        if not require_capabilities(tester, device_id, required_ops, result, logs):
+            return result # 'require_capabilities' function already set the result and logged
 
         # Step 1 — Launch the application
         payload_launch = json.dumps({"appId": app_id})
@@ -673,8 +723,8 @@ def run_app_stopped_check(dab_topic, test_name, tester, device_id):
 
         # Capability gate for all required operations
         required_ops = "ops: applications/launch, applications/exit, applications/get-state"
-        if not need(tester, device_id, required_ops, result, logs):
-            return result  # 'need' function already set the result and logged
+        if not require_capabilities(tester, device_id, required_ops, result, logs):
+            return result  # 'require_capabilities' function already set the result and logged
 
         # Step 1 — Launch the application
         payload_launch = json.dumps({"appId": app_id})
@@ -788,8 +838,8 @@ def run_launch_without_content_id(dab_topic, test_name, tester, device_id):
             logs.append(line)
 
         # Capability gate
-        if not need(tester, device_id, "ops: applications/launch-with-content", result, logs):
-            return result # 'need' already logged and set the result
+        if not require_capabilities(tester, device_id, "ops: applications/launch-with-content", result, logs):
+            return result # 'require_capabilities' already logged and set the result
 
         # Step 1 — Attempt the invalid launch
         line = f"[STEP] Calling applications/launch-with-content with missing 'contentId': {payload}"
@@ -861,7 +911,7 @@ def run_exit_after_video_check(dab_topic, test_name, tester, device_id):
 
         # Capability gate
         required_ops = "ops: applications/launch, applications/exit, applications/get-state"
-        if not need(tester, device_id, required_ops, result, logs):
+        if not require_capabilities(tester, device_id, required_ops, result, logs):
             return result
 
         # Step 1: Launch the app with video content
@@ -969,8 +1019,8 @@ def run_relaunch_stability_check(dab_topic, test_name, tester, device_id):
 
         # Capability gate for required operations
         required_ops = "ops: applications/launch, applications/exit"
-        if not need(tester, device_id, required_ops, result, logs):
-            return result # The 'need' function already logged the reason and set the result
+        if not require_capabilities(tester, device_id, required_ops, result, logs):
+            return result # The 'require_capabilities' function already logged the reason and set the result
 
         # Step 1: Initial launch of the application
         payload = json.dumps({"appId": app_id})
@@ -1060,10 +1110,10 @@ def run_screensaver_enable_check(dab_topic, test_name, tester, device_id):
             logs.append(line)
 
         # Capability gate for required operations and settings
-        if not need(tester, device_id,
+        if not require_capabilities(tester, device_id,
                     "ops: system/settings/set, system/settings/get | settings: screenSaver",
                     result, logs):
-            return result # The 'need' function already logged the reason and set the result
+            return result # The 'require_capabilities' function already logged the reason and set the result
 
         # Step 1: Set a known state by disabling the screensaver first
         payload_disable = json.dumps({"screenSaver": False})
@@ -1163,10 +1213,10 @@ def run_screensaver_disable_check(dab_topic, test_name, tester, device_id):
             logs.append(line)
 
         # Capability gate for required operations and settings
-        if not need(tester, device_id,
+        if not require_capabilities(tester, device_id,
                     "ops: system/settings/set, system/settings/get | settings: screenSaver",
                     result, logs):
-            return result # The 'need' function already logged the reason and set the result
+            return result # The 'require_capabilities' function already logged the reason and set the result
 
         # Step 1: Set a known state by enabling the screensaver first
         payload_enable = json.dumps({"screenSaver": True})
@@ -1266,7 +1316,7 @@ def run_screensaver_active_check(dab_topic, test_name, tester, device_id):
             logs.append(line)
 
         # Capability gate
-        if not need(tester, device_id,
+        if not require_capabilities(tester, device_id,
                     "ops: system/settings/set | settings: screenSaver, screenSaverTimeout, screenSaverMinTimeout",
                     result, logs):
             return result
@@ -1364,7 +1414,7 @@ def run_screensaver_inactive_check(dab_topic, test_name, tester, device_id):
             logs.append(line)
 
         # Capability gate
-        if not need(tester, device_id,
+        if not require_capabilities(tester, device_id,
                     "ops: system/settings/set | settings: screenSaver, screenSaverTimeout, screenSaverMinTimeout",
                     result, logs):
             return result
@@ -1464,7 +1514,7 @@ def run_screensaver_active_return_check(dab_topic, test_name, tester, device_id)
             logs.append(line)
 
         # Capability gate
-        if not need(tester, device_id,
+        if not require_capabilities(tester, device_id,
                     "ops: system/settings/set | settings: screenSaver, screenSaverTimeout, screenSaverMinTimeout",
                     result, logs):
             return result
@@ -1560,7 +1610,7 @@ def run_screensaver_active_after_continuous_idle_check(dab_topic, test_name, tes
             logs.append(line)
 
         # Capability gate
-        if not need(tester, device_id,
+        if not require_capabilities(tester, device_id,
                     "ops: system/settings/set | settings: screenSaver, screenSaverTimeout, screenSaverMinTimeout",
                     result, logs):
             return result
@@ -1653,7 +1703,7 @@ def run_screensaver_inactive_after_reboot_check(dab_topic, test_name, tester, de
             logs.append(line)
 
         # Capability gate
-        if not need(tester, device_id,
+        if not require_capabilities(tester, device_id,
                     "ops: system/settings/set, system/restart | settings: screenSaver, screenSaverTimeout, screenSaverMinTimeout",
                     result, logs):
             return result
@@ -1754,7 +1804,7 @@ def run_screensavertimeout_300_check(dab_topic, test_name, tester, device_id):
             logs.append(line)
 
         # Capability gate
-        if not need(tester, device_id,
+        if not require_capabilities(tester, device_id,
                     "ops: system/settings/set | settings: screenSaver, screenSaverTimeout",
                     result, logs):
             return result
@@ -1846,7 +1896,7 @@ def run_screensavertimeout_reboot_check(dab_topic, test_name, tester, device_id)
             logs.append(line)
 
         # Capability gate
-        if not need(tester, device_id,
+        if not require_capabilities(tester, device_id,
                     "ops: system/settings/set, system/settings/get, system/restart | settings: screenSaver, screenSaverTimeout, screenSaverMinTimeout",
                     result, logs):
             return result
@@ -1872,7 +1922,7 @@ def run_screensavertimeout_reboot_check(dab_topic, test_name, tester, device_id)
         line = "[STEP] Rebooting the device now."
         LOGGER.result(line)
         logs.append(line)
-        execute_cmd_and_log(tester, device_id, "system/restart", "{}", logs)
+        execute_cmd_and_log(tester, device_id, "system/restart", "{}", logs, result)
 
         # Step 3: Manually confirm reboot completion
         line = "[STEP] Waiting for manual confirmation that the device has restarted."
@@ -1981,7 +2031,7 @@ def run_screensavertimeout_guest_mode_check(dab_topic, test_name, tester, device
             logs.append(line)
 
         # Capability gate for DAB operations
-        if not need(tester, device_id,
+        if not require_capabilities(tester, device_id,
                     "ops: system/settings/set | settings: screenSaver, screenSaverTimeout, screenSaverMinTimeout",
                     result, logs):
             return result
@@ -2096,7 +2146,7 @@ def run_screensavertimeout_minimum_check(dab_topic, test_name, tester, device_id
             logs.append(line)
 
         # Capability gate
-        if not need(tester, device_id,
+        if not require_capabilities(tester, device_id,
                     "ops: system/settings/list, system/settings/set | settings: screenSaver, screenSaverTimeout, screenSaverMinTimeout",
                     result, logs):
             return result
@@ -2200,7 +2250,7 @@ def run_screensavermintimeout_reboot_check(dab_topic, test_name, tester, device_
             logs.append(line)
 
         # Capability gate
-        if not need(tester, device_id,
+        if not require_capabilities(tester, device_id,
                     "ops: system/settings/list, system/restart | settings: screenSaverMinTimeout",
                     result, logs):
             return result
@@ -2296,7 +2346,7 @@ def run_highContrastText_text_over_images_check(dab_topic, test_name, tester, de
             logs.append(line)
 
         # Capability gate
-        if not need(tester, device_id, "ops: system/settings/set", result, logs):
+        if not require_capabilities(tester, device_id, "ops: system/settings/set", result, logs):
             return result
 
         # Step 1: Set a known state by disabling high contrast text first
@@ -2393,7 +2443,7 @@ def run_highContrastText_video_playback_check(dab_topic, test_name, tester, devi
             logs.append(line)
 
         # Capability gate
-        if not need(tester, device_id, "ops: system/settings/set", result, logs):
+        if not require_capabilities(tester, device_id, "ops: system/settings/set", result, logs):
             return result
 
         # Step 1: Set a known state by disabling high contrast text first
@@ -2491,7 +2541,7 @@ def run_set_invalid_voice_assistant_check(dab_topic, test_name, tester, device_i
             logs.append(line)
 
         # Capability gate
-        if not need(tester, device_id, "ops: voice/set", result, logs):
+        if not require_capabilities(tester, device_id, "ops: voice/set", result, logs):
             return result
         
         # Optional Step: List supported assistants for context in the logs
@@ -2576,20 +2626,20 @@ def run_device_restart_and_telemetry_check(dab_topic, test_name, tester, device_
 
         # Capability gate
         required_ops = "ops: system/restart, health-check/get, device-telemetry/start, device-telemetry/stop"
-        if not need(tester, device_id, required_ops, result, logs):
+        if not require_capabilities(tester, device_id, required_ops, result, logs):
             return result
 
         # 1) Restart & wait for health
         line = "[STEP] Restarting the device; this may take a few minutes."
         LOGGER.result(line); logs.append(line)
-        execute_cmd_and_log(tester, device_id, "system/restart", "{}", logs)
+        execute_cmd_and_log(tester, device_id, "system/restart", "{}", logs, result)
 
         line = f"[INFO] Polling health-check/get every {HEALTH_CHECK_INTERVAL}s for up to {DEVICE_REBOOT_WAIT}s..."
         LOGGER.info(line); logs.append(line)
         t0 = time.time()
         while time.time() - t0 < DEVICE_REBOOT_WAIT:
             try:
-                rc, resp = execute_cmd_and_log(tester, device_id, "health-check/get", "{}", logs)
+                rc, resp = execute_cmd_and_log(tester, device_id, "health-check/get", "{}", logs, result)
                 if dab_status_from(resp, rc) == 200:
                     device_ready = True
                     break
@@ -2609,7 +2659,7 @@ def run_device_restart_and_telemetry_check(dab_topic, test_name, tester, device_
         line = f"[STEP] Starting device telemetry for ~{TELEMETRY_DURATION_MS} ms."
         LOGGER.result(line); logs.append(line)
         payload_start = json.dumps({"duration": TELEMETRY_DURATION_MS})
-        rc, resp = execute_cmd_and_log(tester, device_id, "device-telemetry/start", payload_start, logs)
+        rc, resp = execute_cmd_and_log(tester, device_id, "device-telemetry/start", payload_start, logs, result)
         st = dab_status_from(resp, rc)
         if st == 501:
             result.test_result = "OPTIONAL_FAILED"
@@ -2678,7 +2728,7 @@ def run_device_restart_and_telemetry_check(dab_topic, test_name, tester, device_
     finally:
         # cleanup & final summary (always)
         try:
-            execute_cmd_and_log(tester, device_id, "device-telemetry/stop", "{}", logs)
+            execute_cmd_and_log(tester, device_id, "device-telemetry/stop", "{}", logs, result)
         except Exception:
             pass
         line = (f"[SUMMARY] outcome={result.test_result}, device_ready={device_ready}, "
@@ -2712,7 +2762,7 @@ def run_stop_app_telemetry_without_active_session_check(dab_topic, test_name, te
             logs.append(line)
 
         # Capability gate
-        if not need(tester, device_id, "ops: app-telemetry/stop", result, logs):
+        if not require_capabilities(tester, device_id, "ops: app-telemetry/stop", result, logs):
             return result
 
         # Step 1: Send the stop command directly, assuming no active session
@@ -2791,7 +2841,7 @@ def run_launch_video_and_health_check(dab_topic, test_name, tester, device_id):
 
         # Capability gate
         required_ops = "ops: applications/launch-with-content, health-check/get, applications/exit"
-        if not need(tester, device_id, required_ops, result, logs):
+        if not require_capabilities(tester, device_id, required_ops, result, logs):
             return result
 
         # Step 1: Launch the video content
@@ -2854,7 +2904,7 @@ def run_launch_video_and_health_check(dab_topic, test_name, tester, device_id):
             line = f"[CLEANUP] Exiting application '{app_id}'."
             LOGGER.info(line)
             logs.append(line)
-            execute_cmd_and_log(tester, device_id, "applications/exit", json.dumps({"appId": app_id}), logs)
+            execute_cmd_and_log(tester, device_id, "applications/exit", json.dumps({"appId": app_id}), logs, result)
         except Exception as e:
             line = f"[CLEANUP] Failed to exit application '{app_id}': {e}"
             LOGGER.warn(line)
@@ -2892,7 +2942,7 @@ def run_voice_list_with_no_voice_assistant(dab_topic, test_name, tester, device_
             logs.append(line)
 
         # Capability gate
-        if not need(tester, device_id, "ops: voice/list", result, logs):
+        if not require_capabilities(tester, device_id, "ops: voice/list", result, logs):
             return result
 
         # Step 1: Send the voice/list request
@@ -2952,8 +3002,6 @@ def run_launch_when_uninstalled_check(dab_topic, test_name, tester, device_id):
     Cleanup: reinstall from local artifact (any extension) via util.config_loader.ensure_app_available.
     Keeps results.json lean (no raw response lines stored).
     """
-    import json, time
-    from util.config_loader import ensure_app_available  # alias → any-extension payload
 
     # ---------- ids & setup ----------
     test_id = to_test_id(f"{dab_topic}/{test_name}")
@@ -3000,7 +3048,7 @@ def run_launch_when_uninstalled_check(dab_topic, test_name, tester, device_id):
             return result
 
         # capability gate
-        if not need(
+        if not require_capabilities(
             tester, device_id,
             "ops: applications/install, applications/uninstall, applications/launch",
             result, logs
@@ -3117,7 +3165,7 @@ def run_launch_app_while_restarting_check(dab_topic, test_name, tester, device_i
             logs.append(line)
 
         # Capability gate
-        if not need(tester, device_id, "ops: system/restart, applications/launch", result, logs):
+        if not require_capabilities(tester, device_id, "ops: system/restart, applications/launch", result, logs):
             return result
 
         # Step 1: Initiate a fire-and-forget restart
@@ -3133,7 +3181,7 @@ def run_launch_app_while_restarting_check(dab_topic, test_name, tester, device_i
         line = f"[STEP] Attempting to launch '{app_id}' during restart."
         LOGGER.result(line)
         logs.append(line)
-        rc, response = execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": app_id}), logs)
+        rc, response = execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": app_id}), logs, result)
         
         # The response may be empty or an error, so dab_status_from is not always reliable here.
         # The key is whether the launch *succeeded* (status 200).
@@ -3197,7 +3245,7 @@ def run_network_reset_check(dab_topic, test_name, tester, device_id):
             logs.append(line)
 
         # Capability gate
-        if not need(tester, device_id, "ops: system/network-reset, system/info", result, logs):
+        if not require_capabilities(tester, device_id, "ops: system/network-reset, system/info", result, logs):
             return result
 
         # Step 1: Execute the network reset
@@ -3273,7 +3321,7 @@ def run_factory_reset_and_recovery_check(dab_topic, test_name, tester, device_id
             logs.append(line)
 
         # Capability gate
-        if not need(tester, device_id, "ops: system/factory-reset, health-check/get", result, logs):
+        if not require_capabilities(tester, device_id, "ops: system/factory-reset, health-check/get", result, logs):
             return result
 
         # Step 1: Send the factory reset command
@@ -3296,7 +3344,7 @@ def run_factory_reset_and_recovery_check(dab_topic, test_name, tester, device_id
         start_time = time.time()
         while time.time() - start_time < DEVICE_REBOOT_WAIT:
             try:
-                rc_health, resp_health = execute_cmd_and_log(tester, device_id, "health-check/get", "{}", logs)
+                rc_health, resp_health = execute_cmd_and_log(tester, device_id, "health-check/get", "{}", logs, result)
                 if dab_status_from(resp_health, rc_health) == 200:
                     device_recovered = True
                     break
@@ -3355,11 +3403,11 @@ def run_personalized_ads_response_check(dab_topic, test_name, tester, device_id)
             logs.append(line)
 
         # Basic capability gate for the required operations
-        if not need(tester, device_id, "ops: system/settings/set", result, logs):
+        if not require_capabilities(tester, device_id, "ops: system/settings/set", result, logs):
             return result
 
         # Step 1: Check if the 'personalizedAds' setting is supported by the device.
-        is_setting_supported = need(tester, device_id, "settings: personalizedAds", result, logs)
+        is_setting_supported = require_capabilities(tester, device_id, "settings: personalizedAds", result, logs)
 
         if is_setting_supported:
             # If the setting IS supported, this test is not applicable and should be skipped.
@@ -3430,8 +3478,8 @@ def run_personalized_ads_persistence_check(dab_topic, test_name, tester, device_
 
         # Capability gate: Check for both required operations AND the specific setting
         spec = "ops: system/settings/set, system/settings/get, system/restart, health-check/get | settings: personalizedAds"
-        if not need(tester, device_id, spec, result, logs):
-            return result # The 'need' function already logged the reason and set the result
+        if not require_capabilities(tester, device_id, spec, result, logs):
+            return result # The 'require_capabilities' function already logged the reason and set the result
 
         # Step 1: Enable personalized ads
         line = "[STEP] Enabling 'personalizedAds' setting."
@@ -3451,7 +3499,7 @@ def run_personalized_ads_persistence_check(dab_topic, test_name, tester, device_
         line = "[STEP] Rebooting the device."
         LOGGER.result(line)
         logs.append(line)
-        execute_cmd_and_log(tester, device_id, "system/restart", "{}", logs)
+        execute_cmd_and_log(tester, device_id, "system/restart", "{}", logs, result)
 
         # Step 3: Wait for the device to become healthy by polling
         line = f"[WAIT] Polling for device health for up to {DEVICE_REBOOT_WAIT}s..."
@@ -3460,7 +3508,7 @@ def run_personalized_ads_persistence_check(dab_topic, test_name, tester, device_
         start_time = time.time()
         while time.time() - start_time < DEVICE_REBOOT_WAIT:
             try:
-                rc_health, resp_health = execute_cmd_and_log(tester, device_id, "health-check/get", "{}", logs)
+                rc_health, resp_health = execute_cmd_and_log(tester, device_id, "health-check/get", "{}", logs, result)
                 if dab_status_from(resp_health, rc_health) == 200 and json.loads(resp_health).get("healthy"):
                     device_recovered = True
                     LOGGER.ok("[INFO] Device is healthy after reboot.")
@@ -3540,7 +3588,7 @@ def run_personalized_ads_manual_check(dab_topic, test_name, tester, device_id):
             logs.append(line)
 
         # Capability gate now checks for the setting directly
-        if not need(tester, device_id,
+        if not require_capabilities(tester, device_id,
                     "ops: system/settings/set, system/settings/list | settings: personalizedAds",
                     result, logs):
             return result
@@ -3595,7 +3643,6 @@ def run_personalized_ads_manual_check(dab_topic, test_name, tester, device_id):
     return result
 
 # === Test 34: Uninstall An Application Currently Running Foreground Check ===
-import traceback # Make sure this import is at the top of your file
 
 def run_uninstall_foreground_app_check(dab_topic, test_name, tester, device_id):
     """
@@ -3621,7 +3668,7 @@ def run_uninstall_foreground_app_check(dab_topic, test_name, tester, device_id):
 
         # Capability gate
         required_ops = "ops: applications/install, applications/launch, applications/get-state, applications/uninstall"
-        if not need(tester, device_id, required_ops, result, logs):
+        if not require_capabilities(tester, device_id, required_ops, result, logs):
             return result
 
         # Precondition Step: Install the application to ensure it exists
@@ -3636,7 +3683,7 @@ def run_uninstall_foreground_app_check(dab_topic, test_name, tester, device_id):
         line = f"[STEP] Precondition: Installing '{app_id}' to ensure it exists."
         LOGGER.result(line)
         logs.append(line)
-        rc, response = execute_cmd_and_log(tester, device_id, "applications/install", json.dumps(install_payload), logs)
+        rc, response = execute_cmd_and_log(tester, device_id, "applications/install", json.dumps(install_payload), logs, result)
         if dab_status_from(response, rc) != 200:
             result.test_result = "FAILED"
             line = "[RESULT] FAILED — Could not install the sample app as a precondition."
@@ -3648,7 +3695,7 @@ def run_uninstall_foreground_app_check(dab_topic, test_name, tester, device_id):
         line = f"[STEP] Launching application '{app_id}'."
         LOGGER.result(line)
         logs.append(line)
-        execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": app_id}), logs)
+        execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": app_id}), logs, result)
         LOGGER.info(f"Waiting {APP_LAUNCH_WAIT} seconds for application to launch and stabilize.")
         time.sleep(APP_LAUNCH_WAIT)
 
@@ -3656,7 +3703,7 @@ def run_uninstall_foreground_app_check(dab_topic, test_name, tester, device_id):
         line = f"[STEP] Getting state of application '{app_id}'."
         LOGGER.result(line)
         logs.append(line)
-        _, response = execute_cmd_and_log(tester, device_id, "applications/get-state", json.dumps({"appId": app_id}), logs)
+        _, response = execute_cmd_and_log(tester, device_id, "applications/get-state", json.dumps({"appId": app_id}), logs, result)
         state = json.loads(response).get("state", "").upper() if response else "UNKNOWN"
         LOGGER.info(f"Current application state: {state}.")
 
@@ -3670,7 +3717,7 @@ def run_uninstall_foreground_app_check(dab_topic, test_name, tester, device_id):
         line = f"[STEP] Uninstalling application '{app_id}'."
         LOGGER.result(line)
         logs.append(line)
-        rc, response = execute_cmd_and_log(tester, device_id, "applications/uninstall", json.dumps({"appId": app_id}), logs)
+        rc, response = execute_cmd_and_log(tester, device_id, "applications/uninstall", json.dumps({"appId": app_id}), logs, result)
         clear_status = dab_status_from(response, rc)
         LOGGER.info(f"Waiting {APP_UNINSTALL_WAIT} seconds for application to uninstall.")
         time.sleep(APP_UNINSTALL_WAIT)
@@ -3732,8 +3779,8 @@ def run_uninstall_system_app_check(dab_topic, test_name, tester, device_id):
             LOGGER.result(line)
             logs.append(line)
 
-        # Capability gate: We only need the uninstall operation
-        if not need(tester, device_id, "ops: applications/uninstall", result, logs):
+        # Capability gate: We only require_capabilities the uninstall operation
+        if not require_capabilities(tester, device_id, "ops: applications/uninstall", result, logs):
             return result
 
         # Step 1: Attempt to uninstall the system app using its config key.
@@ -3802,14 +3849,14 @@ def run_clear_data_foreground_app_check(dab_topic, test_name, tester, device_id)
             logs.append(line)
 
         # Capability gate
-        if not need(tester, device_id, "ops: applications/launch, applications/clear-data", result, logs):
+        if not require_capabilities(tester, device_id, "ops: applications/launch, applications/clear-data", result, logs):
             return result
 
         # Step 1: Launch the app
         line = f"[STEP] Launching '{appId}' to bring it to the foreground."
         LOGGER.result(line)
         logs.append(line)
-        execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": appId}), logs)
+        execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": appId}), logs, result)
         print(f"Waiting {APP_LAUNCH_WAIT} seconds for application to launch and stabilize.")
         time.sleep(APP_LAUNCH_WAIT)
 
@@ -3817,7 +3864,7 @@ def run_clear_data_foreground_app_check(dab_topic, test_name, tester, device_id)
         line = f"[STEP] Clearing data for '{appId}'."
         LOGGER.result(line)
         logs.append(line)
-        rc, response = execute_cmd_and_log(tester, device_id, "applications/clear-data", json.dumps({"appId": appId}), logs)
+        rc, response = execute_cmd_and_log(tester, device_id, "applications/clear-data", json.dumps({"appId": appId}), logs, result)
         clear_status = dab_status_from(response, rc)
         time.sleep(APP_CLEAR_DATA_WAIT)
 
@@ -3867,14 +3914,14 @@ def run_clear_data_system_app_check(dab_topic, test_name, tester, device_id):
             logs.append(line)
 
         # Capability gate
-        if not need(tester, device_id, "ops: applications/list, applications/clear-data", result, logs):
+        if not require_capabilities(tester, device_id, "ops: applications/list, applications/clear-data", result, logs):
             return result
 
         # Step 1: List and select a system app
         line = "[STEP] Listing applications for manual selection."
         LOGGER.result(line)
         logs.append(line)
-        _, response = execute_cmd_and_log(tester, device_id, "applications/list", "{}", logs)
+        _, response = execute_cmd_and_log(tester, device_id, "applications/list", "{}", logs, result)
         apps = json.loads(response).get("applications", [])
         app_id_list = [app.get("appId") for app in apps]
 
@@ -3896,7 +3943,7 @@ def run_clear_data_system_app_check(dab_topic, test_name, tester, device_id):
         line = f"[STEP] Clearing data for system app '{app_id}'."
         LOGGER.result(line)
         logs.append(line)
-        rc, response = execute_cmd_and_log(tester, device_id, "applications/clear-data", json.dumps({"appId": app_id}), logs)
+        rc, response = execute_cmd_and_log(tester, device_id, "applications/clear-data", json.dumps({"appId": app_id}), logs, result)
         clear_status = dab_status_from(response, rc)
         time.sleep(APP_CLEAR_DATA_WAIT)
 
@@ -3937,8 +3984,8 @@ def run_clear_data_user_installed_app_foreground(dab_topic, test_name, tester, d
         ):
             LOGGER.result(line); logs.append(line)
 
-        # === Capability gate via new need() (raises UnsupportedOperationError if missing) ===
-        need(tester, device_id, "ops: applications/launch, applications/clear-data")
+        # === Capability gate via new require_capabilities() (raises UnsupportedOperationError if missing) ===
+        require_capabilities(tester, device_id, "ops: applications/launch, applications/clear-data")
         line = "[INFO] Capability gate passed."
         LOGGER.info(line); logs.append(line)
 
@@ -4021,7 +4068,7 @@ def run_install_from_app_store_check(dab_topic, test_name, tester, device_id):
         LOGGER.result(msg); logs.append(msg)
 
         # Capability gate — returns OPTIONAL_FAILED in result/logs if unsupported
-        if not need(tester, device_id, "ops: applications/install-from-app-store, applications/launch", result, logs):
+        if not require_capabilities(tester, device_id, "ops: applications/install-from-app-store, applications/launch", result, logs):
             msg = (f"[SUMMARY] outcome=OPTIONAL_FAILED, install_status=N/A, launch_status=N/A, "
                    f"test_id={test_id}, device={device_id}, appId={app_id}")
             LOGGER.result(msg); logs.append(msg)
@@ -4112,7 +4159,7 @@ def run_install_youtube_kids_from_store(dab_topic, test_name, tester, device_id)
         LOGGER.result(msg); logs.append(msg)
 
         # Capability gate (required ops only)
-        if not need(tester, device_id, "ops: applications/install-from-app-store, applications/launch", result, logs):
+        if not require_capabilities(tester, device_id, "ops: applications/install-from-app-store, applications/launch", result, logs):
             msg = (f"[SUMMARY] outcome=OPTIONAL_FAILED, install_status=N/A, launch_status=N/A, "
                    f"test_id={test_id}, device={device_id}, appId={app_id}")
             LOGGER.result(msg); logs.append(msg)
@@ -4231,8 +4278,8 @@ def run_uninstall_after_standby_check(dab_topic, test_name, tester, device_id):
         msg = "[DESC] Data deletion must be verified manually/OEM; DAB lacks per-app storage APIs."
         LOGGER.result(msg); logs.append(msg)
 
-        # Required capability gate (unsupported → OPTIONAL_FAILED handled by need)
-        if not need(tester, device_id, "ops: applications/uninstall", result, logs):
+        # Required capability gate (unsupported → OPTIONAL_FAILED handled by require_capabilities)
+        if not require_capabilities(tester, device_id, "ops: applications/uninstall", result, logs):
             msg = (f"[SUMMARY] outcome=OPTIONAL_FAILED, uninstall_status=N/A, "
                    f"test_id={test_id}, device={device_id}, appId={app_id}")
             LOGGER.result(msg); logs.append(msg)
@@ -4341,9 +4388,6 @@ def run_install_bg_uninstall_sample_app(dab_topic, test_name, tester, device_id)
     Flow: applications/install (Sample_App from local path) -> launch -> HOME (background) -> uninstall
     Pass if install == 200 and uninstall == 200. No launcher fallback; only KEY_HOME.
     """
-    import json, time
-    from util.config_loader import ensure_app_available  # alias -> any-extension local payload
-
     test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id  = config.apps.get("sample_app", "Sample_App")
     logs    = []
@@ -4371,7 +4415,7 @@ def run_install_bg_uninstall_sample_app(dab_topic, test_name, tester, device_id)
             return result
 
         # Capability gate (include input/key-press explicitly)
-        if not need(tester, device_id,
+        if not require_capabilities(tester, device_id,
                     "ops: applications/install, applications/launch, input/key-press, applications/uninstall",
                     result, logs):
             LOGGER.result(f"[SUMMARY] outcome=OPTIONAL_FAILED, test_id={test_id}, device={device_id}, appId={app_id}")
@@ -4444,7 +4488,7 @@ def run_uninstall_sample_app_with_local_data_check(dab_topic, test_name, tester,
 
         # Capability gate for required operations
         required_ops = "ops: applications/install, applications/uninstall"
-        if not need(tester, device_id, required_ops, result, logs):
+        if not require_capabilities(tester, device_id, required_ops, result, logs):
             return result
 
         # Precondition Step: Install the application to ensure it exists
@@ -4458,7 +4502,7 @@ def run_uninstall_sample_app_with_local_data_check(dab_topic, test_name, tester,
         
         line = f"[STEP] Precondition: Installing '{app_id}' to ensure it exists for the test."
         LOGGER.result(line); logs.append(line)
-        rc_install, resp_install = execute_cmd_and_log(tester, device_id, "applications/install", json.dumps(install_payload), logs)
+        rc_install, resp_install = execute_cmd_and_log(tester, device_id, "applications/install", json.dumps(install_payload), logs, result)
         install_status = dab_status_from(resp_install, rc_install)
         if install_status != 200:
             result.test_result = "FAILED"
@@ -4539,8 +4583,8 @@ def run_uninstall_preinstalled_with_local_data_simple(dab_topic, test_name, test
 
         # Gate all required operations for the full test flow
         spec = "ops: applications/uninstall, applications/install, applications/launch"
-        if not need(tester, device_id, spec, result, logs):
-            # The 'need' function already set the result and logged the reason
+        if not require_capabilities(tester, device_id, spec, result, logs):
+            # The 'require_capabilities' function already set the result and logged the reason
             return result
 
         # Step 1: Install the app as a precondition
@@ -4613,8 +4657,6 @@ def run_install_from_url_during_idle_then_launch(dab_topic, test_name, tester, d
     Flow: sleep (best-effort) -> applications/install(<local payload>) -> short wait -> wake (best-effort) -> applications/launch
     Pass if install == 200 and launch == 200.
     """
-    import json, time
-    from util.config_loader import ensure_app_available  # returns {"appId","url","format","timeout"}
 
     test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id  = config.apps.get("sample_app", "Sample_App")
@@ -4650,7 +4692,7 @@ def run_install_from_url_during_idle_then_launch(dab_topic, test_name, tester, d
             return result
 
         # Capability gate
-        if not need(tester, device_id, "ops: applications/install, applications/launch", result, logs):
+        if not require_capabilities(tester, device_id, "ops: applications/install, applications/launch", result, logs):
             LOGGER.result(f"[SUMMARY] outcome=OPTIONAL_FAILED, install_status=N/A, launch_status=N/A, test_id={test_id}, device={device_id}, appId={app_id}")
             return result
         logs.append("[INFO] Capability gate passed.")
@@ -4769,7 +4811,7 @@ def run_install_large_apk_from_url_then_launch(dab_topic, test_name, tester, dev
 
     try:
         # ----- capability gate -----
-        if not need(tester, device_id, "ops: applications/install, applications/launch", result, logs):
+        if not require_capabilities(tester, device_id, "ops: applications/install, applications/launch", result, logs):
             LOGGER.result(f"[SUMMARY] outcome=OPTIONAL_FAILED, install_status=N/A, launch_status=N/A, "
                           f"test_id={test_id}, device={device_id}, appId={app_id}"); logs.append(
                           f"[SUMMARY] outcome=OPTIONAL_FAILED, install_status=N/A, launch_status=N/A, "
@@ -4878,7 +4920,7 @@ def run_install_from_url_while_heavy_app_running(dab_topic, test_name, tester, d
         LOGGER.result(msg); logs.append(msg)
 
         # Capability gate (install + launch)
-        if not need(tester, device_id, "ops: applications/install, applications/launch", result, logs):
+        if not require_capabilities(tester, device_id, "ops: applications/install, applications/launch", result, logs):
             msg = (f"[SUMMARY] outcome=OPTIONAL_FAILED, install_status=N/A, launch_status=N/A, "
                    f"test_id={test_id}, device={device_id}, targetApp={app_id}")
             LOGGER.result(msg); logs.append(msg)
@@ -4960,8 +5002,6 @@ def run_install_after_reboot_then_launch(dab_topic, test_name, tester, device_id
     Flow: restart -> wait -> applications/install(local path) -> wait -> applications/launch
     PASS if install == 200 and launch == 200.
     """
-    import json, time
-    from util.config_loader import ensure_app_available  # alias → any-extension local artifact
 
     test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id = config.apps.get("sample_app", "Sample_App")
@@ -5015,7 +5055,7 @@ def run_install_after_reboot_then_launch(dab_topic, test_name, tester, device_id
         time.sleep(RESTART_WAIT + STABLE_WAIT)
 
         # Capability gate
-        if not need(tester, device_id, "ops: applications/install, applications/launch", result, logs):
+        if not require_capabilities(tester, device_id, "ops: applications/install, applications/launch", result, logs):
             result.response = "['capability gate failed']"
             return result
 
@@ -5080,8 +5120,6 @@ def run_sequential_installs_then_launch(dab_topic, test_name, tester, device_id)
     """
     Positive: Sequentially install N applications then launch each.
     """
-    import json, time
-
     test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
 
@@ -5105,7 +5143,7 @@ def run_sequential_installs_then_launch(dab_topic, test_name, tester, device_id)
             LOGGER.result(msg); logs.append(msg)
             return result
 
-        if not need(tester, device_id, "ops: applications/install, applications/launch", result, logs):
+        if not require_capabilities(tester, device_id, "ops: applications/install, applications/launch", result, logs):
             msg = f"[SUMMARY] outcome=OPTIONAL_FAILED, apps={len(targets)}, test_id={test_id}, device={device_id}"
             LOGGER.result(msg); logs.append(msg)
             return result
@@ -5181,8 +5219,6 @@ def run_install_from_url_then_launch_simple(dab_topic, test_name, tester, device
     Flow: applications/install(<local path payload>) -> wait -> applications/launch
     Pass if install == 200 and launch == 200.
     """
-    import json, time
-    from util.config_loader import ensure_app_available  # alias -> any-extension local payload
 
     test_id = to_test_id(f"{dab_topic}/{test_name}")
     app_id  = config.apps.get("sample_app", "Sample_App")  # target app ID
@@ -5216,7 +5252,7 @@ def run_install_from_url_then_launch_simple(dab_topic, test_name, tester, device
             return result
 
         # Capability gate
-        if not need(tester, device_id, "ops: applications/install, applications/launch", result, logs):
+        if not require_capabilities(tester, device_id, "ops: applications/install, applications/launch", result, logs):
             LOGGER.result(f"[SUMMARY] outcome=OPTIONAL_FAILED, install_status=N/A, launch_status=N/A, test_id={test_id}, device={device_id}, appId={app_id}")
             return result
 
@@ -5290,7 +5326,7 @@ def run_clear_data_accessibility_settings_reset(dab_topic, test_name, tester, de
         LOGGER.result(msg); logs.append(msg)
 
         # Capability gate
-        if not need(tester, device_id, "ops: applications/launch, applications/clear-data", result, logs):
+        if not require_capabilities(tester, device_id, "ops: applications/launch, applications/clear-data", result, logs):
             msg = (f"[SUMMARY] outcome=OPTIONAL_FAILED, clear_status=N/A, "
                    f"test_id={test_id}, device={device_id}, appId={app_id}")
             LOGGER.result(msg); logs.append(msg)
@@ -5371,7 +5407,7 @@ def run_clear_data_session_reset(dab_topic, test_name, tester, device_id):
         LOGGER.result(msg); logs.append(msg)
 
         # Capability gate
-        if not need(tester, device_id, "ops: applications/launch, applications/clear-data", result, logs):
+        if not require_capabilities(tester, device_id, "ops: applications/launch, applications/clear-data", result, logs):
             msg = (f"[SUMMARY] outcome=OPTIONAL_FAILED, clear_status=N/A, "
                    f"test_id={test_id}, device={device_id}, appId={app_id}")
             LOGGER.result(msg); logs.append(msg)
@@ -5454,7 +5490,7 @@ def run_voice_log_collection_check(dab_topic, test_name, tester, device_id):
 
         # Capability gate for all required DAB operations
         required_ops = "ops: voice/list, voice/set, system/logs/start-collection, voice/send-text, system/logs/stop-collection"
-        if not need(tester, device_id, required_ops, result, logs):
+        if not require_capabilities(tester, device_id, required_ops, result, logs):
             return result
 
         # Step 1: Manually select one supported voice system on the device.
@@ -5463,7 +5499,7 @@ def run_voice_log_collection_check(dab_topic, test_name, tester, device_id):
         logs.append(line)
         topic = "voice/list"
         payload = json.dumps({})
-        rc, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
+        rc, response = execute_cmd_and_log(tester, device_id, topic, payload, logs, result)
         if dab_status_from(response, rc) != 200:
             result.test_result = "FAILED"
             line = "[RESULT] FAILED — Could not list supported voice systems as a precondition."
@@ -5506,7 +5542,7 @@ def run_voice_log_collection_check(dab_topic, test_name, tester, device_id):
             line = f"Voice system {voiceSystem} is disabled, try to enable it."
             logs.append(line)
             LOGGER.info(line)
-            rc, response = execute_cmd_and_log(tester, device_id, "voice/set", json.dumps({"voiceSystem": {"name": voiceSystem, "enabled": True}}), logs)
+            rc, response = execute_cmd_and_log(tester, device_id, "voice/set", json.dumps({"voiceSystem": {"name": voiceSystem, "enabled": True}}), logs, result)
             if dab_status_from(response, rc) != 200:
                 result.test_result = "FAILED"
                 line = "[RESULT] FAILED — Could not enable the supported voice system {voiceSystem} on the device."
@@ -5554,7 +5590,7 @@ def run_voice_log_collection_check(dab_topic, test_name, tester, device_id):
         logs.append(line)
         topic = "system/logs/stop-collection"
         payload = json.dumps({})
-        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
+        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs, result)
         validate_state, result = validate_response(tester, topic, payload, response, result, logs)
         if validate_state == False:
             return result
@@ -5635,7 +5671,7 @@ def run_idle_log_collection_check(dab_topic, test_name, tester, device_id):
 
         # Capability gate for all required DAB operations
         required_ops = "ops: system/logs/start-collection, system/logs/stop-collection"
-        if not need(tester, device_id, required_ops, result, logs):
+        if not require_capabilities(tester, device_id, required_ops, result, logs):
             return result
 
         # Step 1: Start log collection
@@ -5663,7 +5699,7 @@ def run_idle_log_collection_check(dab_topic, test_name, tester, device_id):
         logs.append(line)
         topic = "system/logs/stop-collection"
         payload = json.dumps({})
-        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
+        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs, result)
         validate_state, result = validate_response(tester, topic, payload, response, result, logs)
         if validate_state == False:
             return result
@@ -5745,7 +5781,7 @@ def run_channel_switch_log_check(dab_topic, test_name, tester, device_id):
 
         # Capability gate for all required DAB operations
         required_ops = "ops: system/logs/start-collection, system/logs/stop-collection"
-        if not need(tester, device_id, required_ops, result, logs):
+        if not require_capabilities(tester, device_id, required_ops, result, logs):
             return result
 
         # Step 1: Start log collection
@@ -5773,7 +5809,7 @@ def run_channel_switch_log_check(dab_topic, test_name, tester, device_id):
         logs.append(line)
         topic = "system/logs/stop-collection"
         payload = json.dumps({})
-        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
+        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs, result)
         validate_state, result = validate_response(tester, topic, payload, response, result, logs)
         if validate_state == False:
             return result
@@ -5859,7 +5895,7 @@ def run_app_switch_log_check(dab_topic, test_name, tester, device_id):
 
         # Capability gate for all required DAB operations
         required_ops = "ops: system/logs/start-collection, system/logs/stop-collection, applications/launch"
-        if not need(tester, device_id, required_ops, result, logs):
+        if not require_capabilities(tester, device_id, required_ops, result, logs):
             return result
 
         # Step 1: Start log collection
@@ -5878,7 +5914,7 @@ def run_app_switch_log_check(dab_topic, test_name, tester, device_id):
         line = f"[STEP] Launching first app: '{app1_id}'."
         LOGGER.result(line)
         logs.append(line)
-        execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": app1_id}), logs)
+        execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": app1_id}), logs, result)
         line = f"[WAIT] Waiting {APP_LAUNCH_WAIT}s for '{app1_id}' to open and perform activity."
         LOGGER.info(line)
         logs.append(line)
@@ -5888,7 +5924,7 @@ def run_app_switch_log_check(dab_topic, test_name, tester, device_id):
         line = f"[STEP] Switching to second app: '{app2_id}'."
         LOGGER.result(line)
         logs.append(line)
-        execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": app2_id}), logs)
+        execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": app2_id}), logs, result)
         line = f"[WAIT] Waiting {APP_LAUNCH_WAIT}s for '{app2_id}' to open and perform activity."
         LOGGER.info(line)
         logs.append(line)
@@ -5906,7 +5942,7 @@ def run_app_switch_log_check(dab_topic, test_name, tester, device_id):
         logs.append(line)
         topic = "system/logs/stop-collection"
         payload = json.dumps({})
-        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
+        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs, result)
         validate_state, result = validate_response(tester, topic, payload, response, result, logs)
         if validate_state == False:
             return result
@@ -5989,14 +6025,14 @@ def run_clear_data_preinstalled_app_check(dab_topic, test_name, tester, device_i
 
         # Capability gate
         required_ops = "ops: applications/list, applications/launch, applications/clear-data"
-        if not need(tester, device_id, required_ops, result, logs):
+        if not require_capabilities(tester, device_id, required_ops, result, logs):
             return result
         
         # Step 1: List and select a non-removable, pre-installed app
         line = "[STEP] Listing applications for manual selection."
         LOGGER.result(line)
         logs.append(line)
-        _, response = execute_cmd_and_log(tester, device_id, "applications/list", "{}", logs)
+        _, response = execute_cmd_and_log(tester, device_id, "applications/list", "{}", logs, result)
         apps = json.loads(response).get("applications", [])
         app_id_list = [app.get("appId") for app in apps]
         
@@ -6018,14 +6054,14 @@ def run_clear_data_preinstalled_app_check(dab_topic, test_name, tester, device_i
         line = f"[STEP] Launching '{app_id}' to ensure it has local data."
         LOGGER.result(line)
         logs.append(line)
-        execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": app_id}), logs)
+        execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": app_id}), logs, result)
         time.sleep(APP_LAUNCH_WAIT)
 
         # Step 3: Clear the app's data
         line = f"[STEP] Clearing data for '{app_id}'."
         LOGGER.result(line)
         logs.append(line)
-        rc, response = execute_cmd_and_log(tester, device_id, "applications/clear-data", json.dumps({"appId": app_id}), logs)
+        rc, response = execute_cmd_and_log(tester, device_id, "applications/clear-data", json.dumps({"appId": app_id}), logs, result)
         clear_status = dab_status_from(response, rc)
 
         if clear_status != 200:
@@ -6041,7 +6077,7 @@ def run_clear_data_preinstalled_app_check(dab_topic, test_name, tester, device_i
         line = f"[STEP] Relaunching '{app_id}' to verify it has been reset."
         LOGGER.result(line)
         logs.append(line)
-        execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": app_id}), logs)
+        execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": app_id}), logs, result)
         time.sleep(APP_LAUNCH_WAIT)
         
         # Step 5: Manual verification
@@ -6102,7 +6138,7 @@ def run_install_region_specific_app_check(dab_topic, test_name, tester, device_i
 
         # Capability gate
         required_ops = "ops: applications/install-from-app-store, applications/launch, applications/uninstall"
-        if not need(tester, device_id, required_ops, result, logs):
+        if not require_capabilities(tester, device_id, required_ops, result, logs):
             return result
         
         # Step 1: Manually set device region
@@ -6140,7 +6176,7 @@ def run_install_region_specific_app_check(dab_topic, test_name, tester, device_i
         line = f"[STEP] Launching '{app_id}' to verify localization."
         LOGGER.result(line)
         logs.append(line)
-        execute_cmd_and_log(tester, device_id, "applications/launch", payload, logs)
+        execute_cmd_and_log(tester, device_id, "applications/launch", payload, logs, result)
         time.sleep(APP_LAUNCH_WAIT)
 
         # Step 4: Manual verification
@@ -6173,7 +6209,7 @@ def run_install_region_specific_app_check(dab_topic, test_name, tester, device_i
             line = f"[CLEANUP] Uninstalling '{app_id}'."
             LOGGER.info(line)
             logs.append(line)
-            execute_cmd_and_log(tester, device_id, "applications/uninstall", json.dumps({"appId": app_id}), logs)
+            execute_cmd_and_log(tester, device_id, "applications/uninstall", json.dumps({"appId": app_id}), logs, result)
         except Exception as e:
             line = f"[CLEANUP] WARNING: Failed to uninstall app '{app_id}': {e}"
             LOGGER.warn(line)
@@ -6212,7 +6248,7 @@ def run_update_installed_app_check(dab_topic, test_name, tester, device_id):
 
         # Capability gate
         required_ops = "ops: applications/install-from-app-store, applications/launch, applications/uninstall"
-        if not need(tester, device_id, required_ops, result, logs):
+        if not require_capabilities(tester, device_id, required_ops, result, logs):
             return result
         
         # Step 1: Manually install an older version of the app
@@ -6250,7 +6286,7 @@ def run_update_installed_app_check(dab_topic, test_name, tester, device_id):
         line = f"[STEP] Launching '{app_id}' to verify the update."
         LOGGER.result(line)
         logs.append(line)
-        execute_cmd_and_log(tester, device_id, "applications/launch", payload, logs)
+        execute_cmd_and_log(tester, device_id, "applications/launch", payload, logs, result)
         time.sleep(APP_LAUNCH_WAIT)
 
         # Step 4: Manual verification
@@ -6283,7 +6319,7 @@ def run_update_installed_app_check(dab_topic, test_name, tester, device_id):
             line = f"[CLEANUP] Uninstalling '{app_id}'."
             LOGGER.info(line)
             logs.append(line)
-            execute_cmd_and_log(tester, device_id, "applications/uninstall", json.dumps({"appId": app_id}), logs)
+            execute_cmd_and_log(tester, device_id, "applications/uninstall", json.dumps({"appId": app_id}), logs, result)
         except Exception as e:
             line = f"[CLEANUP] WARNING: Failed to uninstall app '{app_id}': {e}"
             LOGGER.warn(line)
@@ -6319,7 +6355,7 @@ def run_logs_collection_check(dab_topic, test_name, tester, device_id):
             logs.append(line)
 
         # Capability gate
-        if not need(tester, device_id, "ops: system/logs/start-collection, system/logs/stop-collection", result, logs):
+        if not require_capabilities(tester, device_id, "ops: system/logs/start-collection, system/logs/stop-collection", result, logs):
             return result
 
         # Step 1: Start logs collection.
@@ -6328,7 +6364,7 @@ def run_logs_collection_check(dab_topic, test_name, tester, device_id):
         logs.append(line)
         topic = "system/logs/start-collection"
         payload = json.dumps({})
-        rc, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
+        rc, response = execute_cmd_and_log(tester, device_id, topic, payload, logs, result)
         if dab_status_from(response, rc) != 200:
             result.test_result = "FAILED"
             line = f"[RESULT] FAILED — Could not start logs collection."
@@ -6349,7 +6385,7 @@ def run_logs_collection_check(dab_topic, test_name, tester, device_id):
         logs.append(line)
         topic = "system/logs/stop-collection"
         payload = json.dumps({})
-        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
+        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs, result)
         validate_state, result = validate_response(tester, topic, payload, response, result, logs)
         if validate_state == False:
             return result
@@ -6408,7 +6444,7 @@ def run_logs_collection_for_major_system_services_check(dab_topic, test_name, te
             logs.append(line)
 
         # Capability gate
-        if not need(tester, device_id, "ops: system/logs/start-collection, system/logs/stop-collection", result, logs):
+        if not require_capabilities(tester, device_id, "ops: system/logs/start-collection, system/logs/stop-collection", result, logs):
             return result
 
         # Step 1: Start logs collection.
@@ -6417,7 +6453,7 @@ def run_logs_collection_for_major_system_services_check(dab_topic, test_name, te
         logs.append(line)
         topic = "system/logs/start-collection"
         payload = json.dumps({})
-        rc, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
+        rc, response = execute_cmd_and_log(tester, device_id, topic, payload, logs, result)
         if dab_status_from(response, rc) != 200:
             result.test_result = "FAILED"
             line = f"[RESULT] FAILED — Could not start logs collection."
@@ -6447,7 +6483,7 @@ def run_logs_collection_for_major_system_services_check(dab_topic, test_name, te
         logs.append(line)
         topic = "system/logs/stop-collection"
         payload = json.dumps({})
-        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
+        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs, result)
         validate_state, result = validate_response(tester, topic, payload, response, result, logs)
         if validate_state == False:
             return result
@@ -6521,7 +6557,7 @@ def run_logs_collection_app_pause_check(dab_topic, test_name, tester, device_id)
             logs.append(line)
 
         # Capability gate
-        if not need(tester, device_id, "ops: system/logs/start-collection, applications/launch, applications/exit, applications/get-state, system/logs/stop-collection", result, logs):
+        if not require_capabilities(tester, device_id, "ops: system/logs/start-collection, applications/launch, applications/exit, applications/get-state, system/logs/stop-collection", result, logs):
             return result
 
         # Step 1: Start logs collection.
@@ -6530,7 +6566,7 @@ def run_logs_collection_app_pause_check(dab_topic, test_name, tester, device_id)
         logs.append(line)
         topic = "system/logs/start-collection"
         payload = json.dumps({})
-        rc, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
+        rc, response = execute_cmd_and_log(tester, device_id, topic, payload, logs, result)
         if dab_status_from(response, rc) != 200:
             result.test_result = "FAILED"
             line = f"[RESULT] FAILED — Could not start logs collection."
@@ -6542,7 +6578,7 @@ def run_logs_collection_app_pause_check(dab_topic, test_name, tester, device_id)
         line = f"[STEP] Launch application '{appId}'."
         LOGGER.result(line)
         logs.append(line)
-        execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": appId}), logs)
+        execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": appId}), logs, result)
         print(f"Waiting {APP_LAUNCH_WAIT} seconds for application to launch.")
         time.sleep(APP_LAUNCH_WAIT)
 
@@ -6550,10 +6586,10 @@ def run_logs_collection_app_pause_check(dab_topic, test_name, tester, device_id)
         line = f"[STEP] Pause application '{appId}' and confirm its state is BACKGROUND."
         LOGGER.result(line)
         logs.append(line)
-        execute_cmd_and_log(tester, device_id, "applications/exit", json.dumps({"appId": appId, "background": True}), logs)
+        execute_cmd_and_log(tester, device_id, "applications/exit", json.dumps({"appId": appId, "background": True}), logs, result)
         print(f"Waiting {APP_STATE_CHECK_WAIT} seconds after exit.")
         time.sleep(APP_STATE_CHECK_WAIT)
-        _, response = execute_cmd_and_log(tester, device_id, "applications/get-state", json.dumps({"appId": appId}), logs)
+        _, response = execute_cmd_and_log(tester, device_id, "applications/get-state", json.dumps({"appId": appId}), logs, result)
         state = json.loads(response).get("state", "").upper() if response else "UNKNOWN"
         if state != "BACKGROUND":
             print(f"Pause application {appId} Fail.")
@@ -6573,7 +6609,7 @@ def run_logs_collection_app_pause_check(dab_topic, test_name, tester, device_id)
         logs.append(line)
         topic = "system/logs/stop-collection"
         payload = json.dumps({})
-        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
+        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs, result)
         validate_state, result = validate_response(tester, topic, payload, response, result, logs)
         if validate_state == False:
             return result
@@ -6647,7 +6683,7 @@ def run_logs_collection_app_force_stop_check(dab_topic, test_name, tester, devic
             logs.append(line)
 
         # Capability gate
-        if not need(tester, device_id, "ops: system/logs/start-collection, applications/launch, applications/exit, applications/get-state, system/logs/stop-collection", result, logs):
+        if not require_capabilities(tester, device_id, "ops: system/logs/start-collection, applications/launch, applications/exit, applications/get-state, system/logs/stop-collection", result, logs):
             return result
 
         # Step 1: Start logs collection.
@@ -6656,7 +6692,7 @@ def run_logs_collection_app_force_stop_check(dab_topic, test_name, tester, devic
         logs.append(line)
         topic = "system/logs/start-collection"
         payload = json.dumps({})
-        rc, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
+        rc, response = execute_cmd_and_log(tester, device_id, topic, payload, logs, result)
         if dab_status_from(response, rc) != 200:
             result.test_result = "FAILED"
             line = f"[RESULT] FAILED — Could not start logs collection."
@@ -6668,7 +6704,7 @@ def run_logs_collection_app_force_stop_check(dab_topic, test_name, tester, devic
         line = f"[STEP] Launch application '{appId}'."
         LOGGER.result(line)
         logs.append(line)
-        rc, response = execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": appId}), logs)
+        rc, response = execute_cmd_and_log(tester, device_id, "applications/launch", json.dumps({"appId": appId}), logs, result)
         print(f"Waiting {APP_LAUNCH_WAIT} seconds for application to launch.")
         time.sleep(APP_LAUNCH_WAIT)
 
@@ -6676,10 +6712,10 @@ def run_logs_collection_app_force_stop_check(dab_topic, test_name, tester, devic
         line = f"[STEP] Pause application '{appId}' and confirm its state is BACKGROUND."
         LOGGER.result(line)
         logs.append(line)
-        execute_cmd_and_log(tester, device_id, "applications/exit", json.dumps({"appId": appId, "background": True}), logs)
+        execute_cmd_and_log(tester, device_id, "applications/exit", json.dumps({"appId": appId, "background": True}), logs, result)
         print(f"Waiting {APP_STATE_CHECK_WAIT} seconds after exit.")
         time.sleep(APP_STATE_CHECK_WAIT)
-        _, response = execute_cmd_and_log(tester, device_id, "applications/get-state", json.dumps({"appId": appId}), logs)
+        _, response = execute_cmd_and_log(tester, device_id, "applications/get-state", json.dumps({"appId": appId}), logs, result)
         state = json.loads(response).get("state", "").upper() if response else "UNKNOWN"
         if state != "BACKGROUND":
             print(f"Exit application {appId} to background fail.")
@@ -6691,10 +6727,10 @@ def run_logs_collection_app_force_stop_check(dab_topic, test_name, tester, devic
         line = f"[STEP] Pause application '{appId}' and confirm its state is BACKGROUND."
         LOGGER.result(line)
         logs.append(line)
-        execute_cmd_and_log(tester, device_id, "applications/exit", json.dumps({"appId": appId}), logs)
+        execute_cmd_and_log(tester, device_id, "applications/exit", json.dumps({"appId": appId}), logs, result)
         print(f"Waiting {APP_STATE_CHECK_WAIT} seconds after exit.")
         time.sleep(APP_STATE_CHECK_WAIT)
-        _, response = execute_cmd_and_log(tester, device_id, "applications/get-state", json.dumps({"appId": appId}), logs)
+        _, response = execute_cmd_and_log(tester, device_id, "applications/get-state", json.dumps({"appId": appId}), logs, result)
         state = json.loads(response).get("state", "").upper() if response else "UNKNOWN"
         if state != "STOPPED":
             print(f"Force stop application {appId} fail.")
@@ -6714,7 +6750,7 @@ def run_logs_collection_app_force_stop_check(dab_topic, test_name, tester, devic
         logs.append(line)
         topic = "system/logs/stop-collection"
         payload = json.dumps({})
-        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
+        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs, result)
         validate_state, result = validate_response(tester, topic, payload, response, result, logs)
         if validate_state == False:
             return result
@@ -6788,7 +6824,7 @@ def run_logs_collection_app_uninstall_check(dab_topic, test_name, tester, device
             logs.append(line)
 
         # Capability gate
-        if not need(tester, device_id, "ops: system/logs/start-collection, applications/install, applications/uninstall, system/logs/stop-collection", result, logs):
+        if not require_capabilities(tester, device_id, "ops: system/logs/start-collection, applications/install, applications/uninstall, system/logs/stop-collection", result, logs):
             return result
         
         # Step 0: Precondition - Ensure the sample app is installed first
@@ -6802,7 +6838,7 @@ def run_logs_collection_app_uninstall_check(dab_topic, test_name, tester, device
             LOGGER.warn(line); logs.append(line)
             return result
         
-        rc, response = execute_cmd_and_log(tester, device_id, "applications/install", json.dumps(install_payload), logs)
+        rc, response = execute_cmd_and_log(tester, device_id, "applications/install", json.dumps(install_payload), logs, result)
         if dab_status_from(response, rc) != 200:
             result.test_result = "FAILED"
             line = f"[RESULT] FAILED — Precondition failed: Could not install '{appId}'."
@@ -6817,7 +6853,7 @@ def run_logs_collection_app_uninstall_check(dab_topic, test_name, tester, device
         logs.append(line)
         topic = "system/logs/start-collection"
         payload = json.dumps({})
-        rc, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
+        rc, response = execute_cmd_and_log(tester, device_id, topic, payload, logs, result)
         if dab_status_from(response, rc) != 200:
             result.test_result = "FAILED"
             line = f"[RESULT] FAILED — Could not start logs collection."
@@ -6829,7 +6865,7 @@ def run_logs_collection_app_uninstall_check(dab_topic, test_name, tester, device
         line = f"[STEP] Uninstall application {appId}."
         LOGGER.result(line)
         logs.append(line)
-        rc, response = execute_cmd_and_log(tester, device_id, "applications/uninstall", json.dumps({"appId": appId}), logs)
+        rc, response = execute_cmd_and_log(tester, device_id, "applications/uninstall", json.dumps({"appId": appId}), logs, result)
         print(f"Waiting {APP_UNINSTALL_WAIT} seconds for application uninstallation.")
         time.sleep(APP_UNINSTALL_WAIT)
 
@@ -6845,7 +6881,7 @@ def run_logs_collection_app_uninstall_check(dab_topic, test_name, tester, device
         logs.append(line)
         topic = "system/logs/stop-collection"
         payload = json.dumps({})
-        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
+        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs, result)
         validate_state, result = validate_response(tester, topic, payload, response, result, logs)
         if validate_state == False:
             return result
@@ -6897,7 +6933,7 @@ def run_logs_collection_app_uninstall_check(dab_topic, test_name, tester, device
             line = f"[CLEANUP] Reinstalling '{appId}' to restore state for subsequent tests."
             LOGGER.info(line); logs.append(line)
             install_payload = ensure_app_available(app_id=appId)
-            execute_cmd_and_log(tester, device_id, "applications/install", json.dumps(install_payload), logs)
+            execute_cmd_and_log(tester, device_id, "applications/install", json.dumps(install_payload), logs, result)
         except Exception as e:
             line = f"[CLEANUP] WARNING: Failed to reinstall app '{appId}': {e}"
             LOGGER.warn(line); logs.append(line)
@@ -6931,7 +6967,7 @@ def run_logs_collection_app_install_and_launch_check(dab_topic, test_name, teste
             logs.append(line)
 
         # Capability gate
-        if not need(tester, device_id, "ops: system/logs/start-collection, applications/install-from-app-store, applications/launch, system/logs/stop-collection", result, logs):
+        if not require_capabilities(tester, device_id, "ops: system/logs/start-collection, applications/install-from-app-store, applications/launch, system/logs/stop-collection", result, logs):
             return result
 
         # Step 1: Start logs collection.
@@ -6940,7 +6976,7 @@ def run_logs_collection_app_install_and_launch_check(dab_topic, test_name, teste
         logs.append(line)
         topic = "system/logs/start-collection"
         payload = json.dumps({})
-        rc, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
+        rc, response = execute_cmd_and_log(tester, device_id, topic, payload, logs, result)
         if dab_status_from(response, rc) != 200:
             result.test_result = "FAILED"
             line = f"[RESULT] FAILED — Could not start logs collection."
@@ -7004,7 +7040,7 @@ def run_logs_collection_app_install_and_launch_check(dab_topic, test_name, teste
         logs.append(line)
         topic = "system/logs/stop-collection"
         payload = json.dumps({})
-        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs)
+        _, response = execute_cmd_and_log(tester, device_id, topic, payload, logs, result)
         validate_state, result = validate_response(tester, topic, payload, response, result, logs)
         if validate_state == False:
             return result
@@ -7052,6 +7088,1130 @@ def run_logs_collection_app_install_and_launch_check(dab_topic, test_name, teste
         EnforcementManager().delete_logs_collection_files()
         # Print concise final test result status
         print(f"[Result] Test Id: {result.test_id} \n Test Outcome: {result.test_result}\n({'-' * 100})")
+
+    return result
+
+# === Test: Network Reset – Wi-Fi Settings Default Restoration ===
+def run_network_reset_wifi_default_restoration(dab_topic, test_name, tester, device_id):
+    """
+    Verifies that system/network-reset resets Wi-Fi settings to defaults and requires manual reconnection.
+    """
+    NETWORK_RESET_WAIT = 20  # seconds
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
+    logs = []
+    payload_reset = json.dumps({})
+
+    # TestResult(test_id, device_id, dab_topic, request_payload, test_result, details, logs)
+    result = TestResult(test_id, device_id, "system/network-reset", payload_reset, "UNKNOWN", "", logs)
+
+    try:
+        # Always-on header + description (printed and stored)
+        for line in (
+            f"[TEST] Network Reset — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: confirm network reset clears Wi-Fi custom config (static IP/DNS/proxy/saved SSIDs) and requires manual reconnection.",
+            "[DESC] Preconditions: device on Wi-Fi with custom config; DAB reachable.",
+            "[DESC] Required operations: system/network-reset.",
+            "[DESC] Pass criteria: reset returns 200, saved networks cleared, IP/DNS/Proxy defaulted, manual reconnection required.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Capability gate
+        required_ops = "ops: system/network-reset"
+        if not require_capabilities(tester, device_id, required_ops, result, logs):
+            return result  # 'require_capabilities' already logged and set result
+
+        # Preconditions (manual)
+        line = "[STEP] Ensure device is currently connected to Wi-Fi with a custom setting applied (static IP / DNS / proxy)."
+        LOGGER.result(line); logs.append(line)
+        if not yes_or_no("Confirm custom Wi-Fi configuration is active on the device [y/N]: "):
+            result.test_result = "SKIPPED"
+            line = f"[RESULT] SKIPPED — precondition not met (no custom Wi-Fi config). (test_id={test_id}, device={device_id})"
+            LOGGER.result(line); logs.append(line)
+            line = f"[SUMMARY] outcome={result.test_result}, test_id={test_id}, device={device_id}"
+            LOGGER.result(line); logs.append(line)
+            return result
+
+        # Initiate network reset
+        line = f"[STEP] Initiating network reset via {dab_topic} with payload: {payload_reset}"
+        LOGGER.result(line); logs.append(line)
+        code, resp = execute_cmd_and_log(tester, device_id, "system/network-reset", payload_reset, logs, result)
+
+        # Handle 501 or unexpected status
+        if code == 501:
+            result.test_result = "OPTIONAL_FAILED"
+            line = f"[RESULT] OPTIONAL_FAILED — 501 Not Implemented returned by system/network-reset. (test_id={test_id}, device={device_id})"
+            LOGGER.result(line); logs.append(line)
+            line = f"[SUMMARY] outcome={result.test_result}, test_id={test_id}, device={device_id}"
+            LOGGER.result(line); logs.append(line)
+            return result
+
+        if code != 200:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — expected 200 from system/network-reset but got {code}. Response: {resp}"
+            LOGGER.result(line); logs.append(line)
+            line = f"[SUMMARY] outcome={result.test_result}, test_id={test_id}, device={device_id}"
+            LOGGER.result(line); logs.append(line)
+            return result
+
+        line = f"[RESULT] system/network-reset returned 200 OK. Response: {resp}"
+        LOGGER.result(line); logs.append(line)
+
+        # Wait for reset side-effects (Wi-Fi stack restart / MQTT drop)
+        line = f"[WAIT] Allowing {NETWORK_RESET_WAIT}s for network stack to reset."
+        LOGGER.info(line); logs.append(line)
+        time.sleep(NETWORK_RESET_WAIT)
+
+        # Manual validations
+        LOGGER.result("[STEP] Validate on device UI that Wi-Fi settings are reset to defaults.")
+        cleared_saved = yes_or_no("Are saved Wi-Fi networks cleared? [y/N]: ")
+        defaults_ip  = yes_or_no("Are IP settings back to DHCP/Automatic (not static)? [y/N]: ")
+        defaults_dns = yes_or_no("Are DNS/Proxy settings cleared/reset to defaults? [y/N]: ")
+        manual_reconnect = yes_or_no("Did the device require manual reconnection (credentials prompted)? [y/N]: ")
+
+        # Decide outcome
+        if cleared_saved and defaults_ip and defaults_dns and manual_reconnect:
+            result.test_result = "PASS"
+            line = f"[RESULT] PASS — Wi-Fi config cleared and manual reconnection required."
+            LOGGER.result(line); logs.append(line)
+        else:
+            result.test_result = "FAILED"
+            missing = []
+            if not cleared_saved:   missing.append("saved networks not cleared")
+            if not defaults_ip:     missing.append("IP not default/DHCP")
+            if not defaults_dns:    missing.append("DNS/Proxy not default")
+            if not manual_reconnect: missing.append("no manual reconnection required")
+            reason = "; ".join(missing) if missing else "validation failed"
+            line = f"[RESULT] FAILED — {reason}."
+            LOGGER.result(line); logs.append(line)
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — operation '{e.topic}' not supported (test_id={test_id}, device={device_id})"
+        LOGGER.result(line); logs.append(line)
+
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — internal error during network reset validation: {e} (test_id={test_id}, device={device_id})"
+        LOGGER.result(line); logs.append(line)
+
+    finally:
+        # Final summary log for easy parsing
+        line = (
+            f"[SUMMARY] outcome={result.test_result}, "
+            f"cleared_saved={str(cleared_saved) if 'cleared_saved' in locals() else 'N/A'}, "
+            f"default_ip={str(defaults_ip) if 'defaults_ip' in locals() else 'N/A'}, "
+            f"default_dns_proxy={str(defaults_dns) if 'defaults_dns' in locals() else 'N/A'}, "
+            f"manual_reconnect={str(manual_reconnect) if 'manual_reconnect' in locals() else 'N/A'}, "
+            f"test_id={test_id}, device={device_id}"
+        )
+        LOGGER.result(line); logs.append(line)
+
+    return result
+
+# === Test: Setup Skip – Privacy Settings Screen Bypass (fixed locals init) ===
+def run_setup_skip_privacy_bypass(dab_topic, test_name, tester, device_id):
+    """
+    Verifies that calling system/setup/skip from the Privacy Settings screen exits setup wizard and lands on Home.
+    """
+    RESET_REBOOT_WAIT = 90
+    SETUP_RESUME_WAIT = 30
+    SKIP_TRANSITION_WAIT = 45
+
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
+    logs = []
+    payload_empty = json.dumps({})
+
+    # TestResult(test_id, device_id, dab_topic, request_payload, test_result, details, logs)
+    result = TestResult(test_id, device_id, "system/setup/skip", payload_empty, "UNKNOWN", "", logs)
+
+    # --- SAFE DEFAULTS so summary never crashes ---
+    do_reset = False
+    at_privacy = False
+    code_skip = None
+    resp_skip = None
+    on_home = False
+    opt_features_disabled = None  # None → N/A in summary
+
+    try:
+        # Header + description
+        for line in (
+            f"[TEST] Setup Skip — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: from Privacy Settings screen during setup wizard, call system/setup/skip and verify device lands on Home.",
+            "[DESC] Preconditions: device at setup wizard; target screen = Privacy Settings; DAB reachable.",
+            "[DESC] Required operations: system/setup/skip. Optional: system/factory-reset.",
+            "[DESC] Pass criteria: skip accepted (200), device exits setup wizard and shows Home screen.",
+        ):
+            LOGGER.result(line); logs.append(line)
+
+        # Capability gate
+        required_ops = "ops: system/setup/skip; optional: system/factory-reset"
+        if not require_capabilities(tester, device_id, required_ops, result, logs):
+            return result  # 'require_capabilities' already handled
+
+        # Optional factory reset to ensure clean setup state
+        LOGGER.result("[STEP] If not already at setup wizard, trigger factory reset via system/factory-reset (optional).")
+        do_reset = yes_or_no("Do you want to perform system/factory-reset now? This will erase the device. [y/N]: ")
+        if do_reset:
+            LOGGER.result(f"[STEP] Calling system/factory-reset with payload: {payload_empty}")
+            code_fr, resp_fr = execute_cmd_and_log(tester, device_id, "system/factory-reset", payload_empty, logs, result)
+            if code_fr == 501:
+                LOGGER.result("[RESULT] OPTIONAL_FAILED — system/factory-reset not implemented on this device. Proceeding manually to setup wizard.")
+            elif code_fr != 200:
+                result.test_result = "FAILED"
+                line = f"[RESULT] FAILED — expected 200 from system/factory-reset, got {code_fr}. Response: {resp_fr}"
+                LOGGER.result(line); logs.append(line)
+                return result
+            else:
+                LOGGER.result(f"[RESULT] system/factory-reset returned 200 OK. Response: {resp_fr}")
+                line = f"[WAIT] Allowing {RESET_REBOOT_WAIT}s for reboot/reset to complete."
+                LOGGER.info(line); logs.append(line)
+                time.sleep(RESET_REBOOT_WAIT)
+
+        # Manually advance to Privacy Settings
+        LOGGER.result("[STEP] Manually progress through setup until 'Privacy Settings' screen is displayed.")
+        line = f"[WAIT] Allowing {SETUP_RESUME_WAIT}s for UI to stabilize."
+        LOGGER.info(line); logs.append(line)
+        time.sleep(SETUP_RESUME_WAIT)
+
+        at_privacy = yes_or_no("Is the device on the Privacy Settings screen now? [y/N]: ")
+        if not at_privacy:
+            result.test_result = "SKIPPED"
+            line = "[RESULT] SKIPPED — device not at Privacy Settings screen."
+            LOGGER.result(line); logs.append(line)
+            return result
+
+        # Invoke skip at Privacy Settings
+        LOGGER.result(f"[STEP] Invoking {dab_topic} with payload: {payload_empty}")
+        code_skip, resp_skip = execute_cmd_and_log(tester, device_id, "system/setup/skip", payload_empty, logs, result)
+
+        if code_skip == 501:
+            result.test_result = "OPTIONAL_FAILED"
+            line = "[RESULT] OPTIONAL_FAILED — 501 Not Implemented for system/setup/skip."
+            LOGGER.result(line); logs.append(line)
+            return result
+
+        if code_skip != 200:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — expected 200 from system/setup/skip, got {code_skip}. Response: {resp_skip}"
+            LOGGER.result(line); logs.append(line)
+            return result
+
+        LOGGER.result(f"[RESULT] system/setup/skip returned 200 OK. Response: {resp_skip}")
+        line = f"[WAIT] Allowing {SKIP_TRANSITION_WAIT}s for device to exit setup and load Home."
+        LOGGER.info(line); logs.append(line)
+        time.sleep(SKIP_TRANSITION_WAIT)
+
+        # Verify Home
+        on_home = yes_or_no("Did the device exit setup wizard and land on the Home screen? [y/N]: ")
+        opt_features_disabled = yes_or_no("Optional: Are account-based/personalized features disabled until configured? [y/N]: ")
+
+        if on_home:
+            result.test_result = "PASS"
+            LOGGER.result("[RESULT] PASS — setup skipped from Privacy Settings and Home screen is visible.")
+        else:
+            result.test_result = "FAILED"
+            LOGGER.result("[RESULT] FAILED — device did not reach Home after skip.")
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — operation '{e.topic}' not supported (test_id={test_id}, device={device_id})"
+        LOGGER.result(line); logs.append(line)
+
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — internal error during setup skip validation: {e} (test_id={test_id}, device={device_id})"
+        LOGGER.result(line); logs.append(line)
+
+    finally:
+        def yn(v):
+            return "Y" if v is True else ("N" if v is False else "N/A")
+        line = (
+            f"[SUMMARY] outcome={result.test_result}, "
+            f"did_reset={yn(do_reset)}, "
+            f"at_privacy={yn(at_privacy)}, "
+            f"skip_status={code_skip if code_skip is not None else 'N/A'}, "
+            f"home_visible={yn(on_home)}, "
+            f"features_disabled_opt={yn(opt_features_disabled)}, "
+            f"test_id={test_id}, device={device_id}"
+        )
+        LOGGER.result(line); logs.append(line)
+
+    return result
+
+
+# === Test: Content Search – Special-Character-Only Query Validation ===
+def run_content_search_special_chars_validation(dab_topic, test_name, tester, device_id):
+    """
+    Validates that content/search handles special-character-only queries gracefully:
+    - Either returns 4xx with a clear validation error (JSON), or
+    - Returns 200 with a well-formed JSON body and an empty results array.
+    """
+
+    SPECIAL_QUERY = "!@#$%^&*()"
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
+    logs = []
+    payload = json.dumps({"query": SPECIAL_QUERY})
+
+    # TestResult(test_id, device_id, dab_topic, request_payload, test_result, details, logs)
+    result = TestResult(test_id, device_id, "content/search", payload, "UNKNOWN", "", logs)
+
+    # For final summary fields
+    status_code = None
+    json_ok = False
+    mode = "N/A"             # "200_empty" | "4xx_error" | "other"
+    ui_ok = "N/A"
+
+    try:
+        # Header + description
+        for line in (
+            f"[TEST] Content Search — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: send a special-character-only query and ensure robust handling without crashes or malformed JSON.",
+            "[DESC] Preconditions: device reachable via DAB; content service reachable; user at search interface.",
+            "[DESC] Required operations: content/search.",
+            "[DESC] Pass criteria: valid JSON with either 4xx clear validation error or 200 with empty results.",
+        ):
+            LOGGER.result(line); logs.append(line)
+
+        # Capability gate
+        required_ops = "ops: content/search"
+        if not require_capabilities(tester, device_id, required_ops, result, logs):
+            return result  # 'require_capabilities' already logged and set result
+
+        # Optional precondition confirmation about UI
+        if not yes_or_no("Is the device currently on the search interface? [y/N]: "):
+            result.test_result = "SKIPPED"
+            line = f"[RESULT] SKIPPED — device not on search interface."
+            LOGGER.result(line); logs.append(line)
+            line = f"[SUMMARY] outcome={result.test_result}, test_id={test_id}, device={device_id}"
+            LOGGER.result(line); logs.append(line)
+            return result
+
+        # Step — Send special-character-only query
+        line = f"[STEP] Calling content/search with payload: {payload}"
+        LOGGER.result(line); logs.append(line)
+        status_code, raw_resp = execute_cmd_and_log(tester, device_id, "content/search", payload, logs, result)
+
+        # 501 path: optional/unsupported
+        if status_code == 501:
+            result.test_result = "OPTIONAL_FAILED"
+            line = f"[RESULT] OPTIONAL_FAILED — 501 Not Implemented for content/search."
+            LOGGER.result(line); logs.append(line)
+            line = f"[SUMMARY] outcome={result.test_result}, status={status_code}, test_id={test_id}, device={device_id}"
+            LOGGER.result(line); logs.append(line)
+            return result
+
+        # Capture raw response for debugging
+        LOGGER.info(f"[INFO] content/search raw response: {raw_resp}")
+        logs.append(f"[INFO] content/search raw response: {raw_resp}")
+
+        # Validate JSON
+        try:
+            obj = json.loads(raw_resp) if raw_resp else {}
+            json_ok = True
+        except Exception:
+            obj = None
+            json_ok = False
+
+        # Decision logic
+        if 200 <= (status_code or 0) < 300:
+            # Expect empty results array on success
+            mode = "200_empty"
+            # Accept either "results": [] or "items": []
+            results = None
+            if isinstance(obj, dict):
+                if "results" in obj:
+                    results = obj.get("results")
+                elif "items" in obj:
+                    results = obj.get("items")
+
+            if not json_ok:
+                result.test_result = "FAILED"
+                line = "[RESULT] FAILED — 200 OK but response is not valid JSON."
+                LOGGER.result(line); logs.append(line)
+            elif isinstance(results, list) and len(results) == 0:
+                # Optional UI stability check
+                ui_stable = yes_or_no("Did the UI remain stable (no crash/hang) and show no results or a validation message? [y/N]: ")
+                ui_ok = "Y" if ui_stable else "N"
+                if ui_stable:
+                    result.test_result = "PASS"
+                    line = "[RESULT] PASS — 200 OK with empty results and stable UI."
+                    LOGGER.result(line); logs.append(line)
+                else:
+                    result.test_result = "FAILED"
+                    line = "[RESULT] FAILED — UI instability observed."
+                    LOGGER.result(line); logs.append(line)
+            else:
+                result.test_result = "FAILED"
+                line = "[RESULT] FAILED — 200 OK but expected an empty 'results' (or 'items') array."
+                LOGGER.result(line); logs.append(line)
+
+        elif 400 <= (status_code or 0) < 500:
+            mode = "4xx_error"
+            # Expect clear validation error in JSON (common shapes)
+            clear_error = False
+            if json_ok and isinstance(obj, dict):
+                if "error" in obj:
+                    err_obj = obj["error"]
+                    if isinstance(err_obj, dict):
+                        msg = str(err_obj.get("message", "")).strip()
+                        code = str(err_obj.get("code", "")).strip()
+                        status = str(err_obj.get("status", "")).strip()
+                        clear_error = bool(msg or code or status)
+                else:
+                    # Fallback: top-level code/message/status
+                    msg = str(obj.get("message", "")).strip()
+                    code = str(obj.get("code", "")).strip()
+                    status = str(obj.get("status", "")).strip()
+                    clear_error = bool(msg or code or status)
+
+            if json_ok and clear_error:
+                # Optional UI stability check
+                ui_stable = yes_or_no("Did the UI remain stable (no crash/hang) and show an appropriate validation message? [y/N]: ")
+                ui_ok = "Y" if ui_stable else "N"
+                if ui_stable:
+                    result.test_result = "PASS"
+                    line = "[RESULT] PASS — 4xx with clear validation error in JSON and stable UI."
+                    LOGGER.result(line); logs.append(line)
+                else:
+                    result.test_result = "FAILED"
+                    line = "[RESULT] FAILED — UI instability observed with validation error."
+                    LOGGER.result(line); logs.append(line)
+            else:
+                result.test_result = "FAILED"
+                if not json_ok:
+                    line = "[RESULT] FAILED — 4xx but response is not valid JSON."
+                else:
+                    line = "[RESULT] FAILED — 4xx without a clear validation error in JSON."
+                LOGGER.result(line); logs.append(line)
+
+        else:
+            mode = "other"
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — unexpected status: {status_code}. Expected 200(empty) or 4xx(error)."
+            LOGGER.result(line); logs.append(line)
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — operation '{e.topic}' not supported (test_id={test_id}, device={device_id})"
+        LOGGER.result(line); logs.append(line)
+
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — internal error during special-char search validation: {e} (test_id={test_id}, device={device_id})"
+        LOGGER.result(line); logs.append(line)
+
+    finally:
+        # Final summary (concise, machine-parsable)
+        line = (
+            f"[SUMMARY] outcome={result.test_result}, "
+            f"status={status_code if status_code is not None else 'N/A'}, "
+            f"json_valid={'Y' if json_ok else 'N'}, "
+            f"mode={mode}, "
+            f"ui_ok={ui_ok}, "
+            f"query='{SPECIAL_QUERY}', "
+            f"test_id={test_id}, device={device_id}"
+        )
+        LOGGER.result(line); logs.append(line)
+
+    return result
+
+# === Test: Power Mode Get – STANDBY State Verification ===
+def run_power_mode_get_standby_verify(dab_topic, test_name, tester, device_id):
+    """
+    Validates that system/power-mode/get reports STANDBY (or Background) when the device is in standby.
+    """
+
+    STANDBY_ALIASES = {"STANDBY", "BACKGROUND"}
+
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
+    logs = []
+    payload = json.dumps({})
+
+    # TestResult(test_id, device_id, dab_topic, request_payload, test_result, details, logs)
+    result = TestResult(test_id, device_id, "system/power-mode/get", payload, "UNKNOWN", "", logs)
+
+    status = None
+    parsed_state = "UNKNOWN"
+    state_source = "N/A"
+
+    try:
+        # Header + description
+        for line in (
+            f"[TEST] Power Mode — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: when device is in STANDBY, verify system/power-mode/get returns STANDBY (or Background).",
+            "[DESC] Preconditions: device already in STANDBY and connected; DAB reachable.",
+            "[DESC] Required operations: system/power-mode/get.",
+            "[DESC] Pass criteria: 2xx and state/mode == STANDBY or Background.",
+        ):
+            LOGGER.result(line); logs.append(line)
+
+        # Capability gate
+        required_ops = "ops: system/power-mode/get"
+        if not require_capabilities(tester, device_id, required_ops, result, logs):
+            return result  # 'require_capabilities' already handled
+
+        # Preconditions (manual confirmation)
+        if not yes_or_no("Confirm the device is currently in STANDBY and network/DAB connectivity is stable [y/N]: "):
+            result.test_result = "SKIPPED"
+            line = "[RESULT] SKIPPED — precondition not met (device not confirmed in STANDBY/connected)."
+            LOGGER.result(line); logs.append(line)
+            line = f"[SUMMARY] outcome={result.test_result}, test_id={test_id}, device={device_id}"
+            LOGGER.result(line); logs.append(line)
+            return result
+
+        # Step — Send GET
+        line = f"[STEP] Calling system/power-mode/get with payload: {payload}"
+        LOGGER.result(line); logs.append(line)
+        status, raw_resp = execute_cmd_and_log(tester, device_id, "system/power-mode/get", payload, logs, result)
+
+        # 501 path (optional on some devices)
+        if status == 501:
+            result.test_result = "OPTIONAL_FAILED"
+            line = "[RESULT] OPTIONAL_FAILED — system/power-mode/get not implemented (501)."
+            LOGGER.result(line); logs.append(line)
+            line = f"[SUMMARY] outcome={result.test_result}, status={status}, test_id={test_id}, device={device_id}"
+            LOGGER.result(line); logs.append(line)
+            return result
+
+        # Non-2xx → fail
+        if not (200 <= (status or 0) < 300):
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — expected 2xx, got {status}. Response: {raw_resp}"
+            LOGGER.result(line); logs.append(line)
+            line = f"[SUMMARY] outcome={result.test_result}, status={status}, state={parsed_state}, test_id={test_id}, device={device_id}"
+            LOGGER.result(line); logs.append(line)
+            return result
+
+        # Parse JSON and extract state/mode
+        obj = {}
+        try:
+            obj = json.loads(raw_resp) if raw_resp else {}
+        except Exception:
+            result.test_result = "FAILED"
+            line = "[RESULT] FAILED — response is not valid JSON."
+            LOGGER.result(line); logs.append(line)
+            line = f"[SUMMARY] outcome={result.test_result}, status={status}, state=UNKNOWN, test_id={test_id}, device={device_id}"
+            LOGGER.result(line); logs.append(line)
+            return result
+
+        # Try typical locations
+        candidates = []
+        if isinstance(obj, dict):
+            if "state" in obj: candidates.append(("state", obj.get("state")))
+            if "mode" in obj:  candidates.append(("mode", obj.get("mode")))
+            pm = obj.get("powerMode")
+            if isinstance(pm, dict):
+                if "state" in pm: candidates.append(("powerMode.state", pm.get("state")))
+                if "mode" in pm:  candidates.append(("powerMode.mode", pm.get("mode")))
+
+        # First non-empty candidate wins
+        for k, v in candidates:
+            if v is not None and str(v).strip() != "":
+                parsed_state = str(v).strip().upper()
+                state_source = k
+                break
+
+        LOGGER.info(f"[INFO] system/power-mode/get raw response: {raw_resp}")
+        logs.append(f"[INFO] system/power-mode/get raw response: {raw_resp}")
+        LOGGER.info(f"[INFO] Parsed state='{parsed_state}' (source={state_source})")
+        logs.append(f"[INFO] Parsed state='{parsed_state}' (source={state_source})")
+
+        if parsed_state in STANDBY_ALIASES:
+            result.test_result = "PASS"
+            line = "[RESULT] PASS — power mode reports STANDBY/Background as expected."
+            LOGGER.result(line); logs.append(line)
+        else:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — expected STANDBY/Background, got '{parsed_state}' (source={state_source})."
+            LOGGER.result(line); logs.append(line)
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — operation '{e.topic}' not supported (test_id={test_id}, device={device_id})"
+        LOGGER.result(line); logs.append(line)
+
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — internal error during power mode validation: {e} (test_id={test_id}, device={device_id})"
+        LOGGER.result(line); logs.append(line)
+
+    finally:
+        line = (
+            f"[SUMMARY] outcome={result.test_result}, "
+            f"status={status if status is not None else 'N/A'}, "
+            f"state={parsed_state}, source={state_source}, "
+            f"test_id={test_id}, device={device_id}"
+        )
+        LOGGER.result(line); logs.append(line)
+
+    return result
+
+# === Test: Power Mode Get – ON State Verification ===
+def run_power_mode_get_on_verify(dab_topic, test_name, tester, device_id):
+    """
+    Validates that system/power-mode/get reports ON when the device is powered ON and connected.
+    Acceptance: 2xx + state/mode == "ON" (exact). Anything else → FAILED. 501 → OPTIONAL_FAILED.
+    """
+
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
+    logs = []
+    payload = json.dumps({})
+
+    # TestResult(test_id, device_id, dab_topic, request_payload, test_result, details, logs)
+    result = TestResult(test_id, device_id, "system/power-mode/get", payload, "UNKNOWN", "", logs)
+
+    # Safe defaults for summary
+    status = None
+    parsed_state = "UNKNOWN"
+    state_source = "N/A"
+
+    try:
+        # Header + description
+        for line in (
+            f"[TEST] Power Mode — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: when device is ON, verify system/power-mode/get returns ON.",
+            "[DESC] Preconditions: device ON, network connected, DAB reachable, on Home screen.",
+            "[DESC] Required operations: system/power-mode/get.",
+            "[DESC] Pass criteria: 2xx and state/mode == ON.",
+        ):
+            LOGGER.result(line); logs.append(line)
+
+        # Capability gate
+        required_ops = "ops: system/power-mode/get"
+        if not require_capabilities(tester, device_id, required_ops, result, logs):
+            return result  # 'require_capabilities' already handled
+
+        # Preconditions (manual confirmation)
+        if not yes_or_no("Confirm the device is ON (Home screen visible) and connectivity is stable [y/N]: "):
+            result.test_result = "SKIPPED"
+            line = "[RESULT] SKIPPED — precondition not met (device not confirmed ON/connected)."
+            LOGGER.result(line); logs.append(line)
+            line = f"[SUMMARY] outcome={result.test_result}, test_id={test_id}, device={device_id}"
+            LOGGER.result(line); logs.append(line)
+            return result
+
+        # Step — Send GET
+        line = f"[STEP] Calling system/power-mode/get with payload: {payload}"
+        LOGGER.result(line); logs.append(line)
+        status, raw_resp = execute_cmd_and_log(tester, device_id, "system/power-mode/get", payload, logs, result)
+
+        # 501 path (optional on some devices)
+        if status == 501:
+            result.test_result = "OPTIONAL_FAILED"
+            line = "[RESULT] OPTIONAL_FAILED — system/power-mode/get not implemented (501)."
+            LOGGER.result(line); logs.append(line)
+            line = f"[SUMMARY] outcome={result.test_result}, status={status}, state={parsed_state}, test_id={test_id}, device={device_id}"
+            LOGGER.result(line); logs.append(line)
+            return result
+
+        # Non-2xx → fail
+        if not (200 <= (status or 0) < 300):
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — expected 2xx, got {status}. Response: {raw_resp}"
+            LOGGER.result(line); logs.append(line)
+            line = f"[SUMMARY] outcome={result.test_result}, status={status}, state={parsed_state}, test_id={test_id}, device={device_id}"
+            LOGGER.result(line); logs.append(line)
+            return result
+
+        # Parse JSON and extract state/mode
+        obj = {}
+        try:
+            obj = json.loads(raw_resp) if raw_resp else {}
+        except Exception:
+            result.test_result = "FAILED"
+            line = "[RESULT] FAILED — response is not valid JSON."
+            LOGGER.result(line); logs.append(line)
+            line = f"[SUMMARY] outcome={result.test_result}, status={status}, state=UNKNOWN, test_id={test_id}, device={device_id}"
+            LOGGER.result(line); logs.append(line)
+            return result
+
+        # Common shapes: {"state": "..."} | {"mode": "..."} | {"powerMode": {"state": "...", "mode": "..." }}
+        candidates = []
+        if isinstance(obj, dict):
+            if "state" in obj: candidates.append(("state", obj.get("state")))
+            if "mode" in obj:  candidates.append(("mode", obj.get("mode")))
+            pm = obj.get("powerMode")
+            if isinstance(pm, dict):
+                if "state" in pm: candidates.append(("powerMode.state", pm.get("state")))
+                if "mode" in pm:  candidates.append(("powerMode.mode", pm.get("mode")))
+
+        for k, v in candidates:
+            if v is not None and str(v).strip() != "":
+                parsed_state = str(v).strip().upper()
+                state_source = k
+                break
+
+        LOGGER.info(f"[INFO] system/power-mode/get raw response: {raw_resp}")
+        logs.append(f"[INFO] system/power-mode/get raw response: {raw_resp}")
+        LOGGER.info(f"[INFO] Parsed state='{parsed_state}' (source={state_source})")
+        logs.append(f"[INFO] Parsed state='{parsed_state}' (source={state_source})")
+
+        if parsed_state == "ON":
+            result.test_result = "PASS"
+            line = "[RESULT] PASS — power mode reports ON as expected."
+            LOGGER.result(line); logs.append(line)
+        else:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — expected ON, got '{parsed_state}' (source={state_source})."
+            LOGGER.result(line); logs.append(line)
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — operation '{e.topic}' not supported (test_id={test_id}, device={device_id})"
+        LOGGER.result(line); logs.append(line)
+
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — internal error during power mode ON validation: {e} (test_id={test_id}, device={device_id})"
+        LOGGER.result(line); logs.append(line)
+
+    finally:
+        line = (
+            f"[SUMMARY] outcome={result.test_result}, "
+            f"status={status if status is not None else 'N/A'}, "
+            f"state={parsed_state}, source={state_source}, "
+            f"test_id={test_id}, device={device_id}"
+        )
+        LOGGER.result(line); logs.append(line)
+
+    return result
+def run_power_mode_get_adaptive_support_check(dab_topic, test_name, tester, device_id):
+    """
+    Adaptive test:
+      - If system/power-mode/get is supported: PASS when status==200 and body.mode is present (string).
+      - If unsupported: PASS when status==501 with a clear 'not supported/not implemented' message.
+      - Otherwise: FAILED. Never interactive.
+    """
+    import json
+
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
+    logs = []
+    payload = json.dumps({})
+    result = TestResult(test_id, device_id, "system/power-mode/get", payload, "UNKNOWN", "", logs)
+
+    status = None
+    raw_resp = None
+    json_ok = False
+    msg_ok = False
+    err_msg = ""
+    err_status = ""
+    mode_val = "N/A"
+
+    try:
+        # Header
+        for line in (
+            f"[TEST] Power Mode GET — Adaptive Support Check (test_id={test_id}, device={device_id})",
+            "[DESC] If supported → expect 200 and a 'mode' string; if unsupported → expect 501 with clear message.",
+            "[DESC] No prompts; auto-detect support.",
+        ):
+            LOGGER.result(line); logs.append(line)
+
+        # Use checker to decide path
+        checker = getattr(tester, "dab_checker", None) or DabChecker(tester)
+        try:
+            setattr(tester, "dab_checker", checker)
+        except Exception:
+            pass
+
+        validate_code, _ = checker.is_operation_supported(device_id, "system/power-mode/get")
+
+        # Call op (works either way — we’ll judge from status and body)
+        LOGGER.result(f"[STEP] Calling system/power-mode/get with payload: {payload}")
+        logs.append(f"[STEP] Calling system/power-mode/get with payload: {payload}")
+        status, raw_resp = execute_cmd_and_log(
+            tester, device_id, "system/power-mode/get", payload, logs, result
+        )
+
+        # Parse JSON if present
+        obj = {}
+        try:
+            obj = json.loads(raw_resp) if raw_resp else {}
+            json_ok = True
+        except Exception:
+            json_ok = False
+
+        # Support path
+        if validate_code == ValidateCode.SUPPORT:
+            if status == 200 and json_ok and isinstance(obj, dict):
+                mode_val = str(obj.get("mode", "UNKNOWN"))
+                if mode_val and mode_val != "UNKNOWN":
+                    result.test_result = "PASS"
+                    line = f"[RESULT] PASS — supported: status=200 with mode='{mode_val}'."
+                    LOGGER.result(line); logs.append(line)
+                else:
+                    result.test_result = "FAILED"
+                    line = f"[RESULT] FAILED — supported: missing/invalid 'mode' in body. Resp={raw_resp}"
+                    LOGGER.result(line); logs.append(line)
+            elif 200 <= (status or 0) < 300:
+                # 2xx but body bad
+                result.test_result = "FAILED"
+                line = f"[RESULT] FAILED — supported: status={status} but invalid/absent JSON or 'mode'. Resp={raw_resp}"
+                LOGGER.result(line); logs.append(line)
+            elif status == 501:
+                # Inconsistent with checker; still judge by response
+                result.test_result = "FAILED"
+                line = "[RESULT] FAILED — checker said supported but device returned 501."
+                LOGGER.result(line); logs.append(line)
+            else:
+                result.test_result = "FAILED"
+                line = f"[RESULT] FAILED — supported: unexpected status={status}. Resp={raw_resp}"
+                LOGGER.result(line); logs.append(line)
+
+        # Unsupported path
+        else:
+            # Extract typical error text
+            text = ""
+            if json_ok and isinstance(obj, dict):
+                if "error" in obj and isinstance(obj["error"], dict):
+                    err = obj["error"]
+                    err_msg = str(err.get("message", "")).strip()
+                    err_status = str(err.get("status", "")).strip().upper()
+                else:
+                    err_msg = str(obj.get("message", "")).strip()
+                    err_status = str(obj.get("status", "")).strip().upper()
+                text = (err_msg or err_status).lower()
+
+            msg_ok = ("not supported" in text) or ("unsupported" in text) or ("not_implemented" in text) or ("unimplemented" in text)
+
+            if status == 501 and json_ok and msg_ok:
+                result.test_result = "PASS"
+                line = "[RESULT] PASS — unsupported: 501 with clear 'not supported' indication."
+                LOGGER.result(line); logs.append(line)
+            elif status == 501 and json_ok and not msg_ok:
+                result.test_result = "FAILED"
+                line = "[RESULT] FAILED — unsupported: 501 but message not clearly indicating 'not supported'."
+                LOGGER.result(line); logs.append(line)
+            elif status == 501 and not json_ok:
+                result.test_result = "FAILED"
+                line = "[RESULT] FAILED — unsupported: 501 but invalid JSON."
+                LOGGER.result(line); logs.append(line)
+            elif status is not None and 200 <= status < 300:
+                result.test_result = "FAILED"
+                line = "[RESULT] FAILED — unsupported per checker, but device returned 2xx."
+                LOGGER.result(line); logs.append(line)
+            else:
+                result.test_result = "FAILED"
+                line = f"[RESULT] FAILED — unsupported: unexpected status={status}. Resp={raw_resp}"
+                LOGGER.result(line); logs.append(line)
+
+    except UnsupportedOperationError as e:
+        # For the unsupported path, treat as PASS; for supported path this means device impl disagrees with checker.
+        if validate_code != ValidateCode.SUPPORT:
+            result.test_result = "PASS"
+            line = f"[RESULT] PASS — UnsupportedOperationError treated as unsupported."
+            LOGGER.result(line); logs.append(line)
+        else:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — checker said supported, but raise: {e}"
+            LOGGER.result(line); logs.append(line)
+
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — internal error: {e} (test_id={test_id}, device={device_id})"
+        LOGGER.result(line); logs.append(line)
+
+    finally:
+        line = (
+            f"[SUMMARY] outcome={result.test_result}, status={status if status is not None else 'N/A'}, "
+            f"json_valid={'Y' if json_ok else 'N'}, mode='{mode_val}', "
+            f"msg_ok={'Y' if msg_ok else 'N'}, error_status='{err_status}' error_message='{err_msg}', "
+            f"test_id={test_id}, device={device_id}"
+        )
+        LOGGER.result(line); logs.append(line)
+
+    return result
+
+
+
+# === Test: Power Mode Transition – Standby to Active ===
+def run_power_mode_transition_standby_to_active(dab_topic, test_name, tester, device_id):
+    """
+    Verifies power-mode transition Standby -> Active using system/power-mode/get|set.
+
+    Plan:
+      0) Auto-precondition: if current != "Active", set "Active" and confirm
+      1) Set "Standby"
+      2) Wait fixed 10s (no polling)
+      3) Set "Active"
+      4) PASS if final GET == 200 and body.mode == "Active"
+    """
+    MODE_ACTIVE  = "Active"
+    MODE_STANDBY = "Standby"
+    WAIT_SECONDS = 10
+
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
+    logs = []
+    payload_empty = json.dumps({})
+
+    # TestResult(test_id, device_id, operation, request, test_result, details, logs)
+    result = TestResult(test_id, device_id, "system/power-mode/get", payload_empty, "UNKNOWN", "", logs)
+    final_mode = "UNKNOWN"
+
+    try:
+        # Header
+        for line in (
+            f"[TEST] Power Mode Transition – Standby → Active (test_id={test_id}, device={device_id})",
+            "[DESC] Auto-precondition to Active → set Standby → wait 10s → set Active → confirm final mode.",
+            "[REQ]  ops: system/power-mode/get, system/power-mode/set",
+        ):
+            LOGGER.result(line); logs.append(line)
+
+        # Capability gate
+        if not require_capabilities(
+            tester, device_id,
+            "ops: system/power-mode/get, system/power-mode/set",
+            result, logs
+        ):
+            if result.test_result == "UNKNOWN":
+                result.test_result = "OPTIONAL_FAILED"
+                logs.append("[RESULT] OPTIONAL_FAILED — power-mode ops not supported.")
+            return result
+
+        # STEP 0: Precondition ensure Active
+        LOGGER.result("[STEP] Reading current power mode (system/power-mode/get)")
+        logs.append("[STEP] Reading current power mode (system/power-mode/get)")
+        rc, resp = execute_cmd_and_log(tester, device_id, "system/power-mode/get", payload_empty, logs, result)
+        if dab_status_from(resp, rc) != 200:
+            result.test_result = "FAILED"
+            result.response = f"Initial GET failed: status={rc}, resp={resp}"
+            LOGGER.result(f"[RESULT] FAILED — {result.response}")
+            return result
+
+        try:
+            body = json.loads(resp) if resp else {}
+        except Exception:
+            body = {}
+        current_mode = str(body.get("mode", "UNKNOWN"))
+
+        LOGGER.result(f"[INFO] Current mode: {current_mode}")
+        logs.append(f"[INFO] Current mode: {current_mode}")
+
+        if current_mode != MODE_ACTIVE:
+            LOGGER.result("[PRECHECK] Not Active; setting to Active to satisfy precondition")
+            logs.append("[PRECHECK] Not Active; setting to Active to satisfy precondition")
+
+            rc, resp = execute_cmd_and_log(
+                tester, device_id, "system/power-mode/set", json.dumps({"mode": MODE_ACTIVE}), logs, result
+            )
+            if dab_status_from(resp, rc) != 200:
+                result.test_result = "FAILED"
+                result.response = f"Precondition SET Active failed: status={rc}, resp={resp}"
+                LOGGER.result(f"[RESULT] FAILED — {result.response}")
+                return result
+
+            rc, resp = execute_cmd_and_log(
+                tester, device_id, "system/power-mode/get", payload_empty, logs, result
+            )
+            if dab_status_from(resp, rc) != 200:
+                result.test_result = "FAILED"
+                result.response = f"Precondition confirm GET failed: status={rc}, resp={resp}"
+                LOGGER.result(f"[RESULT] FAILED — {result.response}")
+                return result
+
+            try:
+                body = json.loads(resp) if resp else {}
+            except Exception:
+                body = {}
+            pre_mode = str(body.get("mode", "UNKNOWN"))
+
+            if pre_mode != MODE_ACTIVE:
+                result.test_result = "FAILED"
+                result.response = f"Precondition not satisfied: expected 'Active', got '{pre_mode}'"
+                LOGGER.result(f"[RESULT] FAILED — {result.response}")
+                return result
+
+            LOGGER.result("[PRECHECK] Precondition satisfied: device is now 'Active'")
+            logs.append("[PRECHECK] Precondition satisfied: device is now 'Active'")
+
+        # STEP 1: Set Standby
+        LOGGER.result("[STEP] Setting power mode → Standby")
+        logs.append("[STEP] Setting power mode → Standby")
+        rc, resp = execute_cmd_and_log(
+            tester, device_id, "system/power-mode/set", json.dumps({"mode": MODE_STANDBY}), logs, result
+        )
+        if dab_status_from(resp, rc) != 200:
+            result.test_result = "FAILED"
+            result.response = f"SET Standby failed: status={rc}, resp={resp}"
+            LOGGER.result(f"[RESULT] FAILED — {result.response}")
+            return result
+
+        # STEP 2: Wait 10s
+        LOGGER.result(f"[WAIT] Standby settle for {WAIT_SECONDS}s ")
+        logs.append(f"[WAIT] Standby settle for {WAIT_SECONDS}s ")
+        countdown("Standby settle", WAIT_SECONDS)
+
+        # STEP 3: Set Active
+        LOGGER.result("[STEP] Setting power mode → Active")
+        logs.append("[STEP] Setting power mode → Active")
+        rc, resp = execute_cmd_and_log(
+            tester, device_id, "system/power-mode/set", json.dumps({"mode": MODE_ACTIVE}), logs, result
+        )
+        if dab_status_from(resp, rc) != 200:
+            result.test_result = "FAILED"
+            result.response = f"SET Active failed: status={rc}, resp={resp}"
+            LOGGER.result(f"[RESULT] FAILED — {result.response}")
+            return result
+
+        # STEP 4: Confirm final mode
+        LOGGER.result("[STEP] Confirming final power mode (single get)")
+        logs.append("[STEP] Confirming final power mode (single get)")
+        rc, resp = execute_cmd_and_log(
+            tester, device_id, "system/power-mode/get", payload_empty, logs, result
+        )
+        if dab_status_from(resp, rc) != 200:
+            result.test_result = "FAILED"
+            result.response = f"Final GET failed: status={rc}, resp={resp}"
+        else:
+            try:
+                body = json.loads(resp) if resp else {}
+            except Exception:
+                body = {}
+            final_mode = str(body.get("mode", "UNKNOWN"))
+
+            if final_mode == MODE_ACTIVE:
+                result.test_result = "PASS"
+                result.response = "Transition Standby → Active succeeded and final mode is 'Active'."
+            else:
+                result.test_result = "FAILED"
+                result.response = f"Expected final 'Active', got '{final_mode}'"
+
+        LOGGER.result(f"[RESULT] {result.test_result} — {result.response}")
+
+    except UnsupportedOperationError as u:
+        result.test_result = "OPTIONAL_FAILED"
+        result.response = f"Required operation not implemented: {str(u)}"
+        logs.append(f"[SUMMARY] Skipped due to unsupported operation: {str(u)}")
+
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        result.response = str(e)
+        logs.append(f"[SUMMARY] Exception occurred: {str(e)}")
+
+    finally:
+        LOGGER.result(
+            f"[SUMMARY] outcome={result.test_result}, details={result.response}, "
+            f"final_mode={final_mode}, test_id={test_id}, device={device_id}"
+        )
+        logs.append(
+            f"[SUMMARY] outcome={result.test_result}, details={result.response}, "
+            f"final_mode={final_mode}, test_id={test_id}, device={device_id}"
+        )
+
+    return result
+
+# === Test: Screen Saver Timeout Invalid Value Check (Negative) ===
+def run_screensaver_timeout_invalid_value_check(dab_topic, test_name, tester, device_id):
+    """
+    Verifies that setting screenSaverTimeout with a non-integer value is rejected. This is a negative test.
+    """
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
+    logs = []
+    result = TestResult(test_id, device_id, "system/settings/set", "{}", "UNKNOWN", "", logs)
+    initial_timeout = "N/A"
+    set_status = "N/A"
+
+    try:
+        # Header and description
+        for line in (
+            f"[TEST] Set Screensaver Timeout Invalid Value (Negative) — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: Send a system/settings/set request with a non-integer value for screenSaverTimeout.",
+            "[DESC] Required ops: system/settings/set, system/settings/get.",
+            "[DESC] Pass criteria: The set operation must fail with a 400 error, and the original timeout value must remain unchanged.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Capability gate (include both the precondition setting and the target setting)
+        if not require_capabilities(
+            tester, device_id,
+            "ops: system/settings/set, system/settings/get | settings: screenSaver, screenSaverTimeout",
+            result, logs
+        ):
+            return result
+
+        # Step 1: Enable screensaver as a precondition
+        line = "[STEP] Precondition: Enabling screensaver."
+        LOGGER.result(line); logs.append(line)
+        rc, response = execute_cmd_and_log(
+            tester, device_id,
+            "system/settings/set",
+            json.dumps({"screenSaver": True}),
+            logs, result
+        )
+        if dab_status_from(response, rc) != 200:
+            result.test_result = "FAILED"
+            line = "[RESULT] FAILED — Could not enable screensaver as a precondition."
+            LOGGER.result(line); logs.append(line)
+            return result
+
+        # Step 2: Get the initial timeout value
+        line = "[STEP] Getting initial screenSaverTimeout value."
+        LOGGER.result(line); logs.append(line)
+        rc, response = execute_cmd_and_log(tester, device_id, "system/settings/get", "{}", logs, result)
+        if dab_status_from(response, rc) == 200:
+            initial_timeout = json.loads(response).get("screenSaverTimeout", "N/A")
+            logs.append(f"[INFO] Initial screenSaverTimeout is: {initial_timeout}")
+        else:
+            result.test_result = "FAILED"
+            line = "[RESULT] FAILED — Could not get initial settings."
+            LOGGER.result(line); logs.append(line)
+            return result
+
+        # Step 3: Send the invalid request
+        invalid_payload = json.dumps({"screenSaverTimeout": "@@!!"})
+        line = f"[STEP] Sending invalid request: {invalid_payload}"
+        LOGGER.result(line); logs.append(line)
+        rc, response = execute_cmd_and_log(
+            tester, device_id,
+            "system/settings/set",
+            invalid_payload, logs, result
+        )
+        set_status = dab_status_from(response, rc)
+
+        if set_status != 400:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — Expected status 400 but received {set_status}."
+            LOGGER.result(line); logs.append(line)
+            return result
+        else:
+            logs.append(f"[INFO] Received expected status 400.")
+
+        # Step 4: Confirm the timeout value has not changed
+        line = "[STEP] Verifying screenSaverTimeout value has not changed."
+        LOGGER.result(line); logs.append(line)
+        rc, response = execute_cmd_and_log(
+            tester, device_id,
+            "system/settings/get",
+            "{}", logs, result
+        )
+        final_timeout = "N/A"
+        if dab_status_from(response, rc) == 200:
+            final_timeout = json.loads(response).get("screenSaverTimeout", "N/A")
+            logs.append(f"[INFO] Final screenSaverTimeout is: {final_timeout}")
+
+        if initial_timeout == final_timeout:
+            result.test_result = "PASS"
+            line = "[RESULT] PASS — Device correctly rejected the invalid value and the setting remained unchanged."
+            LOGGER.result(line); logs.append(line)
+        else:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — Device's setting was incorrectly changed from {initial_timeout} to {final_timeout}."
+            LOGGER.result(line); logs.append(line)
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
+        LOGGER.result(line); logs.append(line)
+
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — An unexpected error occurred: {e}"
+        LOGGER.result(line); logs.append(line)
+
+    finally:
+        line = f"[SUMMARY] outcome={result.test_result}, set_status={set_status}, initial_value={initial_timeout}, test_id={test_id}, device={device_id}"
+        LOGGER.result(line); logs.append(line)
 
     return result
 
@@ -7121,4 +8281,13 @@ FUNCTIONAL_TEST_CASE = [
     ("system/logs/start-collection", "functional", run_logs_collection_app_force_stop_check, "LogsCollectionAppForceStopCheck", "2.1", False),
     ("system/logs/start-collection", "functional", run_logs_collection_app_uninstall_check, "LogsCollectionAppUninstallCheck", "2.1", False),
     ("system/logs/start-collection", "functional", run_logs_collection_app_install_and_launch_check, "LogsCollectionAppinstallAndLaunchCheck", "2.1", False),
+    ("system/network-reset", "functional", run_network_reset_wifi_default_restoration, "Network Reset  Wi-Fi Settings Default Restoration", "2.1", False),
+    ("system/setup/skip", "functional", run_setup_skip_privacy_bypass, "Setup Skip Privacy Settings Screen Bypass", "2.1", False),
+    ("content/search", "functional", run_content_search_special_chars_validation, "Content Search  Special-Character-Only Query Validation", "2.1", True),
+    ("system/power-mode/get", "functional", run_power_mode_get_standby_verify, "Power Mode Get STANDBY State Verification", "2.1", False),
+    ("system/power-mode/get", "functional", run_power_mode_get_on_verify, "Power Mode Get ON State Verification", "2.1", False),
+    ("system/power-mode/get", "functional", run_power_mode_get_adaptive_support_check, "Power Mode GET Adaptive Support Check", "2.1", False),
+    ("system/power-mode/get", "functional", run_power_mode_transition_standby_to_active, "Power Mode Transition Standby Active", "2.1", False),
+    ("system/settings/set", "functional", run_screensaver_timeout_invalid_value_check, "SetScreenSaverTimeoutInvalidValue", "2.1", True),
+
 ]

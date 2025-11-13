@@ -618,10 +618,71 @@ class DabTester:
             except Exception as e:
                 test_result.test_result = "SKIPPED"
                 log(test_result, f"\033[1;34m[ SKIPPED - Internal Error ]\033[0m {str(e)}")
+            if dab_request_topic not in {"system/logs/stop-collection", "output/image"} and resp_text:
+                try:
+                    text = str(resp_text)  # no trimming
 
-            if self.verbose and test_result.test_result != "SKIPPED":
-                if dab_request_topic not in {"system/logs/stop-collection", "output/image"} and getattr(test_result, "response", None):
-                    log(test_result, test_result.response)
+                    # If response looks like "['{', 'status: 200', ...]" try to merge it to JSON text
+                    if text.startswith('[') and text.endswith(']'):
+                        import ast
+                        try:
+                            chunks = ast.literal_eval(text)
+                            if isinstance(chunks, list):
+                                text = " ".join(str(x) for x in chunks if str(x))
+                        except Exception:
+                            pass
+
+                    obj = json.loads(text)
+
+                    if isinstance(obj, dict):
+                        for key, value in obj.items():
+                            if isinstance(value, list):
+                                # No index for sub-items; print one line per value
+                                for item in value:
+                                    log(test_result, f"{key}: {item}")
+                            elif isinstance(value, dict):
+                                # Flatten one level without indices
+                                for sub_key, sub_val in value.items():
+                                    log(test_result, f"{key}.{sub_key}: {sub_val}")
+                            else:
+                                log(test_result, f"{key}: {value}")
+
+                    elif isinstance(obj, list):
+                        # Index only for the MAIN (top-level) list items
+                        for i, item in enumerate(obj):
+                            if isinstance(item, dict):
+                                for key, value in item.items():
+                                    if isinstance(value, list):
+                                        for sub_item in value:
+                                            log(test_result, f"item[{i}].{key}: {sub_item}")  # no sub-index
+                                    elif isinstance(value, dict):
+                                        for sub_key, sub_val in value.items():
+                                            log(test_result, f"item[{i}].{key}.{sub_key}: {sub_val}")  # no sub-index
+                                    else:
+                                        log(test_result, f"item[{i}].{key}: {value}")
+                            elif isinstance(item, list):
+                                # Nested list: repeat the same main index for each inner value (no sub-index)
+                                for sub_item in item:
+                                    log(test_result, f"item[{i}]: {sub_item}")
+                            else:
+                                log(test_result, f"item[{i}]: {item}")
+
+                    else:
+                        # Primitive (str/number/bool/null)
+                        log(test_result, str(obj))
+
+                except Exception:
+                    # Fallbacks: if we had chunk tokens, print each as a separate line; else raw text
+                    try:
+                        if 'chunks' in locals() and isinstance(chunks, list):
+                            for chunk in chunks:
+                                log(test_result, str(chunk))
+                        else:
+                            log(test_result, resp_text)
+                    except Exception:
+                        log(test_result, resp_text)
+
+
 
             # ---------- close the test section ----------
             total_ms = int((time.time() - section_wall_start) * 1000)
@@ -896,43 +957,66 @@ class DabTester:
             except Exception:
                 self.logger.warn(f"An invalid result object was skipped in the JSON writer: {r}")
 
-        # --- Summarize heavy topics (no artifact saving here) ---
-        HEAVY_TOPICS = {"system/logs/stop-collection", "output/image"}
+            # --- Summarize heavy topics (no artifact saving here) ---
+            HEAVY_TOPICS = {"system/logs/stop-collection", "output/image"}
 
-        for r in valid_results:
-            topic = getattr(r, "operation", "") or getattr(r, "topic", "")
-            if topic not in HEAVY_TOPICS:
-                continue
+            for r in valid_results:
+                topic = getattr(r, "operation", "") or getattr(r, "topic", "")
+                if topic not in HEAVY_TOPICS:
+                    continue
 
-            # Parse response to dict (best-effort) for status summarization
-            resp_raw = getattr(r, "response", None)
-            if isinstance(resp_raw, dict):
-                resp_obj = resp_raw
-            elif isinstance(resp_raw, str) and resp_raw.strip():
+                # Parse response to dict (best-effort) for status summarization
+                resp_raw = getattr(r, "response", None)
+
+                # NEW: if response is already a list, summarize by length and skip parsing
+                if isinstance(resp_raw, list):  # e.g., old runs that tokenized the body
+                    setattr(r, "response", f"Response summary for '{topic}': list with {len(resp_raw)} items")
+                else:
+                    if isinstance(resp_raw, dict):
+                        resp_obj = resp_raw
+                    elif isinstance(resp_raw, str) and resp_raw.strip():
+                        try:
+                            resp_obj = json.loads(resp_raw)
+                        except Exception:
+                            resp_obj = {}
+                    else:
+                        resp_obj = {}
+
+                    # Build concise summary (no big payloads in results.json)
+                    status = resp_obj.get("status") if isinstance(resp_obj, dict) else None
+                    if isinstance(status, int):
+                        outcome = "SUCCESS" if status == 200 else f"ERROR {status}"
+                        summary = f"Response summary for '{topic}': HTTP {status} ({outcome})"
+                    else:
+                        summary = f"Response summary for '{topic}': stored artifact; see logs."
+                    setattr(r, "response", summary)
+                # Ensure a logs list exists; reference any path that the step saved
                 try:
-                    resp_obj = json.loads(resp_raw)
+                    if not hasattr(r, "logs") or r.logs is None:
+                        setattr(r, "logs", [])
+                    saved_path = getattr(r, "saved_image_path", None)
+                    if topic == "output/image" and saved_path:
+                        r.logs.append(f"[INFO] Screenshot (from step): {saved_path}")
                 except Exception:
-                    resp_obj = {}
-            else:
-                resp_obj = {}
+                    pass
+                # NEW: scrub any previously-added response lines from logs for heavy topics
+                # (keeps only non-response lines, like the screenshot info above)
+                try:
+                    if hasattr(r, "logs") and isinstance(r.logs, list):
+                        cleaned = []
+                        for ln in r.logs:
+                            # keep non-strings (dict/list), and non-response info lines
+                            if not isinstance(ln, str):
+                                cleaned.append(ln); continue
+                            s = ln.lstrip()
+                            # drop JSON-looking blocks or response previews
+                            if s.startswith("{") or s.startswith("[") or s.startswith("items[") or s.startswith("status:") or s.startswith("[RESPONSE"):
+                                continue
+                            cleaned.append(ln)
+                        r.logs = cleaned
+                except Exception:
+                    pass
 
-            # Build concise summary (no big payloads in results.json)
-            status = resp_obj.get("status") if isinstance(resp_obj, dict) else None
-            if isinstance(status, int):
-                outcome = "SUCCESS" if status == 200 else f"ERROR {status}"
-                summary = f"Response summary for '{topic}': HTTP {status} ({outcome})"
-            else:
-                summary = f"Response summary for '{topic}': stored artifact; see logs."
-            setattr(r, "response", summary)
-            # Ensure a logs list exists; reference any path that the step saved
-            try:
-                if not hasattr(r, "logs") or r.logs is None:
-                    setattr(r, "logs", [])
-                saved_path = getattr(r, "saved_image_path", None)
-                if topic == "output/image" and saved_path:
-                    r.logs.append(f"[INFO] Screenshot (from step): {saved_path}")
-            except Exception:
-                pass
         # -------------------------------------------------------------------------------
 
         # Clean only valid results so what we write is tidy (keep logs!)
@@ -1213,32 +1297,31 @@ def get_test_tool_version():
 
 def log(test_result, str_print):
     """
-    Print with timestamp to console, but store a clean line in result.logs
-    (no leading datetime or [LEVEL] tags) for results.json.
+    Print to console (with color), but store a cleaned line in result.logs:
+    - Strip any leading timestamp and [LEVEL] tag
+    - Remove ANSI escape sequences (so no \\u001b... in JSON)
     """
-    import re
-
-    # Matches:
-    #   2025-09-06 17:22:47.784
-    #   2025-09-06T17:22:47
-    #   optional [RESULT]/[INFO]/[OK]/... tag after timestamp
+    # Timestamp + optional [LEVEL] tag at the start of the line
     ts_re = re.compile(
         r'^\s*'                                   # leading spaces
         r'(?:\d{4}-\d{2}-\d{2}[ T]'               # date + space or T
         r'\d{2}:\d{2}:\d{2}(?:\.\d+)?\s*)?'       # time(.ms) (optional)
         r'(?:\[[A-Z]+\]\s*)?'                     # optional [LEVEL] tag
     )
-
+    # ANSI escape sequences (e.g., \x1b[36m) — shown as \u001b in JSON
+    ansi_re = re.compile(r'\x1B\[[0-?]*[ -/]*[@-~]')
     s = str(str_print).replace("\r\n", "\n")
     for raw in s.split("\n"):
         line = raw.strip()
         if not line:
             continue
-        # Console keeps timestamp (handled by LOGGER)
+        # Console: keep original (colors preserved by LOGGER)
         LOGGER.result(line)
-        # JSON keeps a clean message (strip ts + [LEVEL] if present)
+        # JSON: strip timestamp/level + ANSI codes
         try:
-            clean = ts_re.sub("", line).strip()
+            clean = ts_re.sub("", line)
+            clean = ansi_re.sub("", clean)
+            clean = clean.strip()
         except Exception:
             clean = line
         test_result.logs.append(clean)
