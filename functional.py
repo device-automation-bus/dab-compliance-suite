@@ -492,6 +492,47 @@ def fire_and_forget_restart(dab_client, device_id):
     dab_client._DabClient__client.publish(topic, "{}", qos=0, properties=props)
     LOGGER.info(f"Sent restart command to {topic} (fire-and-forget)")
 
+# Priority non-English locales (TV-heavy markets) for voice/send-audio multi-language test
+VOICE_PRIORITY_LOCALES = [
+    "es-419",  # Latin American Spanish
+    "pt-BR",   # Brazilian Portuguese
+    "ar-SA",   # Arabic (Saudi Arabia)
+    "ja-JP",   # Japanese
+    "ko-KR",   # Korean
+    "ru-RU",   # Russian
+    "th-TH",   # Thai
+    "vi-VN",   # Vietnamese
+    "hi-IN",   # Hindi (India)
+    "id-ID",   # Indonesian
+]
+
+def get_voice_audio_url_for_language(language_code):
+    """
+    Returns the HTTP(S) URL for a pre-recorded 'Open YouTube' utterance
+    in the given language, served from GCS.
+
+    Files must be:
+      - audio/wav
+      - 16-bit linear PCM
+      - 16 kHz
+      - mono
+      - <= 4 MB
+    """
+    GCS = "https://storage.googleapis.com/ytlr-cert.appspot.com/voice/different_languages"
+    AUDIO_URLS = {
+        "es-419": f"{GCS}/spanish.wav",
+        "pt-BR":  f"{GCS}/brazil.wav",
+        "ar-SA":  f"{GCS}/Arabic.wav",
+        "ja-JP":  f"{GCS}/Japanese.wav",
+        "ko-KR":  f"{GCS}/Korean.wav",
+        "ru-RU":  f"{GCS}/Russian.wav",
+        "th-TH":  f"{GCS}/Thai.wav",
+        "vi-VN":  f"{GCS}/Vietnamese.wav",
+        "hi-IN":  f"{GCS}/Hindi.wav",
+        "id-ID":  f"{GCS}/Indonesian.wav",
+    }
+    return AUDIO_URLS.get(language_code)
+
 # === Test 1: App in FOREGROUND Validate app moves to FOREGROUND after launch ===
 def run_app_foreground_check(dab_topic, test_name, tester, device_id):
     test_id = to_test_id(f"{dab_topic}/{test_name}")
@@ -9646,6 +9687,349 @@ def run_power_mode_active_to_standby_check(dab_topic, test_name, tester, device_
 
     return result
 
+def run_voice_multilanguage_language_alignment_check(dab_topic, test_name, tester, device_id):
+    """
+    Multi-language voice/send-audio test:
+
+      - Save current system language.
+      - Try setting one of the 10 priority non-English locales via system/settings/set.
+      - Use the first locale that returns status 200 as the test language.
+      - Ensure a voice assistant is enabled.
+      - Send a pre-recorded 'Open YouTube' audio using voice/send-audio with fileLocation from GCS.
+      - Ask the tester to confirm that the assistant responded correctly in that language.
+      - Restore the previous language (or en-US if unknown).
+
+    If none of the 10 locales are accepted, mark OPTIONAL_FAILED.
+    """
+
+    DEFAULT_LANGUAGE = "en-US"
+
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
+    logs = []
+    # dab_topic should be "voice/send-audio" in the FUNCTIONAL_TEST_CASE tuple
+    result = TestResult(test_id, device_id, dab_topic, "{}", "UNKNOWN", "", logs)
+
+    selected_language = None
+    previous_language = None
+    assistant_name = None
+
+    try:
+        # ------------------------------------------------------------------
+        # Header / description
+        # ------------------------------------------------------------------
+        for line in (
+            f"[TEST] Voice Multi-Language Alignment (send-audio) — {test_name} "
+            f"(test_id={test_id}, device={device_id})",
+            "[DESC] Goal: Use one of 10 priority non-English locales that the device "
+            "actually accepts via system/settings/set and run a voice/send-audio test.",
+            "[DESC] Preconditions: device powered on, DAB reachable.",
+            "[DESC] Required ops: system/settings/get, system/settings/set, "
+            "voice/list, voice/set, voice/send-audio.",
+            "[DESC] Pass criteria: Tester confirms the assistant responded correctly "
+            "for the selected language; all DAB calls succeed; language is restored.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # ------------------------------------------------------------------
+        # Capability gate (operations only; no 'settings: language' strict check)
+        # ------------------------------------------------------------------
+        cap_spec = (
+            "ops: system/settings/get, system/settings/set, "
+            "voice/list, voice/set, voice/send-audio"
+        )
+        if not require_capabilities(tester, device_id, cap_spec, result, logs):
+            # require_capabilities already logged and set OPTIONAL_FAILED
+            return result
+
+        # ------------------------------------------------------------------
+        # Step 1: Read and remember current system language
+        # ------------------------------------------------------------------
+        payload_get = json.dumps({"id": "language"})
+        line = f"[STEP] Reading current language via system/settings/get with payload: {payload_get}"
+        LOGGER.result(line)
+        logs.append(line)
+
+        _, resp_get = execute_cmd_and_log(
+            tester, device_id, "system/settings/get", payload_get, logs, result
+        )
+
+        try:
+            body = json.loads(resp_get) if resp_get else {}
+            previous_language = body.get("language")
+            line = f"[INFO] Current system language reported as: {previous_language}"
+        except Exception as e:
+            previous_language = None
+            line = f"[WARN] Could not parse current language from response: {resp_get} (error: {e})"
+
+        LOGGER.info(line)
+        logs.append(line)
+
+        # ------------------------------------------------------------------
+        # Step 2: Probe for a supported target language using system/settings/set
+        # ------------------------------------------------------------------
+        line = (
+            "[STEP] Probing system/settings/set with priority non-English locales "
+            f"to find a supported test language: {VOICE_PRIORITY_LOCALES}"
+        )
+        LOGGER.result(line)
+        logs.append(line)
+
+        for candidate in VOICE_PRIORITY_LOCALES:
+            payload_probe = json.dumps({"language": candidate})
+            probe_log = (
+                f"[INFO] Trying candidate language '{candidate}' via system/settings/set "
+                f"with payload: {payload_probe}"
+            )
+            LOGGER.info(probe_log)
+            logs.append(probe_log)
+
+            rc_probe, resp_probe = execute_cmd_and_log(
+                tester, device_id, "system/settings/set", payload_probe, logs, result
+            )
+            status_probe = dab_status_from(resp_probe, rc_probe)
+
+            if status_probe == 200:
+                selected_language = candidate
+                line = (
+                    f"[INFO] Candidate '{candidate}' accepted (status=200). "
+                    "Using this language for the test."
+                )
+                LOGGER.result(line)
+                logs.append(line)
+                break
+            else:
+                line = (
+                    f"[INFO] Candidate '{candidate}' not accepted. "
+                    f"Status={status_probe}, response={resp_probe}"
+                )
+                LOGGER.info(line)
+                logs.append(line)
+
+        if not selected_language:
+            result.test_result = "OPTIONAL_FAILED"
+            line = (
+                "[RESULT] OPTIONAL_FAILED — None of the 10 priority locales were accepted "
+                "by system/settings/set; cannot run multi-language voice test."
+            )
+            LOGGER.result(line)
+            logs.append(line)
+
+            summary = (
+                f"[SUMMARY] outcome={result.test_result}, selected_language=None, "
+                f"previous_language={previous_language}, assistant=None, "
+                f"test_id={test_id}, device={device_id}"
+            )
+            LOGGER.result(summary)
+            logs.append(summary)
+            return result
+
+        line = f"[INFO] Selected test language: {selected_language}"
+        LOGGER.result(line)
+        logs.append(line)
+
+        # ------------------------------------------------------------------
+        # Step 3: Ensure a voice assistant is available and enabled
+        # ------------------------------------------------------------------
+        line = "[STEP] Listing voice systems via voice/list to choose an assistant."
+        LOGGER.result(line)
+        logs.append(line)
+
+        rc_list, resp_list = execute_cmd_and_log(
+            tester, device_id, "voice/list", "{}", logs, result
+        )
+
+        try:
+            body = json.loads(resp_list) if resp_list else {}
+            voice_systems = body.get("voiceSystems") or body.get("voiceAssistants") or []
+        except Exception as e:
+            voice_systems = []
+            line = f"[WARN] Could not parse voice/list response: {resp_list} (error: {e})"
+            LOGGER.warn(line)
+            logs.append(line)
+
+        if not voice_systems:
+            result.test_result = "OPTIONAL_FAILED"
+            line = "[RESULT] OPTIONAL_FAILED — No voice assistants available on this device."
+            LOGGER.result(line)
+            logs.append(line)
+
+            summary = (
+                f"[SUMMARY] outcome={result.test_result}, selected_language={selected_language}, "
+                f"previous_language={previous_language}, assistant=None, "
+                f"test_id={test_id}, device={device_id}"
+            )
+            LOGGER.result(summary)
+            logs.append(summary)
+            return result
+
+        chosen = voice_systems[0]
+        assistant_name = chosen.get("name") or chosen.get("id") or "UNKNOWN"
+        enabled = chosen.get("enabled")
+
+        line = f"[INFO] Selected voice assistant for test: {assistant_name} (enabled={enabled})"
+        LOGGER.result(line)
+        logs.append(line)
+
+        if enabled is False:
+            payload_enable = json.dumps({
+                "voiceSystem": {"name": assistant_name, "enabled": True}
+            })
+            line = (
+                f"[STEP] Enabling voice assistant '{assistant_name}' via voice/set "
+                f"with payload: {payload_enable}"
+            )
+            LOGGER.result(line)
+            logs.append(line)
+
+            rc_vs, resp_vs = execute_cmd_and_log(
+                tester, device_id, "voice/set", payload_enable, logs, result
+            )
+            status_vs = dab_status_from(resp_vs, rc_vs)
+            if status_vs != 200:
+                result.test_result = "FAILED"
+                line = (
+                    f"[RESULT] FAILED — Could not enable voice assistant '{assistant_name}'. "
+                    f"Status={status_vs}, response={resp_vs}"
+                )
+                LOGGER.result(line)
+                logs.append(line)
+                return result
+
+        # ------------------------------------------------------------------
+        # Step 4: Prepare audio URL for selected language
+        # ------------------------------------------------------------------
+        audio_url = get_voice_audio_url_for_language(selected_language)
+        if not audio_url:
+            result.test_result = "OPTIONAL_FAILED"
+            line = (
+                "[RESULT] OPTIONAL_FAILED — No audio URL configured for "
+                f"language '{selected_language}'. Please update get_voice_audio_url_for_language()."
+            )
+            LOGGER.result(line)
+            logs.append(line)
+
+            summary = (
+                f"[SUMMARY] outcome={result.test_result}, selected_language={selected_language}, "
+                f"previous_language={previous_language}, assistant={assistant_name}, "
+                f"test_id={test_id}, device={device_id}"
+            )
+            LOGGER.result(summary)
+            logs.append(summary)
+            return result
+
+        # ------------------------------------------------------------------
+        # Step 5: Send voice/send-audio request
+        # ------------------------------------------------------------------
+        payload_voice = json.dumps({
+            "fileLocation": audio_url,
+            "voiceSystem": assistant_name,
+        })
+
+        line = (
+            "[STEP] Sending voice command via voice/send-audio with payload: "
+            f"{payload_voice}"
+        )
+        LOGGER.result(line)
+        logs.append(line)
+
+        rc_voice, resp_voice = execute_cmd_and_log(
+            tester, device_id, "voice/send-audio", payload_voice, logs, result
+        )
+        status_voice = dab_status_from(resp_voice, rc_voice)
+        if status_voice != 200:
+            result.test_result = "FAILED"
+            line = (
+                f"[RESULT] FAILED — voice/send-audio returned status {status_voice}, "
+                "expected 200."
+            )
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        # ------------------------------------------------------------------
+        # Step 6: Manual confirmation — did assistant actually trigger?
+        # ------------------------------------------------------------------
+        question = (
+            f"Did the voice assistant respond correctly for language '{selected_language}' "
+            "when the audio command was played (e.g., opened YouTube or handled the request)? "
+        )
+        line = "[STEP] Awaiting manual confirmation from tester for assistant behavior."
+        LOGGER.result(line)
+        logs.append(line)
+
+        user_ok = yes_or_no(result, logs, question)
+        if not user_ok:
+            result.test_result = "FAILED"
+            line = (
+                "[RESULT] FAILED — Tester indicated that the assistant did NOT behave "
+                "correctly for the selected language."
+            )
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        result.test_result = "PASS"
+        line = "[RESULT] PASS — Assistant behaved correctly for the selected system language."
+        LOGGER.result(line)
+        logs.append(line)
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported: {e}"
+        LOGGER.result(line)
+        logs.append(line)
+
+    except Exception as e:
+        result.test_result = "FAILED"
+        line = f"[RESULT] FAILED — Unexpected exception occurred: {e}"
+        LOGGER.result(line)
+        logs.append(line)
+
+    finally:
+        # ------------------------------------------------------------------
+        # Step 7: Restore previous system language (best-effort)
+        # ------------------------------------------------------------------
+        target_restore = previous_language or DEFAULT_LANGUAGE
+        if selected_language and target_restore and target_restore != selected_language:
+            payload_restore = json.dumps({"language": target_restore})
+            line = (
+                f"[STEP] Restoring system language to '{target_restore}' via system/settings/set "
+                f"with payload: {payload_restore}"
+            )
+            LOGGER.result(line)
+            logs.append(line)
+            try:
+                rc_res, resp_res = execute_cmd_and_log(
+                    tester, device_id, "system/settings/set", payload_restore, logs, result
+                )
+                status_res = dab_status_from(resp_res, rc_res)
+                if status_res != 200:
+                    warn_line = (
+                        f"[WARN] Best-effort restore of system language failed. "
+                        f"Status={status_res}, response={resp_res}"
+                    )
+                    LOGGER.warn(warn_line)
+                    logs.append(warn_line)
+            except UnsupportedOperationError as e:
+                warn_line = f"[WARN] Restore skipped — system/settings/set not supported: {e}"
+                LOGGER.warn(warn_line)
+                logs.append(warn_line)
+            except Exception as e:
+                warn_line = f"[WARN] Restore skipped due to unexpected exception: {e}"
+                LOGGER.warn(warn_line)
+                logs.append(warn_line)
+
+        summary = (
+            f"[SUMMARY] outcome={result.test_result}, selected_language={selected_language}, "
+            f"previous_language={previous_language}, assistant={assistant_name}, "
+            f"test_id={test_id}, device={device_id}"
+        )
+        LOGGER.result(summary)
+        logs.append(summary)
+
+    return result
+
 # === Functional Test Case List ===
 FUNCTIONAL_TEST_CASE = [
     ("applications/get-state", "functional", run_app_foreground_check, "AppForegroundCheck", "2.0", False),
@@ -9722,11 +10106,12 @@ FUNCTIONAL_TEST_CASE = [
     ("system/settings/set", "functional", run_screensaver_timeout_invalid_value_check, "SetScreenSaverTimeoutInvalidValue", "2.1", True),
     ("system/settings/set", "functional", run_set_contrast_to_max, "Set Contrast to Maximum", "2.1", False),
     ("system/settings/set", "functional", run_screensaver_timeout_invalid_time, "Screensaver Timeout Invalid negative value", "2.1", True),
-    ("system/settings/set", "functional", run_contrast_rapid_change_min_to_max, "Contrast Rapid Change Min→Max", "2.1", False),
+    ("system/settings/set", "functional", run_contrast_rapid_change_min_to_max, "Contrast Rapid Change Min Max", "2.1", False),
     ("system/settings/set", "functional", run_personalized_ads_invalid_value, "PersonalizedAds Invalid Value", "2.1", True),
     ("system/factory-reset", "functional", run_factory_reset_and_verify_initial_state, "FactoryResetRestoreInitialState", "2.1", False),
     ("system/power-mode/set", "functional", run_power_mode_case_sensitive_negative, "PowerModeSetCaseSensitivityNegative", "2.1", True),
     ("system/power-mode/set", "functional", run_power_mode_set_missing_param, "PowerModeSetMissingModeNegative", "2.1", True),
     ("system/power-mode/set", "functional", run_power_mode_active_to_standby_check, "PowerModeActiveToStandbyPositive", "2.1", False),
+    ("voice/send-text", "functional", run_voice_multilanguage_language_alignment_check, "VoiceMultiLanguageLanguageAlignment", "2.1", False),
 
 ]
