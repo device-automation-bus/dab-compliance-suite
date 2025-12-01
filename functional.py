@@ -9687,6 +9687,7 @@ def run_power_mode_active_to_standby_check(dab_topic, test_name, tester, device_
 
     return result
 
+# === Test: Voice Multi-Language Alignment Check (voice/send-audio) ===
 def run_voice_multilanguage_language_alignment_check(dab_topic, test_name, tester, device_id):
     """
     Multi-language voice/send-audio test:
@@ -10012,13 +10013,13 @@ def run_voice_multilanguage_language_alignment_check(dab_topic, test_name, teste
                     LOGGER.warn(warn_line)
                     logs.append(warn_line)
             except UnsupportedOperationError as e:
-                warn_line = f"[WARN] Restore skipped — system/settings/set not supported: {e}"
-                LOGGER.warn(warn_line)
-                logs.append(warn_line)
+                error_line = f"[ERROR] Restore skipped — system/settings/set not supported: {e}"
+                LOGGER.error(error_line)
+                logs.append(error_line)
             except Exception as e:
-                warn_line = f"[WARN] Restore skipped due to unexpected exception: {e}"
-                LOGGER.warn(warn_line)
-                logs.append(warn_line)
+                error_line = f"[ERROR] Restore skipped due to unexpected exception: {e}"
+                LOGGER.error(error_line)
+                logs.append(error_line)
 
         summary = (
             f"[SUMMARY] outcome={result.test_result}, selected_language={selected_language}, "
@@ -10112,6 +10113,6 @@ FUNCTIONAL_TEST_CASE = [
     ("system/power-mode/set", "functional", run_power_mode_case_sensitive_negative, "PowerModeSetCaseSensitivityNegative", "2.1", True),
     ("system/power-mode/set", "functional", run_power_mode_set_missing_param, "PowerModeSetMissingModeNegative", "2.1", True),
     ("system/power-mode/set", "functional", run_power_mode_active_to_standby_check, "PowerModeActiveToStandbyPositive", "2.1", False),
-    ("voice/send-text", "functional", run_voice_multilanguage_language_alignment_check, "VoiceMultiLanguageLanguageAlignment", "2.1", False),
+    ("voice/send-audio", "functional", run_voice_multilanguage_language_alignment_check, "VoiceMultiLanguageLanguageAlignment", "2.1", False),
 
 ]
