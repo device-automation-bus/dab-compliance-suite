@@ -231,12 +231,16 @@ class DabChecker:
             s = raw_body_str if isinstance(raw_body_str, str) else json.dumps(raw_body_str or {})
         except Exception:
             s = str(raw_body_str)
-        if '"invalid"' in s:
+
+        s_lower = s.lower()
+        # Case-insensitive detection for "invalid" / "invalid_type" style markers
+        if '"invalid"' in s_lower or "invalid_type" in s_lower:
             return True
+        # Keys like "foo_" → also treat as negative/bad request
         if re.search(r'"\w+_"\s*:', s):
             return True
         return False
-
+    
     def __maybe_adjust_settings_set_payload(self, dab_body):
         """
         Positive tests only (best-effort): compare requested {key: value} to settings/list
@@ -274,9 +278,14 @@ class DabChecker:
 
             (k, v), = body.items()
 
-            # Extra guard using descriptor to avoid 'fixing' negative tests
+            # Capability/descriptor from settings/list
             sup_map = self.__to_settings_map(EnforcementManager().get_supported_settings())
             desc = sup_map.get(k)
+
+            # NEW: boolean descriptor + non-boolean value → treat as negative
+            if isinstance(desc, bool) and not isinstance(v, bool):
+                self.logger.info("[SET precheck] Boolean descriptor but non-boolean value provided; treating as negative test and sending payload as-is.")
+                return dab_body
 
             # If no descriptor, don't attempt to auto-fix (could be a neg test on unknown key)
             if desc is None:
