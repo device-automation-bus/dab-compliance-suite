@@ -111,7 +111,7 @@ def require_capabilities(tester, device_id, spec, result=None, logs=None):
             if validate_code != ValidateCode.SUPPORT:
                 msg = f"[OPTIONAL_FAILED] Required op not supported: {op}"
                 LOGGER.warn(msg)
-                if logs is not None: logs.append(LOGGER.stamp(msg))
+                if logs is not None: logs.append(msg)
                 if result is not None: result.test_result = "OPTIONAL_FAILED"
                 return False
 
@@ -122,7 +122,7 @@ def require_capabilities(tester, device_id, spec, result=None, logs=None):
             if validate_code != ValidateCode.SUPPORT:
                 msg = f"[OPTIONAL_FAILED] Required setting not supported: {setting}"
                 LOGGER.warn(msg)
-                if logs is not None: logs.append(LOGGER.stamp(msg))
+                if logs is not None: logs.append(msg)
                 if result is not None: result.test_result = "OPTIONAL_FAILED"
                 return False
 
@@ -132,7 +132,7 @@ def require_capabilities(tester, device_id, spec, result=None, logs=None):
             if validate_code != ValidateCode.SUPPORT:
                 msg = f"[OPTIONAL_FAILED] Required key not supported: {key}"
                 LOGGER.warn(msg)
-                if logs is not None: logs.append(LOGGER.stamp(msg))
+                if logs is not None: logs.append(msg)
                 if result is not None: result.test_result = "OPTIONAL_FAILED"
                 return False
 
@@ -143,13 +143,13 @@ def require_capabilities(tester, device_id, spec, result=None, logs=None):
             if validate_code != ValidateCode.SUPPORT:
                 msg = f"[OPTIONAL_FAILED] Required voice assistant not supported: {voice}"
                 LOGGER.warn(msg)
-                if logs is not None: logs.append(LOGGER.stamp(msg))
+                if logs is not None: logs.append(msg)
                 if result is not None: result.test_result = "OPTIONAL_FAILED"
                 return False
 
         LOGGER.ok("Capability gate passed.")
         if logs is not None:
-            logs.append(LOGGER.stamp("Capability gate passed."))
+            logs.append("Capability gate passed.")
         return True
 
     except Exception as e:
@@ -157,7 +157,7 @@ def require_capabilities(tester, device_id, spec, result=None, logs=None):
         msg = f"[OPTIONAL_FAILED] Capability precheck failed: {e}"
         LOGGER.warn(msg)
         if logs is not None:
-            logs.append(LOGGER.stamp(msg))
+            logs.append(msg)
         if result is not None:
             result.test_result = "OPTIONAL_FAILED"
         return False
@@ -177,7 +177,7 @@ def execute_cmd_and_log(tester, device_id, topic, payload, logs=None, result=Non
     if topic not in supported_ops and topic != "operations/list":
         line = f"[OPTIONAL_FAILED] Operation '{topic}' is not supported by the device (checked from cache)."
         LOGGER.warn(line)
-        if logs is not None: logs.append(LOGGER.stamp(line))
+        if logs is not None: logs.append(line)
         if result is not None:
             result.test_result = "OPTIONAL_FAILED"
         raise UnsupportedOperationError(topic)
@@ -205,7 +205,7 @@ def execute_cmd_and_log(tester, device_id, topic, payload, logs=None, result=Non
     # Log
     resp_line = f"[{topic}] Response: {resp_json}"
     LOGGER.info(resp_line)
-    if logs is not None: logs.append(LOGGER.stamp(resp_line))
+    if logs is not None: logs.append(resp_line)
 
     # Normalize status code (never None)
     status_code = dab_status_from(resp_json, rc)
@@ -213,11 +213,11 @@ def execute_cmd_and_log(tester, device_id, topic, payload, logs=None, result=Non
         status_code = 500
         warn = f"[WARN] No status code found for '{topic}'; defaulting to 500."
         LOGGER.warn(warn)
-        if logs is not None: logs.append(LOGGER.stamp(warn))
+        if logs is not None: logs.append(warn)
 
     status_line = f"[{topic}] Status: {status_code}"
     LOGGER.info(status_line)
-    if logs is not None: logs.append(LOGGER.stamp(status_line))
+    if logs is not None: logs.append(status_line)
     return status_code, resp_json
 
 def dab_status_from(resp, rc):
@@ -268,24 +268,24 @@ def select_input(result, logs, arr):
     # Show options
     line0 = "*0: There is no option that meet the requirement."
     LOGGER.info(line0)
-    if logs is not None: logs.append(LOGGER.stamp(line0))
+    if logs is not None: logs.append(line0)
 
     for idx, value in enumerate(arr, start=1):
         line = f"*{idx}: {value}"
         LOGGER.info(line)
-        if logs is not None: logs.append(LOGGER.stamp(line))
+        if logs is not None: logs.append(line)
 
     # Prompt loop
     max_idx = len(arr)
     while True:
         prompt = f"Please input number (0–{max_idx}):"
         LOGGER.prompt(prompt)
-        if logs is not None: logs.append(LOGGER.stamp(prompt))
+        if logs is not None: logs.append(prompt)
 
         ch = readchar()
         echo = f"[{ch}]"
         LOGGER.result(echo)
-        if logs is not None: logs.append(LOGGER.stamp(echo))
+        if logs is not None: logs.append(echo)
 
         if ch.isdigit():
             choice = int(ch)
@@ -294,7 +294,7 @@ def select_input(result, logs, arr):
 
         warn = f"[WARN] Invalid choice '{ch}'. Enter 0–{max_idx}."
         LOGGER.warn(warn)
-        if logs is not None: logs.append(LOGGER.stamp(warn))
+        if logs is not None: logs.append(warn)
  
 
 def countdown(title, count):
@@ -10046,7 +10046,7 @@ def run_timezone_iana_america_new_york_check(dab_topic, test_name, tester, devic
     if not require_capabilities(tester, device_id, cap_spec, result, logs):
         summary_line = f"[SUMMARY] {test_name} — final result: {result.test_result}, test_id={test_id}, device={device_id}"
         LOGGER.result(summary_line)
-        logs.append(LOGGER.stamp(summary_line))
+        logs.append(summary_line)
         return result  # OPTIONAL_FAILED already set
 
     try:
@@ -10058,10 +10058,10 @@ def run_timezone_iana_america_new_york_check(dab_topic, test_name, tester, devic
             summary = f"system/settings/get for timeZone failed with status {before_status}."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         original_tz = before_resp.get("timeZone")
@@ -10075,19 +10075,19 @@ def run_timezone_iana_america_new_york_check(dab_topic, test_name, tester, devic
             summary = f"system/settings/set rejected valid IANA timezone {target_tz!r} with status 400."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
         if set_status != 200:
             summary = f"system/settings/set for timeZone returned unexpected status {set_status}."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         LOGGER.result("[WAIT] Waiting 3 seconds for the timeZone change to apply.")
@@ -10101,10 +10101,10 @@ def run_timezone_iana_america_new_york_check(dab_topic, test_name, tester, devic
             summary = f"system/settings/get after update failed with status {after_status}."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         new_tz = after_resp.get("timeZone")
@@ -10112,10 +10112,10 @@ def run_timezone_iana_america_new_york_check(dab_topic, test_name, tester, devic
             summary = f"timeZone did not update correctly: expected {target_tz!r}, got {new_tz!r}."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         # Optional UI confirmation
@@ -10124,10 +10124,10 @@ def run_timezone_iana_america_new_york_check(dab_topic, test_name, tester, devic
             summary = "API reports timeZone=America/New_York but UI verification failed."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         # 5) Restore original (best-effort)
@@ -10140,20 +10140,20 @@ def run_timezone_iana_america_new_york_check(dab_topic, test_name, tester, devic
         summary = "Device supports timeZone and accepts valid IANA timezone America/New_York."
         LOGGER.result(f"[SUMMARY] PASS – {summary}")
         result.test_result = "PASS"
-        result.summary = summary
+        logs.append(summary_line)
         summary_line = f"[SUMMARY] {test_name} — final result: PASS, test_id={test_id}, device={device_id}"
         LOGGER.result(summary_line)
-        logs.append(LOGGER.stamp(summary_line))
+        logs.append(summary_line)
         return result
 
     except Exception as e:
         summary = f"Unexpected error during timeZone IANA validation: {e}"
         LOGGER.result(f"[RESULT] FAILED – {summary}")
         result.test_result = "FAILED"
-        result.summary = summary
+        logs.append(summary_line)
         summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
         LOGGER.result(summary_line)
-        logs.append(LOGGER.stamp(summary_line))
+        logs.append(summary_line)
         return result
 
 def run_timezone_invalid_format_rejection_check(dab_topic, test_name, tester, device_id):
@@ -10170,7 +10170,7 @@ def run_timezone_invalid_format_rejection_check(dab_topic, test_name, tester, de
     if not require_capabilities(tester, device_id, cap_spec, result, logs):
         summary_line = f"[SUMMARY] {test_name} — final result: {result.test_result}, test_id={test_id}, device={device_id}"
         LOGGER.result(summary_line)
-        logs.append(LOGGER.stamp(summary_line))
+        logs.append(summary_line)
         return result  # OPTIONAL_FAILED already set
 
     try:
@@ -10182,10 +10182,10 @@ def run_timezone_invalid_format_rejection_check(dab_topic, test_name, tester, de
             summary = f"system/settings/get for timeZone failed with status {before_status}."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         original_tz = before_resp.get("timeZone")
@@ -10201,10 +10201,10 @@ def run_timezone_invalid_format_rejection_check(dab_topic, test_name, tester, de
             summary = f"system/settings/set for invalid timeZone returned status {set_status}; expected 400."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         LOGGER.result("[INFO] Device correctly rejected invalid timeZone with status 400 (Bad Request).")
@@ -10217,10 +10217,10 @@ def run_timezone_invalid_format_rejection_check(dab_topic, test_name, tester, de
             summary = f"system/settings/get after invalid set failed with status {after_status}."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         new_tz = after_resp.get("timeZone")
@@ -10228,10 +10228,10 @@ def run_timezone_invalid_format_rejection_check(dab_topic, test_name, tester, de
             summary = f"timeZone changed after invalid set: expected {original_tz!r}, got {new_tz!r}."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         LOGGER.result(f"[INFO] timeZone remains unchanged at API level ({new_tz!r}) after invalid set, as expected.")
@@ -10243,29 +10243,29 @@ def run_timezone_invalid_format_rejection_check(dab_topic, test_name, tester, de
             summary = "API reports unchanged timeZone after invalid set, but manual UI verification indicates a change."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         summary = "Device correctly rejects invalid timeZone value with status 400 and preserves the original timeZone."
         LOGGER.result(f"[SUMMARY] PASS – {summary}")
         result.test_result = "PASS"
-        result.summary = summary
+        logs.append(summary_line)
         summary_line = f"[SUMMARY] {test_name} — final result: PASS, test_id={test_id}, device={device_id}"
         LOGGER.result(summary_line)
-        logs.append(LOGGER.stamp(summary_line))
+        logs.append(summary_line)
         return result
 
     except Exception as e:
         summary = f"Unexpected error during timeZone invalid-format validation: {e}"
         LOGGER.result(f"[RESULT] FAILED – {summary}")
         result.test_result = "FAILED"
-        result.summary = summary
+        logs.append(summary_line)
         summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
         LOGGER.result(summary_line)
-        logs.append(LOGGER.stamp(summary_line))
+        logs.append(summary_line)
         return result
 
 def run_timezone_case_insensitive_america_los_angeles_check(dab_topic, test_name, tester, device_id):
@@ -10283,7 +10283,7 @@ def run_timezone_case_insensitive_america_los_angeles_check(dab_topic, test_name
     if not require_capabilities(tester, device_id, cap_spec, result, logs):
         summary_line = f"[SUMMARY] {test_name} — final result: {result.test_result}, test_id={test_id}, device={device_id}"
         LOGGER.result(summary_line)
-        logs.append(LOGGER.stamp(summary_line))
+        logs.append(summary_line)
         return result  # OPTIONAL_FAILED already set
 
     try:
@@ -10295,10 +10295,10 @@ def run_timezone_case_insensitive_america_los_angeles_check(dab_topic, test_name
             summary = f"system/settings/get for timeZone failed with status {before_status}."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         original_tz = before_resp.get("timeZone")
@@ -10312,10 +10312,10 @@ def run_timezone_case_insensitive_america_los_angeles_check(dab_topic, test_name
             summary = f"system/settings/set for lower-case timeZone returned status {set_status}; expected 200."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         LOGGER.result("[WAIT] Waiting 3 seconds for the timeZone change to apply.")
@@ -10329,10 +10329,10 @@ def run_timezone_case_insensitive_america_los_angeles_check(dab_topic, test_name
             summary = f"system/settings/get after update failed with status {after_status}."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         new_tz = after_resp.get("timeZone")
@@ -10340,10 +10340,10 @@ def run_timezone_case_insensitive_america_los_angeles_check(dab_topic, test_name
             summary = f"timeZone did not normalize correctly: expected {canonical_tz!r}, got {new_tz!r}."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         LOGGER.result(f"[INFO] timeZone updated and normalized to canonical value {new_tz!r}.")
@@ -10355,10 +10355,10 @@ def run_timezone_case_insensitive_america_los_angeles_check(dab_topic, test_name
             summary = "API reports canonical timeZone=America/Los_Angeles but manual UI verification failed."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         # 5) Restore original (best-effort)
@@ -10371,20 +10371,20 @@ def run_timezone_case_insensitive_america_los_angeles_check(dab_topic, test_name
         summary = "Device accepts lower-case IANA timeZone america/los_angeles and normalizes it to canonical America/Los_Angeles."
         LOGGER.result(f"[SUMMARY] PASS – {summary}")
         result.test_result = "PASS"
-        result.summary = summary
+        logs.append(summary_line)
         summary_line = f"[SUMMARY] {test_name} — final result: PASS, test_id={test_id}, device={device_id}"
         LOGGER.result(summary_line)
-        logs.append(LOGGER.stamp(summary_line))
+        logs.append(summary_line)
         return result
 
     except Exception as e:
         summary = f"Unexpected error during timeZone case-insensitive validation: {e}"
         LOGGER.result(f"[RESULT] FAILED – {summary}")
         result.test_result = "FAILED"
-        result.summary = summary
+        logs.append(summary_line)
         summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
         LOGGER.result(summary_line)
-        logs.append(LOGGER.stamp(summary_line))
+        logs.append(summary_line)
         return result
 
 def run_network_reset_multi_interface_manual_check(dab_topic, test_name, tester, device_id):
@@ -10411,7 +10411,7 @@ def run_network_reset_multi_interface_manual_check(dab_topic, test_name, tester,
     if not require_capabilities(tester, device_id, cap_spec, result, logs):
         summary_line = f"[SUMMARY] {test_name} — final result: {result.test_result}, test_id={test_id}, device={device_id}"
         LOGGER.result(summary_line)
-        logs.append(LOGGER.stamp(summary_line))
+        logs.append(summary_line)
         return result  # OPTIONAL_FAILED already set by require_capabilities
 
     try:
@@ -10425,10 +10425,10 @@ def run_network_reset_multi_interface_manual_check(dab_topic, test_name, tester,
             summary = "Preconditions not met: device is not in the required Wi-Fi + Ethernet, non-default network state."
             LOGGER.result(f"[RESULT] OPTIONAL_FAILED – {summary}")
             result.test_result = "OPTIONAL_FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             summary_line = f"[SUMMARY] {test_name} — final result: OPTIONAL_FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         # --- Step 3: Destructive action guard ---
@@ -10441,10 +10441,10 @@ def run_network_reset_multi_interface_manual_check(dab_topic, test_name, tester,
             summary = "Tester chose not to trigger system/network-reset; destructive action cancelled."
             LOGGER.result(f"[RESULT] OPTIONAL_FAILED – {summary}")
             result.test_result = "OPTIONAL_FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             summary_line = f"[SUMMARY] {test_name} — final result: OPTIONAL_FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         # --- Step 4: Execute system/network-reset via DAB ---
@@ -10456,20 +10456,20 @@ def run_network_reset_multi_interface_manual_check(dab_topic, test_name, tester,
             summary = "system/network-reset returned 501 (Not Implemented); network reset is not supported via DAB."
             LOGGER.result(f"[RESULT] OPTIONAL_FAILED – {summary}")
             result.test_result = "OPTIONAL_FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             summary_line = f"[SUMMARY] {test_name} — final result: OPTIONAL_FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         if status != 200:
             summary = f"system/network-reset returned unexpected status {status}; expected 200."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         LOGGER.result("[WAIT] Waiting 30 seconds for network reset to apply (connections may flap).")
@@ -10488,29 +10488,29 @@ def run_network_reset_multi_interface_manual_check(dab_topic, test_name, tester,
             summary = "Manual verification failed: network settings/reset did not behave as expected for Wi-Fi and Ethernet."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         summary = "system/network-reset was triggered via DAB and manual verification confirms expected network behaviour with multiple interfaces."
         LOGGER.result(f"[SUMMARY] PASS – {summary}")
         result.test_result = "PASS"
-        result.summary = summary
+        logs.append(summary_line)
         summary_line = f"[SUMMARY] {test_name} — final result: PASS, test_id={test_id}, device={device_id}"
         LOGGER.result(summary_line)
-        logs.append(LOGGER.stamp(summary_line))
+        logs.append(summary_line)
         return result
 
     except Exception as e:
         summary = f"Unexpected error during network reset manual verification test: {e}"
         LOGGER.result(f"[RESULT] FAILED – {summary}")
         result.test_result = "FAILED"
-        result.summary = summary
+        logs.append(summary_line)
         summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
         LOGGER.result(summary_line)
-        logs.append(LOGGER.stamp(summary_line))
+        logs.append(summary_line)
         return result
 
 
@@ -10536,7 +10536,7 @@ def run_identifier_for_advertising_persistence_across_restart_check(dab_topic, t
     if not require_capabilities(tester, device_id, cap_spec, result, logs):
         summary_line = f"[SUMMARY] {test_name} — final result: {result.test_result}, test_id={test_id}, device={device_id}"
         LOGGER.result(summary_line)
-        logs.append(LOGGER.stamp(summary_line))
+        logs.append(summary_line)
         return result  # OPTIONAL_FAILED already set
 
     try:
@@ -10548,10 +10548,10 @@ def run_identifier_for_advertising_persistence_across_restart_check(dab_topic, t
             summary = f"system/settings/get for identifierForAdvertising failed with status {status_before}."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         id_before = before_resp.get("identifierForAdvertising")
@@ -10559,10 +10559,10 @@ def run_identifier_for_advertising_persistence_across_restart_check(dab_topic, t
             summary = f"identifierForAdvertising is empty or invalid before restart: {id_before!r}."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         LOGGER.result(f"[INFO] identifierForAdvertising before restart: {id_before!r}")
@@ -10577,10 +10577,10 @@ def run_identifier_for_advertising_persistence_across_restart_check(dab_topic, t
             summary = "Tester chose not to restart the device; aborting identifierForAdvertising persistence test."
             LOGGER.result(f"[RESULT] OPTIONAL_FAILED – {summary}")
             result.test_result = "OPTIONAL_FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             summary_line = f"[SUMMARY] {test_name} — final result: OPTIONAL_FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         # --- Step 4: Trigger system/restart via DAB ---
@@ -10591,10 +10591,10 @@ def run_identifier_for_advertising_persistence_across_restart_check(dab_topic, t
             summary = f"system/restart returned unexpected status {status_restart}; expected 200."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         LOGGER.result("[WAIT] Waiting 60 seconds for the device to restart and DAB to become available again.")
@@ -10610,10 +10610,10 @@ def run_identifier_for_advertising_persistence_across_restart_check(dab_topic, t
             summary = "Device/DAB not confirmed ready after restart; cannot safely verify identifierForAdvertising."
             LOGGER.result(f"[RESULT] OPTIONAL_FAILED – {summary}")
             result.test_result = "OPTIONAL_FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             summary_line = f"[SUMMARY] {test_name} — final result: OPTIONAL_FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         # --- Step 6: Read identifierForAdvertising again ---
@@ -10624,10 +10624,10 @@ def run_identifier_for_advertising_persistence_across_restart_check(dab_topic, t
             summary = f"system/settings/get for identifierForAdvertising after restart failed with status {status_after}."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         id_after = after_resp.get("identifierForAdvertising")
@@ -10635,10 +10635,10 @@ def run_identifier_for_advertising_persistence_across_restart_check(dab_topic, t
             summary = f"identifierForAdvertising is empty or invalid after restart: {id_after!r}."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         LOGGER.result(f"[INFO] identifierForAdvertising after restart: {id_after!r}")
@@ -10648,29 +10648,29 @@ def run_identifier_for_advertising_persistence_across_restart_check(dab_topic, t
             summary = f"identifierForAdvertising changed across restart: before={id_before!r}, after={id_after!r}."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         summary = "identifierForAdvertising is non-empty and stable across system restart."
         LOGGER.result(f"[SUMMARY] PASS – {summary}")
         result.test_result = "PASS"
-        result.summary = summary
+        logs.append(summary_line)
         summary_line = f"[SUMMARY] {test_name} — final result: PASS, test_id={test_id}, device={device_id}"
         LOGGER.result(summary_line)
-        logs.append(LOGGER.stamp(summary_line))
+        logs.append(summary_line)
         return result
 
     except Exception as e:
         summary = f"Unexpected error during identifierForAdvertising persistence test: {e}"
         LOGGER.result(f"[RESULT] FAILED – {summary}")
         result.test_result = "FAILED"
-        result.summary = summary
+        logs.append(summary_line)
         summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
         LOGGER.result(summary_line)
-        logs.append(LOGGER.stamp(summary_line))
+        logs.append(summary_line)
         return result
 
 def run_identifier_for_advertising_unsupported_device_ui_absence_check(dab_topic, test_name, tester, device_id):
@@ -10678,9 +10678,8 @@ def run_identifier_for_advertising_unsupported_device_ui_absence_check(dab_topic
     DAB 2.1 – identifierForAdvertising absence on unsupported devices (manual UI check)
 
     Logic:
-      - Use require_capabilities with:
-            cap_spec = "ops: system/settings/list | settings: identifierForAdvertising"
-        to determine if identifierForAdvertising is declared in DAB.
+      - Inspect supported settings via EnforcementManager.get_supported_settings() to see if
+        identifierForAdvertising is declared in DAB.
       - If identifierForAdvertising IS declared:
           → Test is not applicable; mark PASS with a "not applicable" summary.
       - If identifierForAdvertising is NOT declared:
@@ -10691,71 +10690,114 @@ def run_identifier_for_advertising_unsupported_device_ui_absence_check(dab_topic
     test_id = to_test_id(f"{dab_topic}/{test_name}")
     logs = []
     result = TestResult(test_id, device_id, dab_topic, "{}", "UNKNOWN", "", logs)
+    user_saw_ad_id = "N/A"
 
-    LOGGER.result("[TEST] IdentifierForAdvertising absence on unsupported devices (UI check)")
-    LOGGER.result("[DESC] Verify that when identifierForAdvertising is NOT declared in DAB, the settings UI does not display an Advertising ID.")
+    try:
+        # Header / description
+        for line in (
+            "[TEST] IdentifierForAdvertising absence on unsupported devices (UI check)",
+            "[DESC] Verify that when identifierForAdvertising is NOT declared in DAB, the settings UI does not display an Advertising ID.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
 
-    # --- Step 1: Capability check for system/settings/list + identifierForAdvertising setting ---
-    cap_spec = "ops: system/settings/list | settings: identifierForAdvertising"
-    LOGGER.result("[STEP] Checking DAB capabilities for system/settings/list and identifierForAdvertising.")
-    supports_idfa = require_capabilities(tester, device_id, cap_spec, result, logs)
+        # Step 1: Fetch supported settings via EnforcementManager and inspect identifierForAdvertising
+        line = "[STEP] Fetching supported settings from EnforcementManager to see if identifierForAdvertising is declared."
+        LOGGER.result(line)
+        logs.append(line)
 
-    if supports_idfa:
-        # Device explicitly declares identifierForAdvertising in DAB → this test is N/A but PASS.
-        summary = (
-            "identifierForAdvertising is declared in DAB; this test only targets devices that do NOT support "
-            "advertising identifiers. Treating as PASS (not applicable)."
+        em = EnforcementManager()
+        sup = em.get_supported_settings() or {}
+        try:
+            sup_dict = sup if isinstance(sup, dict) else json.loads(sup)
+        except Exception as e:
+            sup_dict = {}
+            info_line = f"[INFO] Could not parse supported settings map from EnforcementManager: {e}; falling back to manual UI-only check."
+            LOGGER.result(info_line)
+            logs.append(info_line)
+
+        settings_map = sup_dict.get("settings", sup_dict) if isinstance(sup_dict, dict) else {}
+        if not isinstance(settings_map, dict):
+            settings_map = {}
+
+        idfa_desc = settings_map.get("identifierForAdvertising")
+
+        if idfa_desc is not None:
+            # identifierForAdvertising is declared in DAB → N/A but treated as PASS.
+            summary = (
+                "identifierForAdvertising is declared in DAB; this test only targets devices that do NOT support "
+                "advertising identifiers. Treating as PASS (not applicable)."
+            )
+            line = f"[RESULT] PASS — {summary}"
+            LOGGER.result(line)
+            logs.append(line)
+            result.test_result = "PASS"
+            return result
+
+        # If we reach here, identifierForAdvertising is not declared in supported settings
+        line = "[INFO] identifierForAdvertising is NOT declared as a supported setting in DAB; treating device as unsupported for IDFA."
+        LOGGER.result(line)
+        logs.append(line)
+
+        line = "[STEP] Manual verification – ensure no Advertising ID is visible anywhere in settings UI."
+        LOGGER.result(line)
+        logs.append(line)
+
+        prompt = (
+            "On the device settings screens where an advertising identifier might appear "
+            "(for example, Privacy / Ads / Advertising ID or similar), do you SEE an Advertising ID "
+            "value displayed anywhere?\n"
+            "Press 'y' if you SEE an ID, 'n' if there is NO Advertising ID shown."
         )
-        LOGGER.result(f"[RESULT] PASS – {summary}")
-        result.test_result = "PASS"
-        result.summary = summary
-        summary_line = f"[SUMMARY] {test_name} — final result: PASS (not applicable), test_id={test_id}, device={device_id}"
-        LOGGER.result(summary_line)
-        logs.append(LOGGER.stamp(summary_line))
-        return result
 
-    LOGGER.result("[INFO] identifierForAdvertising is NOT declared as a supported setting in DAB (or could not be confirmed).")
-    LOGGER.result("[INFO] Treating this device as not supporting advertising identifiers at the DAB level; proceeding with manual UI check.")
+        # yes_or_no should be called as yes_or_no(result, logs, prompt)
+        saw_id = yes_or_no(result, logs, prompt)
+        user_saw_ad_id = "Y" if saw_id else "N"
 
-    # Clear any OPTIONAL_FAILED state set by require_capabilities, since we are continuing with our own verdict:
-    result.test_result = "UNKNOWN"
-    result.summary = ""
+        if saw_id:
+            summary = (
+                "identifierForAdvertising is not declared as a supported setting in DAB, but the settings UI still shows "
+                "an Advertising ID value. DAB and UI are inconsistent for unsupported advertising identifier devices."
+            )
+            line = f"[RESULT] FAILED — {summary}"
+            LOGGER.result(line)
+            logs.append(line)
+            result.test_result = "FAILED"
+        else:
+            summary = (
+                "identifierForAdvertising is not declared in DAB, and the settings UI does not display any Advertising ID "
+                "value. Device behaviour is consistent for unsupported advertising identifier devices."
+            )
+            line = f"[RESULT] PASS — {summary}"
+            LOGGER.result(line)
+            logs.append(line)
+            result.test_result = "PASS"
 
-    # --- Step 2: Manual UI verification when identifierForAdvertising is not declared in DAB ---
-    LOGGER.result("[STEP] Manual verification – ensure no Advertising ID is visible anywhere in settings UI.")
-    prompt = (
-        "On the device settings screens where an advertising identifier might appear "
-        "(for example, Privacy / Ads / Advertising ID or similar), do you SEE an Advertising ID "
-        "value displayed anywhere?\n"
-        "Press 'y' if you SEE an ID, 'n' if there is NO Advertising ID shown."
-    )
-
-    # NOTE: yes_or_no in your branch does NOT accept default=..., so call it with a single argument.
-    if yes_or_no(prompt, logs):
-        # Tester answered YES → ID visible in UI, but not declared in DAB → inconsistent.
-        summary = (
-            "identifierForAdvertising is not declared as a supported setting in DAB, but the settings UI still shows "
-            "an Advertising ID value. DAB and UI are inconsistent for unsupported advertising identifier devices."
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = (
+            f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' not supported while running "
+            "identifierForAdvertising unsupported-device UI absence check."
         )
-        LOGGER.result(f"[RESULT] FAILED – {summary}")
-        result.test_result = "FAILED"
-        result.summary = summary
-        summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
-        LOGGER.result(summary_line)
-        logs.append(LOGGER.stamp(summary_line))
-        return result
+        LOGGER.result(line)
+        logs.append(line)
 
-    # Tester answered NO → no ID visible in UI; behaviour matches DAB capabilities.
-    summary = (
-        "identifierForAdvertising is not declared in DAB, and the settings UI does not display any Advertising ID "
-        "value. Device behaviour is consistent for unsupported advertising identifier devices."
-    )
-    LOGGER.result(f"[RESULT] PASS – {summary}")
-    result.test_result = "PASS"
-    result.summary = summary
-    summary_line = f"[SUMMARY] {test_name} — final result: PASS, test_id={test_id}, device={device_id}"
-    LOGGER.result(summary_line)
-    logs.append(LOGGER.stamp(summary_line))
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        line = (
+            f"[RESULT] SKIPPED — Internal error during identifierForAdvertising unsupported-device UI absence check: {e}"
+        )
+        LOGGER.result(line)
+        logs.append(line)
+
+    finally:
+        summary_line = (
+            f"[SUMMARY] outcome={result.test_result}, user_saw_ad_id={user_saw_ad_id}, "
+            f"test_id={test_id}, device={device_id}"
+        )
+        LOGGER.result(summary_line)
+        logs.append(summary_line)
+
     return result
 
 def run_youtube_recommended_movie_playback_check(dab_topic, test_name, tester, device_id):
@@ -10804,7 +10846,7 @@ def run_youtube_recommended_movie_playback_check(dab_topic, test_name, tester, d
             summary = "Preconditions not met: YouTube not ready or no movie visible in recommendations."
             LOGGER.result(f"[RESULT] OPTIONAL_FAILED – {summary}")
             result.test_result = "OPTIONAL_FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             logs.append(summary)
             return result
 
@@ -10822,7 +10864,7 @@ def run_youtube_recommended_movie_playback_check(dab_topic, test_name, tester, d
             summary = "content/recommendations returned 501; content recommendations not supported via DAB."
             LOGGER.result(f"[RESULT] OPTIONAL_FAILED – {summary}")
             result.test_result = "OPTIONAL_FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             logs.append(summary)
             return result
 
@@ -10830,7 +10872,7 @@ def run_youtube_recommended_movie_playback_check(dab_topic, test_name, tester, d
             summary = f"content/recommendations failed with status {status_recs}."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             logs.append(summary)
             return result
 
@@ -10840,7 +10882,7 @@ def run_youtube_recommended_movie_playback_check(dab_topic, test_name, tester, d
             summary = "content/recommendations returned invalid JSON; cannot parse recommendations list."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             logs.append(summary)
             return result
 
@@ -10849,7 +10891,7 @@ def run_youtube_recommended_movie_playback_check(dab_topic, test_name, tester, d
             summary = "content/recommendations returned no items; cannot pick a movie contentId."
             LOGGER.result(f"[RESULT] OPTIONAL_FAILED – {summary}")
             result.test_result = "OPTIONAL_FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             logs.append(summary)
             return result
 
@@ -10871,7 +10913,7 @@ def run_youtube_recommended_movie_playback_check(dab_topic, test_name, tester, d
             summary = "Unable to extract a contentId from content/recommendations response."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             logs.append(summary)
             return result
 
@@ -10893,7 +10935,7 @@ def run_youtube_recommended_movie_playback_check(dab_topic, test_name, tester, d
             summary = "content/open returned 501; cannot open content via DAB on this device."
             LOGGER.result(f"[RESULT] OPTIONAL_FAILED – {summary}")
             result.test_result = "OPTIONAL_FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             logs.append(summary)
             return result
 
@@ -10901,7 +10943,7 @@ def run_youtube_recommended_movie_playback_check(dab_topic, test_name, tester, d
             summary = f"content/open failed with status {status_open}."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             logs.append(summary)
             return result
 
@@ -10956,7 +10998,7 @@ def run_youtube_recommended_movie_playback_check(dab_topic, test_name, tester, d
             summary = "Manual verification failed: YouTube did not launch or playback did not start as expected."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             logs.append(summary)
             return result
 
@@ -10977,7 +11019,7 @@ def run_youtube_recommended_movie_playback_check(dab_topic, test_name, tester, d
         )
         LOGGER.result(f"[RESULT] PASS – {summary}")
         result.test_result = "PASS"
-        result.summary = summary
+        logs.append(summary_line)
         logs.append(summary)
         return result
 
@@ -11048,7 +11090,7 @@ def run_identifier_for_advertising_reset_generates_new_value_check(dab_topic, te
             summary = f"Initial system/settings/get for identifierForAdvertising failed with status {status_before}."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             logs.append(summary)
             return result
 
@@ -11058,7 +11100,7 @@ def run_identifier_for_advertising_reset_generates_new_value_check(dab_topic, te
             summary = "Initial system/settings/get returned invalid JSON; cannot parse identifierForAdvertising."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             logs.append(summary)
             return result
 
@@ -11071,7 +11113,7 @@ def run_identifier_for_advertising_reset_generates_new_value_check(dab_topic, te
             summary = "identifierForAdvertising is supported but initial value is empty or missing before reset."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             logs.append(summary)
             return result
 
@@ -11088,7 +11130,7 @@ def run_identifier_for_advertising_reset_generates_new_value_check(dab_topic, te
             summary = "Tester could not perform advertising ID reset; test not executed fully."
             LOGGER.result(f"[RESULT] OPTIONAL_FAILED – {summary}")
             result.test_result = "OPTIONAL_FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             logs.append(summary)
             return result
 
@@ -11110,7 +11152,7 @@ def run_identifier_for_advertising_reset_generates_new_value_check(dab_topic, te
             summary = f"Post-reset system/settings/get for identifierForAdvertising failed with status {status_after}."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             logs.append(summary)
             return result
 
@@ -11120,7 +11162,7 @@ def run_identifier_for_advertising_reset_generates_new_value_check(dab_topic, te
             summary = "Post-reset system/settings/get returned invalid JSON; cannot parse identifierForAdvertising."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             logs.append(summary)
             return result
 
@@ -11133,7 +11175,7 @@ def run_identifier_for_advertising_reset_generates_new_value_check(dab_topic, te
             summary = "identifierForAdvertising is empty or missing after reset; expected a non-empty new value."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             logs.append(summary)
             return result
 
@@ -11144,7 +11186,7 @@ def run_identifier_for_advertising_reset_generates_new_value_check(dab_topic, te
             )
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             logs.append(summary)
             return result
 
@@ -11154,7 +11196,7 @@ def run_identifier_for_advertising_reset_generates_new_value_check(dab_topic, te
         )
         LOGGER.result(f"[RESULT] PASS – {summary}")
         result.test_result = "PASS"
-        result.summary = summary
+        logs.append(summary_line)
         logs.append(summary)
         return result
 
@@ -11192,125 +11234,170 @@ def run_high_contrast_text_invalid_value_type_check(dab_topic, test_name, tester
     logs = []
     result = TestResult(test_id, device_id, dab_topic, "{}", "UNKNOWN", "", logs)
 
-    LOGGER.result("[TEST] highContrastText invalid value type (string instead of boolean)")
-    LOGGER.result("[DESC] Send system/settings/set with highContrastText=\"true\" (string) and expect 400 + no change in the setting.")
+    original_value = None
+    value_after = None
 
-    # --- Step 1: Capability gating -------------------------------------------
+    # Header / description
+    for line in (
+        "[TEST] highContrastText invalid value type (string instead of boolean)",
+        "[DESC] Send system/settings/set with highContrastText=\"true\" (string) and expect 400 + no change in the setting.",
+    ):
+        LOGGER.result(line)
+        logs.append(line)
+
+    # Step 1: Capability gating
     cap_spec = "ops: system/settings/get, system/settings/set | settings: highContrastText"
     if not require_capabilities(tester, device_id, cap_spec, result, logs):
         summary_line = f"[SUMMARY] {test_name} — final result: {result.test_result}, test_id={test_id}, device={device_id}"
         LOGGER.result(summary_line)
-        logs.append(LOGGER.stamp(summary_line))
+        logs.append(summary_line)
         return result  # OPTIONAL_FAILED already set by require_capabilities
 
     try:
-        # --- Step 2: Read current value (baseline) ---------------------------
-        LOGGER.result("[STEP] Reading current highContrastText value via system/settings/get.")
-        status_before, resp_before = execute_cmd_and_log(tester, device_id, "system/settings/get", "{}", logs, result)
+        # Step 2: Read current value (baseline)
+        line = "[STEP] Reading current highContrastText value via system/settings/get."
+        LOGGER.result(line)
+        logs.append(line)
+
+        status_before, resp_before = execute_cmd_and_log(
+            tester, device_id, "system/settings/get", "{}", logs, result
+        )
         if status_before != 200:
-            summary = f"system/settings/get before negative set failed with status={status_before}; cannot establish baseline."
-            LOGGER.result(f"[RESULT] SKIPPED – {summary}")
             result.test_result = "SKIPPED"
-            result.summary = summary
+            line = f"[RESULT] SKIPPED — system/settings/get before negative set failed with status={status_before}; cannot establish baseline."
+            LOGGER.result(line)
+            logs.append(line)
             summary_line = f"[SUMMARY] {test_name} — final result: SKIPPED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         try:
-            before_obj = json.loads(resp_before) if resp_before else {}
-        except Exception:
-            before_obj = {}
-        current_value = before_obj.get("highContrastText", None)
-        LOGGER.result(f"[INFO] Baseline highContrastText value: {current_value!r}")
+            before_obj = json.loads(resp_before) if isinstance(resp_before, str) else (resp_before or {})
+        except Exception as e:
+            result.test_result = "SKIPPED"
+            line = f"[RESULT] SKIPPED — system/settings/get returned invalid JSON when reading baseline highContrastText: {e}"
+            LOGGER.result(line)
+            logs.append(line)
+            summary_line = f"[SUMMARY] {test_name} — final result: SKIPPED, test_id={test_id}, device={device_id}"
+            LOGGER.result(summary_line)
+            logs.append(summary_line)
+            return result
 
-        # --- Step 3: Send invalid value (string instead of boolean) ----------
-        invalid_payload = '{"highContrastText": "true"}'
-        LOGGER.result(f"[STEP] Sending invalid highContrastText value via system/settings/set with payload: {invalid_payload}")
-        status_set, resp_set = execute_cmd_and_log(tester, device_id, "system/settings/set", invalid_payload, logs, result)
+        original_value = before_obj.get("highContrastText", None)
+        line = f"[INFO] Baseline highContrastText value: {original_value!r}"
+        LOGGER.result(line)
+        logs.append(line)
+
+        # Step 3: Send invalid value (string instead of boolean)
+        invalid_payload = json.dumps({"highContrastText": "string_instead_of_boolean"})
+        line = f"[STEP] Sending invalid highContrastText value via system/settings/set with payload: {invalid_payload}"
+        LOGGER.result(line)
+        logs.append(line)
+
+        status_set, resp_set = execute_cmd_and_log(
+            tester, device_id, "system/settings/set", invalid_payload, logs, result
+        )
 
         if status_set == 501:
-            summary = "system/settings/set returned 501; highContrastText not implemented as a writable setting on this device."
-            LOGGER.result(f"[RESULT] OPTIONAL_FAILED – {summary}")
             result.test_result = "OPTIONAL_FAILED"
-            result.summary = summary
+            line = "[RESULT] OPTIONAL_FAILED — system/settings/set returned 501; highContrastText not implemented as a writable setting on this device."
+            LOGGER.result(line)
+            logs.append(line)
             summary_line = f"[SUMMARY] {test_name} — final result: OPTIONAL_FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         if status_set != 400:
-            summary = f"Expected status 400 for invalid highContrastText value type, but got status {status_set}."
-            LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            line = f"[RESULT] FAILED — Expected status 400 for invalid highContrastText value type, but got status={status_set}."
+            LOGGER.result(line)
+            logs.append(line)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
-        LOGGER.result("[INFO] Device returned status 400 for invalid highContrastText payload as expected.")
+        line = "[INFO] Device returned status 400 for invalid highContrastText payload as expected."
+        LOGGER.result(line)
+        logs.append(line)
 
-        # --- Step 4: Re-read setting and confirm it did not change -----------
-        LOGGER.result("[STEP] Re-reading highContrastText via system/settings/get to confirm the value is unchanged.")
-        status_after, resp_after = execute_cmd_and_log(tester, device_id, "system/settings/get", "{}", logs, result)
+        # Step 4: Re-read setting and confirm it did not change
+        line = "[STEP] Re-reading highContrastText via system/settings/get to confirm the value is unchanged."
+        LOGGER.result(line)
+        logs.append(line)
+
+        status_after, resp_after = execute_cmd_and_log(
+            tester, device_id, "system/settings/get", "{}", logs, result
+        )
         if status_after != 200:
-            summary = f"system/settings/get after invalid set failed with status={status_after}; cannot confirm value unchanged."
-            LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            line = f"[RESULT] FAILED — system/settings/get after invalid set failed with status={status_after}; cannot confirm value unchanged."
+            LOGGER.result(line)
+            logs.append(line)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         try:
-            after_obj = json.loads(resp_after) if resp_after else {}
-        except Exception:
-            after_obj = {}
-        value_after = after_obj.get("highContrastText", None)
-        LOGGER.result(f"[INFO] highContrastText after invalid set attempt: {value_after!r}")
-
-        if value_after != current_value:
-            summary = (
-                f"highContrastText changed from {current_value!r} to {value_after!r} "
-                f"even though system/settings/set returned 400 for invalid type."
-            )
-            LOGGER.result(f"[RESULT] FAILED – {summary}")
+            after_obj = json.loads(resp_after) if isinstance(resp_after, str) else (resp_after or {})
+        except Exception as e:
             result.test_result = "FAILED"
-            result.summary = summary
-        else:
-            summary = (
-                "Device rejected string highContrastText value with status 400 and preserved the previous boolean value."
-            )
-            LOGGER.result(f"[RESULT] PASS – {summary}")
-            result.test_result = "PASS"
-            result.summary = summary
+            line = f"[RESULT] FAILED — system/settings/get returned invalid JSON after invalid set: {e}"
+            LOGGER.result(line)
+            logs.append(line)
+            summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
+            LOGGER.result(summary_line)
+            logs.append(summary_line)
+            return result
 
-        # --- Final summary line ---------------------------------------------
+        value_after = after_obj.get("highContrastText", None)
+        line = f"[INFO] highContrastText after invalid set attempt: {value_after!r}"
+        LOGGER.result(line)
+        logs.append(line)
+
+        if value_after != original_value:
+            result.test_result = "FAILED"
+            line = (
+                f"[RESULT] FAILED — highContrastText changed from {original_value!r} to {value_after!r} "
+                "even though system/settings/set returned 400 for invalid type."
+            )
+            LOGGER.result(line)
+            logs.append(line)
+        else:
+            result.test_result = "PASS"
+            line = (
+                "[RESULT] PASS — Device rejected string highContrastText value with status=400 "
+                "and preserved the previous boolean value."
+            )
+            LOGGER.result(line)
+            logs.append(line)
+
         summary_line = f"[SUMMARY] {test_name} — final result: {result.test_result}, test_id={test_id}, device={device_id}"
         LOGGER.result(summary_line)
-        logs.append(LOGGER.stamp(summary_line))
+        logs.append(summary_line)
         return result
 
     except UnsupportedOperationError as e:
-        summary = f"Operation '{e.topic}' not supported; treating highContrastText invalid-type test as OPTIONAL_FAILED."
-        LOGGER.result(f"[RESULT] OPTIONAL_FAILED – {summary}")
         result.test_result = "OPTIONAL_FAILED"
-        result.summary = summary
+        line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' not supported while running highContrastText invalid-type test."
+        LOGGER.result(line)
+        logs.append(line)
         summary_line = f"[SUMMARY] {test_name} — final result: OPTIONAL_FAILED, test_id={test_id}, device={device_id}"
         LOGGER.result(summary_line)
-        logs.append(LOGGER.stamp(summary_line))
+        logs.append(summary_line)
         return result
 
     except Exception as e:
-        summary = f"Internal error during highContrastText invalid-value-type test: {e}"
-        LOGGER.result(f"[RESULT] SKIPPED – {summary}")
         result.test_result = "SKIPPED"
-        result.summary = summary
+        line = f"[RESULT] SKIPPED — Internal error during highContrastText invalid-value-type test: {e}"
+        LOGGER.result(line)
+        logs.append(line)
         summary_line = f"[SUMMARY] {test_name} — final result: SKIPPED, test_id={test_id}, device={device_id}"
         LOGGER.result(summary_line)
-        logs.append(LOGGER.stamp(summary_line))
+        logs.append(summary_line)
         return result
 
 
@@ -11340,7 +11427,7 @@ def run_contrast_max_value_check(dab_topic, test_name, tester, device_id):
         if not require_capabilities(tester, device_id, cap_spec, result, logs):
             summary_line = f"[SUMMARY] {test_name} — final result: {result.test_result}, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result  # OPTIONAL_FAILED already set
 
         # --- Step 2: Fetch contrast descriptor from system/settings/list ------
@@ -11350,10 +11437,10 @@ def run_contrast_max_value_check(dab_topic, test_name, tester, device_id):
             summary = f"system/settings/list failed with status={status_list}; cannot determine contrast range."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         try:
@@ -11362,10 +11449,10 @@ def run_contrast_max_value_check(dab_topic, test_name, tester, device_id):
             summary = f"system/settings/list returned invalid JSON: {e}"
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         settings_map = list_obj.get("settings", list_obj if isinstance(list_obj, dict) else {})
@@ -11378,10 +11465,10 @@ def run_contrast_max_value_check(dab_topic, test_name, tester, device_id):
             )
             LOGGER.result(f"[RESULT] OPTIONAL_FAILED – {summary}")
             result.test_result = "OPTIONAL_FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             summary_line = f"[SUMMARY] {test_name} — final result: OPTIONAL_FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         max_val = contrast_desc["max"]
@@ -11412,20 +11499,20 @@ def run_contrast_max_value_check(dab_topic, test_name, tester, device_id):
             summary = "system/settings/set returned 501; contrast appears read-only or not implemented as a writable setting."
             LOGGER.result(f"[RESULT] OPTIONAL_FAILED – {summary}")
             result.test_result = "OPTIONAL_FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             summary_line = f"[SUMMARY] {test_name} — final result: OPTIONAL_FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         if status_set != 200:
             summary = f"system/settings/set for contrast failed with status={status_set}."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         # --- Step 5: Validate via system/settings/get (max supported check) ---
@@ -11434,37 +11521,37 @@ def run_contrast_max_value_check(dab_topic, test_name, tester, device_id):
             summary = f"system/settings/get did not reflect contrast={max_val} after the set operation; see logs for actual value."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            logs.append(summary_line)
         else:
             summary = "Contrast successfully set to the maximum advertised value and confirmed via system/settings/get."
             LOGGER.result(f"[RESULT] PASS – {summary}")
             result.test_result = "PASS"
-            result.summary = summary
+            logs.append(summary_line)
 
         # --- Final summary line ----------------------------------------------
         summary_line = f"[SUMMARY] {test_name} — final result: {result.test_result}, test_id={test_id}, device={device_id}"
         LOGGER.result(summary_line)
-        logs.append(LOGGER.stamp(summary_line))
+        logs.append(summary_line)
         return result
 
     except UnsupportedOperationError as e:
         summary = f"Operation '{e.topic}' not supported while running contrast max test; treating as OPTIONAL_FAILED."
         LOGGER.result(f"[RESULT] OPTIONAL_FAILED – {summary}")
         result.test_result = "OPTIONAL_FAILED"
-        result.summary = summary
+        logs.append(summary_line)
         summary_line = f"[SUMMARY] {test_name} — final result: OPTIONAL_FAILED, test_id={test_id}, device={device_id}"
         LOGGER.result(summary_line)
-        logs.append(LOGGER.stamp(summary_line))
+        logs.append(summary_line)
         return result
 
     except Exception as e:
         summary = f"Internal error during contrast max value test: {e}"
         LOGGER.result(f"[RESULT] SKIPPED – {summary}")
         result.test_result = "SKIPPED"
-        result.summary = summary
+        logs.append(summary_line)
         summary_line = f"[SUMMARY] {test_name} — final result: SKIPPED, test_id={test_id}, device={device_id}"
         LOGGER.result(summary_line)
-        logs.append(LOGGER.stamp(summary_line))
+        logs.append(summary_line)
         return result
 
     finally:
@@ -11517,81 +11604,108 @@ def run_logs_stop_without_active_collection_check(dab_topic, test_name, tester, 
     logs = []
     result = TestResult(test_id, device_id, dab_topic, "{}", "UNKNOWN", "", logs)
 
-    LOGGER.result("[TEST] Logs Stop-Collection without active collection")
-    LOGGER.result("[DESC] Verify that system/logs/stop-collection returns a 'not active' style error when no log collection is running.")
-
-    # --- Step 1: Capability gate ---------------------------------------------
-    cap_spec = "ops: system/logs/stop-collection"
-    if not require_capabilities(tester, device_id, cap_spec, result, logs):
-        summary_line = f"[SUMMARY] {test_name} — final result: {result.test_result}, test_id={test_id}, device={device_id}"
-        LOGGER.result(summary_line)
-        logs.append(LOGGER.stamp(summary_line))
-        return result  # OPTIONAL_FAILED already set by require_capabilities
-
     try:
-        # --- Step 2: First stop-collection (normalization / cleanup) ---------
-        LOGGER.result("[STEP] Sending initial system/logs/stop-collection to ensure no active log collection remains.")
-        status1, resp1 = execute_cmd_and_log(tester, device_id, "system/logs/stop-collection", "{}", logs, result)
+        # Header / description
+        for line in (
+            "[TEST] Logs Stop-Collection without active collection",
+            "[DESC] Verify that system/logs/stop-collection returns a 'not active' style error when no log collection is running.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Step 1: Capability gate
+        cap_spec = "ops: system/logs/stop-collection"
+        if not require_capabilities(tester, device_id, cap_spec, result, logs):
+            # require_capabilities already set OPTIONAL_FAILED and logged details.
+            return result
+
+        # Step 2: First stop-collection (normalization / cleanup)
+        line = "[STEP] Sending initial system/logs/stop-collection to ensure no active log collection remains."
+        LOGGER.result(line)
+        logs.append(line)
+
+        status1, resp1 = execute_cmd_and_log(
+            tester, device_id, "system/logs/stop-collection", "{}", logs, result
+        )
         info1 = f"[INFO] First stop-collection returned status={status1}; response={resp1}"
         LOGGER.result(info1)
-        logs.append(LOGGER.stamp(info1))
+        logs.append(info1)
 
-        # We intentionally do not assert on status1; it may stop an active session or
-        # already report 'not active'. The real assertion is on the second call.
+        # No assertion on status1; we only care about the second call.
 
-        # --- Step 3: Second stop-collection (actual assertion) ---------------
-        LOGGER.result("[STEP] Sending second system/logs/stop-collection to validate behavior when collection is not active.")
-        status2, resp2 = execute_cmd_and_log(tester, device_id, "system/logs/stop-collection", "{}", logs, result)
+        # Step 3: Second stop-collection (actual assertion)
+        line = "[STEP] Sending second system/logs/stop-collection to validate behavior when collection is not active."
+        LOGGER.result(line)
+        logs.append(line)
+
+        status2, resp2 = execute_cmd_and_log(
+            tester, device_id, "system/logs/stop-collection", "{}", logs, result
+        )
         info2 = f"[INFO] Second stop-collection returned status={status2}; response={resp2}"
         LOGGER.result(info2)
-        logs.append(LOGGER.stamp(info2))
+        logs.append(info2)
 
         if status2 == 501:
-            summary = "system/logs/stop-collection returned 501; log collection stop is not implemented on this device."
-            LOGGER.result(f"[RESULT] OPTIONAL_FAILED – {summary}")
             result.test_result = "OPTIONAL_FAILED"
-            result.summary = summary
+            line = (
+                "[RESULT] OPTIONAL_FAILED — system/logs/stop-collection returned 501; "
+                "log collection stop is not implemented on this device."
+            )
+            LOGGER.result(line)
+            logs.append(line)
 
         elif status2 == 400:
-            summary = "Second system/logs/stop-collection returned status 400, indicating log collection was not active as expected."
-            LOGGER.result(f"[RESULT] PASS – {summary}")
             result.test_result = "PASS"
-            result.summary = summary
+            line = (
+                "[RESULT] PASS — Second system/logs/stop-collection returned status 400, "
+                "indicating log collection was not active as expected."
+            )
+            LOGGER.result(line)
+            logs.append(line)
 
         elif status2 == 200:
-            summary = (
-                "Second system/logs/stop-collection returned status 200 even though logging should already be stopped; "
-                "device did not expose a 'log collection not active' error."
-            )
-            LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            line = (
+                "[RESULT] FAILED — Second system/logs/stop-collection returned status 200 even though logging "
+                "should already be stopped; device did not expose a 'log collection not active' error."
+            )
+            LOGGER.result(line)
+            logs.append(line)
 
         else:
-            summary = (
-                f"Second system/logs/stop-collection returned unexpected status {status2}; "
+            result.test_result = "FAILED"
+            line = (
+                f"[RESULT] FAILED — Second system/logs/stop-collection returned unexpected status {status2}; "
                 "expected 400 Bad Request for 'log collection not active'."
             )
-            LOGGER.result(f"[RESULT] FAILED – {summary}")
-            result.test_result = "FAILED"
-            result.summary = summary
+            LOGGER.result(line)
+            logs.append(line)
 
     except UnsupportedOperationError as e:
-        summary = f"Operation '{e.topic}' not supported while running logs stop-without-active test; treating as OPTIONAL_FAILED."
-        LOGGER.result(f"[RESULT] OPTIONAL_FAILED – {summary}")
         result.test_result = "OPTIONAL_FAILED"
-        result.summary = summary
+        line = (
+            f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' not supported while running "
+            "logs stop-without-active collection test."
+        )
+        LOGGER.result(line)
+        logs.append(line)
 
     except Exception as e:
-        summary = f"Internal error during logs stop-without-active collection test: {e}"
-        LOGGER.result(f"[RESULT] SKIPPED – {summary}")
         result.test_result = "SKIPPED"
-        result.summary = summary
+        line = (
+            f"[RESULT] SKIPPED — Internal error during logs stop-without-active collection test: {e}"
+        )
+        LOGGER.result(line)
+        logs.append(line)
 
-    # --- Final summary line --------------------------------------------------
-    summary_line = f"[SUMMARY] {test_name} — final result: {result.test_result}, test_id={test_id}, device={device_id}"
+    # Final summary line
+    summary_line = (
+        f"[SUMMARY] {test_name} — final result: {result.test_result}, "
+        f"test_id={test_id}, device={device_id}"
+    )
     LOGGER.result(summary_line)
-    logs.append(LOGGER.stamp(summary_line))
+    logs.append(summary_line)
+
     return result
 
 def run_contrast_minimum_value_check(dab_topic, test_name, tester, device_id):
@@ -11616,7 +11730,7 @@ def run_contrast_minimum_value_check(dab_topic, test_name, tester, device_id):
     if not require_capabilities(tester, device_id, cap_spec, result, logs):
         summary_line = f"[SUMMARY] {test_name} — final result: {result.test_result}, test_id={test_id}, device={device_id}"
         LOGGER.result(summary_line)
-        logs.append(LOGGER.stamp(summary_line))
+        logs.append(summary_line)
         return result  # OPTIONAL_FAILED already set
 
     original_contrast = None
@@ -11630,10 +11744,10 @@ def run_contrast_minimum_value_check(dab_topic, test_name, tester, device_id):
             summary = f"system/settings/get failed with status {status_get1}; cannot read current contrast."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         try:
@@ -11642,10 +11756,10 @@ def run_contrast_minimum_value_check(dab_topic, test_name, tester, device_id):
             summary = f"system/settings/get returned invalid JSON when reading original contrast: {e}"
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         original_contrast = body_get1.get("contrast")
@@ -11668,10 +11782,10 @@ def run_contrast_minimum_value_check(dab_topic, test_name, tester, device_id):
             summary = "contrast descriptor in settings/list is not a numeric min/max range; cannot determine minimum value."
             LOGGER.result(f"[RESULT] OPTIONAL_FAILED – {summary}")
             result.test_result = "OPTIONAL_FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             summary_line = f"[SUMMARY] {test_name} — final result: OPTIONAL_FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         min_contrast = desc["min"]
@@ -11686,20 +11800,20 @@ def run_contrast_minimum_value_check(dab_topic, test_name, tester, device_id):
             summary = "system/settings/set returned 501 for contrast; setting contrast is not implemented on this device."
             LOGGER.result(f"[RESULT] OPTIONAL_FAILED – {summary}")
             result.test_result = "OPTIONAL_FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             summary_line = f"[SUMMARY] {test_name} — final result: OPTIONAL_FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         if status_set != 200:
             summary = f"system/settings/set for contrast min failed with status {status_set}."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         # --- 5) Verify new value via system/settings/get ----------------------
@@ -11709,10 +11823,10 @@ def run_contrast_minimum_value_check(dab_topic, test_name, tester, device_id):
             summary = f"system/settings/get after setting contrast min failed with status {status_get2}."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         try:
@@ -11721,10 +11835,10 @@ def run_contrast_minimum_value_check(dab_topic, test_name, tester, device_id):
             summary = f"system/settings/get returned invalid JSON after setting contrast min: {e}"
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         current_contrast = body_get2.get("contrast")
@@ -11734,7 +11848,7 @@ def run_contrast_minimum_value_check(dab_topic, test_name, tester, device_id):
             summary = f"contrast successfully set to minimum value {min_contrast} as reported by system/settings/get."
             LOGGER.result(f"[RESULT] PASS – {summary}")
             result.test_result = "PASS"
-            result.summary = summary
+            logs.append(summary_line)
         else:
             summary = (
                 f"contrast minimum check failed: expected {min_contrast}, "
@@ -11742,19 +11856,19 @@ def run_contrast_minimum_value_check(dab_topic, test_name, tester, device_id):
             )
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            logs.append(summary_line)
 
     except UnsupportedOperationError as e:
         summary = f"Operation '{e.topic}' not supported while running contrast minimum value check; treating as OPTIONAL_FAILED."
         LOGGER.result(f"[RESULT] OPTIONAL_FAILED – {summary}")
         result.test_result = "OPTIONAL_FAILED"
-        result.summary = summary
+        logs.append(summary_line)
 
     except Exception as e:
         summary = f"Internal error during contrast minimum value check: {e}"
         LOGGER.result(f"[RESULT] SKIPPED – {summary}")
         result.test_result = "SKIPPED"
-        result.summary = summary
+        logs.append(summary_line)
 
     # --- 6) Restore original contrast (best-effort) --------------------------
     try:
@@ -11769,7 +11883,7 @@ def run_contrast_minimum_value_check(dab_topic, test_name, tester, device_id):
     # --- Final summary -------------------------------------------------------
     summary_line = f"[SUMMARY] {test_name} — final result: {result.test_result}, test_id={test_id}, device={device_id}"
     LOGGER.result(summary_line)
-    logs.append(LOGGER.stamp(summary_line))
+    logs.append(summary_line)
     return result
 
 def run_contrast_invalid_value_check(dab_topic, test_name, tester, device_id):
@@ -11794,7 +11908,7 @@ def run_contrast_invalid_value_check(dab_topic, test_name, tester, device_id):
     if not require_capabilities(tester, device_id, cap_spec, result, logs):
         summary_line = f"[SUMMARY] {test_name} — final result: {result.test_result}, test_id={test_id}, device={device_id}"
         LOGGER.result(summary_line)
-        logs.append(LOGGER.stamp(summary_line))
+        logs.append(summary_line)
         return result  # OPTIONAL_FAILED already set by require_capabilities
 
     original_contrast = None
@@ -11807,10 +11921,10 @@ def run_contrast_invalid_value_check(dab_topic, test_name, tester, device_id):
             summary = f"system/settings/get failed with status {status_get1}; cannot read current contrast."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         try:
@@ -11819,10 +11933,10 @@ def run_contrast_invalid_value_check(dab_topic, test_name, tester, device_id):
             summary = f"system/settings/get returned invalid JSON when reading original contrast: {e}"
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         original_contrast = body_get1.get("contrast")
@@ -11845,10 +11959,10 @@ def run_contrast_invalid_value_check(dab_topic, test_name, tester, device_id):
             summary = "contrast descriptor in settings/list is not a numeric min/max range; cannot construct a clean out-of-range value."
             LOGGER.result(f"[RESULT] OPTIONAL_FAILED – {summary}")
             result.test_result = "OPTIONAL_FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             summary_line = f"[SUMMARY] {test_name} — final result: OPTIONAL_FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         max_contrast = desc["max"]
@@ -11869,17 +11983,17 @@ def run_contrast_invalid_value_check(dab_topic, test_name, tester, device_id):
             summary = "system/settings/set returned 501 for contrast; setting contrast is not implemented on this device."
             LOGGER.result(f"[RESULT] OPTIONAL_FAILED – {summary}")
             result.test_result = "OPTIONAL_FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             summary_line = f"[SUMMARY] {test_name} — final result: OPTIONAL_FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         if status_set != 400:
             summary = f"Expected status 400 for invalid contrast value, but system/settings/set returned status {status_set}."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            result.summary = summary
+            logs.append(summary_line)
             # We still continue to read back the value and restore, but outcome stays FAILED.
 
         # --- 5) Verify via second system/settings/get -------------------------
@@ -11890,10 +12004,10 @@ def run_contrast_invalid_value_check(dab_topic, test_name, tester, device_id):
                 summary = f"system/settings/get after invalid contrast request failed with status {status_get2}."
                 LOGGER.result(f"[RESULT] FAILED – {summary}")
                 result.test_result = "FAILED"
-                result.summary = summary
+                logs.append(summary_line)
             summary_line = f"[SUMMARY] {test_name} — final result: {result.test_result}, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         try:
@@ -11903,10 +12017,10 @@ def run_contrast_invalid_value_check(dab_topic, test_name, tester, device_id):
                 summary = f"system/settings/get returned invalid JSON after invalid contrast request: {e}"
                 LOGGER.result(f"[RESULT] FAILED – {summary}")
                 result.test_result = "FAILED"
-                result.summary = summary
+                logs.append(summary_line)
             summary_line = f"[SUMMARY] {test_name} — final result: {result.test_result}, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         current_contrast = body_get2.get("contrast")
@@ -11921,8 +12035,7 @@ def run_contrast_invalid_value_check(dab_topic, test_name, tester, device_id):
             LOGGER.result(f"[RESULT] FAILED – {summary2}")
             result.test_result = "FAILED"
             # If we already had a FAILED from status != 400, keep the earlier summary or append
-            if not result.summary:
-                result.summary = summary2
+            logs.append(summary_line)
 
         # If we haven’t marked FAILED yet, then we got 400 and value stayed unchanged → PASS.
         if result.test_result not in ("FAILED", "OPTIONAL_FAILED"):
@@ -11932,19 +12045,19 @@ def run_contrast_invalid_value_check(dab_topic, test_name, tester, device_id):
             )
             LOGGER.result(f"[RESULT] PASS – {summary_ok}")
             result.test_result = "PASS"
-            result.summary = summary_ok
+            logs.append(summary_line)
 
     except UnsupportedOperationError as e:
         summary = f"Operation '{e.topic}' not supported while running contrast invalid value check; treating as OPTIONAL_FAILED."
         LOGGER.result(f"[RESULT] OPTIONAL_FAILED – {summary}")
         result.test_result = "OPTIONAL_FAILED"
-        result.summary = summary
+        logs.append(summary_line)
 
     except Exception as e:
         summary = f"Internal error during contrast invalid value check: {e}"
         LOGGER.result(f"[RESULT] SKIPPED – {summary}")
         result.test_result = "SKIPPED"
-        result.summary = summary
+        logs.append(summary_line)
 
     # --- 6) Restore original contrast (best-effort) --------------------------
     try:
@@ -11959,7 +12072,7 @@ def run_contrast_invalid_value_check(dab_topic, test_name, tester, device_id):
     # --- Final summary -------------------------------------------------------
     summary_line = f"[SUMMARY] {test_name} — final result: {result.test_result}, test_id={test_id}, device={device_id}"
     LOGGER.result(summary_line)
-    logs.append(LOGGER.stamp(summary_line))
+    logs.append(summary_line)
     return result
 
 def run_brightness_min_decrement_guard_check(dab_topic, test_name, tester, device_id):
@@ -11984,7 +12097,7 @@ def run_brightness_min_decrement_guard_check(dab_topic, test_name, tester, devic
     if not require_capabilities(tester, device_id, cap_spec, result, logs):
         summary_line = f"[SUMMARY] {test_name} — final result: {result.test_result}, test_id={test_id}, device={device_id}"
         LOGGER.result(summary_line)
-        logs.append(LOGGER.stamp(summary_line))
+        logs.append(summary_line)
         return result  # OPTIONAL_FAILED already set
 
     original_brightness = None
@@ -11998,24 +12111,26 @@ def run_brightness_min_decrement_guard_check(dab_topic, test_name, tester, devic
         )
         if status_get1 != 200:
             summary = f"system/settings/get failed with status {status_get1}; cannot read current brightness."
-            LOGGER.result(f"[RESULT] FAILED – {summary}")
+            line = f"[RESULT] FAILED – {summary}"
+            LOGGER.result(line)
+            logs.append(line)
             result.test_result = "FAILED"
-            result.summary = summary
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         try:
             body_get1 = json.loads(resp_get1) if isinstance(resp_get1, str) else (resp_get1 or {})
         except Exception as e:
             summary = f"system/settings/get returned invalid JSON when reading original brightness: {e}"
-            LOGGER.result(f"[RESULT] FAILED – {summary}")
+            line = f"[RESULT] FAILED – {summary}"
+            LOGGER.result(line)
+            logs.append(line)
             result.test_result = "FAILED"
-            result.summary = summary
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         original_brightness = body_get1.get("brightness")
@@ -12036,12 +12151,13 @@ def run_brightness_min_decrement_guard_check(dab_topic, test_name, tester, devic
         desc = settings_map.get("brightness")
         if not isinstance(desc, dict) or not {"min", "max"}.issubset(desc.keys()):
             summary = "brightness descriptor in settings/list is not a numeric min/max range; cannot construct a clean below-min value."
-            LOGGER.result(f"[RESULT] OPTIONAL_FAILED – {summary}")
+            line = f"[RESULT] OPTIONAL_FAILED – {summary}"
+            LOGGER.result(line)
+            logs.append(line)
             result.test_result = "OPTIONAL_FAILED"
-            result.summary = summary
             summary_line = f"[SUMMARY] {test_name} — final result: OPTIONAL_FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         min_brightness = desc["min"]
@@ -12050,12 +12166,13 @@ def run_brightness_min_decrement_guard_check(dab_topic, test_name, tester, devic
 
         if not isinstance(min_brightness, (int, float)):
             summary = f"brightness min value from settings/list is not numeric ({min_brightness!r}); cannot run decrement-below-min test."
-            LOGGER.result(f"[RESULT] OPTIONAL_FAILED – {summary}")
+            line = f"[RESULT] OPTIONAL_FAILED – {summary}"
+            LOGGER.result(line)
+            logs.append(line)
             result.test_result = "OPTIONAL_FAILED"
-            result.summary = summary
             summary_line = f"[SUMMARY] {test_name} — final result: OPTIONAL_FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         # --- 4) Set brightness to its minimum value (precondition) ------------
@@ -12066,13 +12183,13 @@ def run_brightness_min_decrement_guard_check(dab_topic, test_name, tester, devic
         )
         if status_set_min != 200:
             summary = f"system/settings/set to min brightness returned status {status_set_min}; cannot establish precondition."
-            LOGGER.result(f"[RESULT] FAILED – {summary}")
+            line = f"[RESULT] FAILED – {summary}"
+            LOGGER.result(line)
+            logs.append(line)
             result.test_result = "FAILED"
-            result.summary = summary
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
-            # continue to restore original brightness in finally
+            logs.append(summary_line)
             return result
 
         # Confirm brightness is at min
@@ -12082,24 +12199,26 @@ def run_brightness_min_decrement_guard_check(dab_topic, test_name, tester, devic
         )
         if status_get_min != 200:
             summary = f"system/settings/get after setting min brightness failed with status {status_get_min}."
-            LOGGER.result(f"[RESULT] FAILED – {summary}")
+            line = f"[RESULT] FAILED – {summary}"
+            LOGGER.result(line)
+            logs.append(line)
             result.test_result = "FAILED"
-            result.summary = summary
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         try:
             body_get_min = json.loads(resp_get_min) if isinstance(resp_get_min, str) else (resp_get_min or {})
         except Exception as e:
             summary = f"system/settings/get returned invalid JSON after setting min brightness: {e}"
-            LOGGER.result(f"[RESULT] FAILED – {summary}")
+            line = f"[RESULT] FAILED – {summary}"
+            LOGGER.result(line)
+            logs.append(line)
             result.test_result = "FAILED"
-            result.summary = summary
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         confirmed_brightness = body_get_min.get("brightness")
@@ -12109,12 +12228,13 @@ def run_brightness_min_decrement_guard_check(dab_topic, test_name, tester, devic
                 f"Unable to confirm brightness at min. Expected {min_brightness!r}, "
                 f"observed {confirmed_brightness!r}."
             )
-            LOGGER.result(f"[RESULT] FAILED – {summary}")
+            line = f"[RESULT] FAILED – {summary}"
+            LOGGER.result(line)
+            logs.append(line)
             result.test_result = "FAILED"
-            result.summary = summary
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         # --- 5) Send below-min system/settings/set (negative) -----------------
@@ -12131,12 +12251,13 @@ def run_brightness_min_decrement_guard_check(dab_topic, test_name, tester, devic
         # 501 → cannot test this behavior
         if status_set_invalid == 501:
             summary = "system/settings/set returned 501 for brightness; setting brightness is not implemented on this device."
-            LOGGER.result(f"[RESULT] OPTIONAL_FAILED – {summary}")
+            line = f"[RESULT] OPTIONAL_FAILED – {summary}"
+            LOGGER.result(line)
+            logs.append(line)
             result.test_result = "OPTIONAL_FAILED"
-            result.summary = summary
             summary_line = f"[SUMMARY] {test_name} — final result: OPTIONAL_FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         # For this test, we care primarily that brightness does not go below min.
@@ -12147,9 +12268,10 @@ def run_brightness_min_decrement_guard_check(dab_topic, test_name, tester, devic
                 f"Unexpected status for below-min brightness request: got {status_set_invalid}, "
                 f"expected 400 (Bad Request) or 200 (clamp/ignore)."
             )
-            LOGGER.result(f"[RESULT] FAILED – {warn}")
+            line = f"[RESULT] FAILED – {warn}"
+            LOGGER.result(line)
+            logs.append(line)
             result.test_result = "FAILED"
-            result.summary = warn
             # Still proceed to read back brightness and attempt restore.
 
         # --- 6) Verify brightness did not go below min ------------------------
@@ -12160,12 +12282,13 @@ def run_brightness_min_decrement_guard_check(dab_topic, test_name, tester, devic
         if status_get2 != 200:
             if result.test_result != "FAILED":
                 summary = f"system/settings/get after below-min brightness request failed with status {status_get2}."
-                LOGGER.result(f"[RESULT] FAILED – {summary}")
+                line = f"[RESULT] FAILED – {summary}"
+                LOGGER.result(line)
+                logs.append(line)
                 result.test_result = "FAILED"
-                result.summary = summary
             summary_line = f"[SUMMARY] {test_name} — final result: {result.test_result}, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         try:
@@ -12173,12 +12296,13 @@ def run_brightness_min_decrement_guard_check(dab_topic, test_name, tester, devic
         except Exception as e:
             if result.test_result != "FAILED":
                 summary = f"system/settings/get returned invalid JSON after below-min brightness request: {e}"
-                LOGGER.result(f"[RESULT] FAILED – {summary}")
+                line = f"[RESULT] FAILED – {summary}"
+                LOGGER.result(line)
+                logs.append(line)
                 result.test_result = "FAILED"
-                result.summary = summary
             summary_line = f"[SUMMARY] {test_name} — final result: {result.test_result}, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
-            logs.append(LOGGER.stamp(summary_line))
+            logs.append(summary_line)
             return result
 
         brightness_after = body_get2.get("brightness")
@@ -12191,38 +12315,43 @@ def run_brightness_min_decrement_guard_check(dab_topic, test_name, tester, devic
         if result.test_result not in ("FAILED", "OPTIONAL_FAILED"):
             if brightness_after is None:
                 summary2 = "brightness key missing in system/settings/get after below-min request; cannot verify guard."
-                LOGGER.result(f"[RESULT] FAILED – {summary2}")
+                line = f"[RESULT] FAILED – {summary2}"
+                LOGGER.result(line)
+                logs.append(line)
                 result.test_result = "FAILED"
-                result.summary = summary2
             elif isinstance(brightness_after, (int, float)) and brightness_after >= min_brightness and brightness_after == min_brightness:
                 summary_ok = (
                     f"Device prevented brightness from going below min; after requesting {invalid_value!r}, "
                     f"brightness remains at {brightness_after!r} (min={min_brightness!r})."
                 )
-                LOGGER.result(f"[RESULT] PASS – {summary_ok}")
+                line = f"[RESULT] PASS – {summary_ok}"
+                LOGGER.result(line)
+                logs.append(line)
                 result.test_result = "PASS"
-                result.summary = summary_ok
             else:
                 summary2 = (
                     f"Brightness guard failed or behaved unexpectedly. "
                     f"min={min_brightness!r}, invalid_value={invalid_value!r}, "
                     f"observed brightness={brightness_after!r}."
                 )
-                LOGGER.result(f"[RESULT] FAILED – {summary2}")
+                line = f"[RESULT] FAILED – {summary2}"
+                LOGGER.result(line)
+                logs.append(line)
                 result.test_result = "FAILED"
-                result.summary = summary2
 
     except UnsupportedOperationError as e:
         summary = f"Operation '{e.topic}' not supported while running brightness min decrement guard check; treating as OPTIONAL_FAILED."
-        LOGGER.result(f"[RESULT] OPTIONAL_FAILED – {summary}")
+        line = f"[RESULT] OPTIONAL_FAILED – {summary}"
+        LOGGER.result(line)
+        logs.append(line)
         result.test_result = "OPTIONAL_FAILED"
-        result.summary = summary
 
     except Exception as e:
         summary = f"Internal error during brightness min decrement guard check: {e}"
-        LOGGER.result(f"[RESULT] SKIPPED – {summary}")
+        line = f"[RESULT] SKIPPED – {summary}"
+        LOGGER.result(line)
+        logs.append(line)
         result.test_result = "SKIPPED"
-        result.summary = summary
 
     # --- 7) Restore original brightness (best-effort) ------------------------
     try:
@@ -12241,9 +12370,1215 @@ def run_brightness_min_decrement_guard_check(dab_topic, test_name, tester, devic
     # --- Final summary -------------------------------------------------------
     summary_line = f"[SUMMARY] {test_name} — final result: {result.test_result}, test_id={test_id}, device={device_id}"
     LOGGER.result(summary_line)
-    logs.append(LOGGER.stamp(summary_line))
+    logs.append(summary_line)
     return result
 
+def run_brightness_mid_level_50_screen_check(dab_topic, test_name, tester, device_id):
+    """
+    Validates that setting brightness to a mid-level (~50%) value via DAB is stored correctly
+    and reflected on the screen. This is a manual-assisted test.
+    """
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
+    logs = []
+    # Use main operation as topic, same as screensaver tests
+    result = TestResult(test_id, device_id, "system/settings/set", "{}", "UNKNOWN", "", logs)
+    user_validated = "N/A"
+    original_brightness = None
+    min_brightness = None
+    max_brightness = None
+    mid_brightness = None
+
+    try:
+        # Header and description
+        for line in (
+            f"[TEST] Brightness Mid-Level (~50%) Screen Check — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: Set brightness to a mid-level (~50%) value and verify it is reflected on the screen.",
+            "[DESC] Required operations: system/settings/get, system/settings/set.",
+            "[DESC] Pass criteria: Device reports mid-level brightness via DAB and user confirms mid-level brightness visually.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Capability gate
+        if not require_capabilities(tester, device_id, "ops: system/settings/get, system/settings/set | settings: brightness", result, logs,):
+            return result
+
+        # Step 1: Resolve brightness range via EnforcementManager (settings/list)
+        line = "[STEP] Resolving brightness range using EnforcementManager settings descriptor."
+        LOGGER.result(line)
+        logs.append(line)
+
+        em = EnforcementManager()
+        sup = em.get_supported_settings() or {}
+        try:
+            sup_dict = sup if isinstance(sup, dict) else json.loads(sup)
+        except Exception:
+            sup_dict = {}
+
+        settings_map = sup_dict.get("settings", sup_dict) if isinstance(sup_dict, dict) else {}
+        if not isinstance(settings_map, dict):
+            settings_map = {}
+
+        desc = settings_map.get("brightness")
+        if not isinstance(desc, dict) or not {"min", "max"}.issubset(desc.keys()):
+            result.test_result = "OPTIONAL_FAILED"
+            line = "[RESULT] OPTIONAL_FAILED — brightness descriptor does not expose numeric min/max; cannot compute mid-level."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        min_brightness = desc["min"]
+        max_brightness = desc["max"]
+        LOGGER.result(f"[INFO] brightness range from settings/list: min={min_brightness!r}, max={max_brightness!r}")
+        logs.append(f"[INFO] brightness range from settings/list: min={min_brightness!r}, max={max_brightness!r}")
+
+        if not isinstance(min_brightness, (int, float)) or not isinstance(max_brightness, (int, float)):
+            result.test_result = "OPTIONAL_FAILED"
+            line = "[RESULT] OPTIONAL_FAILED — brightness min/max values are not numeric; cannot compute mid-level target."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        try:
+            span = max_brightness - min_brightness
+            mid_brightness = min_brightness if span <= 0 else int(round((min_brightness + max_brightness) / 2.0))
+        except Exception:
+            mid_brightness = min_brightness
+        line = f"[INFO] Mid-level brightness selected as ~50% of range: {mid_brightness!r}."
+        LOGGER.result(line)
+        logs.append(line)
+
+        # Step 2: Read current brightness (for restore)
+        line = "[STEP] Fetching current brightness value via system/settings/get."
+        LOGGER.result(line)
+        logs.append(line)
+
+        rc, response = execute_cmd_and_log(tester, device_id, "system/settings/get", "{}", logs, result)
+        status = dab_status_from(response, rc)
+        if status != 200:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — system/settings/get failed with status {status}; cannot read current brightness."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        try:
+            body_get1 = json.loads(response) if isinstance(response, str) else (response or {})
+        except Exception as e:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — system/settings/get returned invalid JSON when reading original brightness: {e}"
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        original_brightness = body_get1.get("brightness")
+        line = f"[INFO] Original brightness value from device: {original_brightness!r}"
+        LOGGER.result(line)
+        logs.append(line)
+
+        # Step 3: Set brightness to mid-level
+        payload_mid = json.dumps({"brightness": mid_brightness})
+        line = f"[STEP] Setting brightness to mid-level (~50%) with payload: {payload_mid}"
+        LOGGER.result(line)
+        logs.append(line)
+
+        rc, response = execute_cmd_and_log(tester, device_id, "system/settings/set", payload_mid, logs, result)
+        status = dab_status_from(response, rc)
+        if status == 501:
+            result.test_result = "OPTIONAL_FAILED"
+            line = "[RESULT] OPTIONAL_FAILED — system/settings/set for brightness is not implemented on this device."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+        if status != 200:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — system/settings/set to mid-level returned status {status}; cannot proceed."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        # Step 4: Confirm brightness is at mid-level
+        line = "[STEP] Confirming brightness is at mid-level via system/settings/get."
+        LOGGER.result(line)
+        logs.append(line)
+
+        rc, response = execute_cmd_and_log(tester, device_id, "system/settings/get", "{}", logs, result)
+        status = dab_status_from(response, rc)
+        if status != 200:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — system/settings/get after setting mid-level failed with status {status}."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        try:
+            body_get2 = json.loads(response) if isinstance(response, str) else (response or {})
+        except Exception as e:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — system/settings/get returned invalid JSON after setting mid-level: {e}"
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        confirmed_brightness = body_get2.get("brightness")
+        line = f"[INFO] Brightness after setting to mid-level: {confirmed_brightness!r} (target={mid_brightness!r})"
+        LOGGER.result(line)
+        logs.append(line)
+
+        if confirmed_brightness != mid_brightness:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — Expected brightness {mid_brightness!r}, observed {confirmed_brightness!r}."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        # Step 5: Manual visual confirmation on screen
+        line = "[STEP] Manual check required — observe the screen at the mid-level brightness setting."
+        LOGGER.result(line)
+        logs.append(line)
+
+        line = "[DESC] Compare this mid-level brightness against known minimum and maximum levels."
+        LOGGER.result(line)
+        logs.append(line)
+
+        user_validated = yes_or_no(result, logs, "Does the screen brightness appear at a reasonable mid-level (~50%) compared to minimum and maximum?")
+        if user_validated:
+            result.test_result = "PASS"
+            line = "[RESULT] PASS — User confirmed the screen shows an appropriate mid-level brightness."
+        else:
+            result.test_result = "FAILED"
+            line = "[RESULT] FAILED — User reported the screen does NOT appear at a reasonable mid-level brightness."
+
+        LOGGER.result(line)
+        logs.append(line)
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
+        LOGGER.result(line)
+        logs.append(line)
+
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — An unexpected error occurred: {e}"
+        LOGGER.result(line)
+        logs.append(line)
+
+    finally:
+        # Best-effort restore of original brightness
+        try:
+            if original_brightness is not None:
+                payload_restore = json.dumps({"brightness": original_brightness})
+                line = f"[STEP] Restoring original brightness value with payload: {payload_restore}"
+                LOGGER.result(line)
+                logs.append(line)
+                rc, response = execute_cmd_and_log(tester, device_id, "system/settings/set", payload_restore, logs, result)
+                line = f"[INFO] Restore brightness status={dab_status_from(response, rc)}"
+                LOGGER.result(line)
+                logs.append(line)
+        except Exception as e:
+            line = f"[INFO] Failed to restore original brightness value: {e}"
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Final summary log
+        line = f"[SUMMARY] outcome={result.test_result}, user_validated_mid_level={user_validated}, test_id={test_id}, device={device_id}"
+        LOGGER.result(line)
+        logs.append(line)
+
+    return result
+
+def run_brightness_60_video_content_check(dab_topic, test_name, tester, device_id):
+    """
+    Validates that setting brightness to a ~60% value via DAB is stored correctly
+    and reflected while video content is playing. This is a manual-assisted test.
+    """
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
+    logs = []
+    result = TestResult(test_id, device_id, "system/settings/set", "{}", "UNKNOWN", "", logs)
+    user_validated = "N/A"
+    original_brightness = None
+    min_brightness = None
+    max_brightness = None
+    target_brightness = None
+
+    try:
+        # Header and description
+        for line in (
+            f"[TEST] Brightness 60% Video Content Check — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: Set brightness to a ~60% value and verify it is reflected correctly while video content is playing.",
+            "[DESC] Required operations: system/settings/get, system/settings/set.",
+            "[DESC] Pass criteria: Device reports ~60% brightness via DAB and user confirms video brightness matches.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Capability gate
+        if not require_capabilities(
+            tester,
+            device_id,
+            "ops: system/settings/get, system/settings/set | settings: brightness",
+            result,
+            logs,
+        ):
+            return result
+
+        # Step 1: Resolve brightness range via EnforcementManager (settings/list)
+        line = "[STEP] Resolving brightness range using EnforcementManager settings descriptor."
+        LOGGER.result(line)
+        logs.append(line)
+
+        em = EnforcementManager()
+        sup = em.get_supported_settings() or {}
+        try:
+            sup_dict = sup if isinstance(sup, dict) else json.loads(sup)
+        except Exception:
+            sup_dict = {}
+
+        settings_map = sup_dict.get("settings", sup_dict) if isinstance(sup_dict, dict) else {}
+        if not isinstance(settings_map, dict):
+            settings_map = {}
+
+        desc = settings_map.get("brightness")
+        if not isinstance(desc, dict) or not {"min", "max"}.issubset(desc.keys()):
+            result.test_result = "OPTIONAL_FAILED"
+            line = "[RESULT] OPTIONAL_FAILED — brightness descriptor does not expose numeric min/max; cannot compute ~60% value."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        min_brightness = desc["min"]
+        max_brightness = desc["max"]
+        LOGGER.result(f"[INFO] brightness range from settings/list: min={min_brightness!r}, max={max_brightness!r}")
+        logs.append(f"[INFO] brightness range from settings/list: min={min_brightness!r}, max={max_brightness!r}")
+
+        if not isinstance(min_brightness, (int, float)) or not isinstance(max_brightness, (int, float)):
+            result.test_result = "OPTIONAL_FAILED"
+            line = "[RESULT] OPTIONAL_FAILED — brightness min/max values are not numeric; cannot compute ~60% target."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        try:
+            span = max_brightness - min_brightness
+            target_brightness = min_brightness if span <= 0 else int(round(min_brightness + 0.6 * span))
+        except Exception:
+            target_brightness = min_brightness
+        line = f"[INFO] Target brightness selected as ~60% of range: {target_brightness!r}."
+        LOGGER.result(line)
+        logs.append(line)
+
+        # Step 2: Read current brightness (for restore)
+        line = "[STEP] Fetching current brightness value via system/settings/get."
+        LOGGER.result(line)
+        logs.append(line)
+
+        rc, response = execute_cmd_and_log(tester, device_id, "system/settings/get", "{}", logs, result)
+        status = dab_status_from(response, rc)
+        if status != 200:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — system/settings/get failed with status {status}; cannot read current brightness."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        try:
+            body_get1 = json.loads(response) if isinstance(response, str) else (response or {})
+        except Exception as e:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — system/settings/get returned invalid JSON when reading original brightness: {e}"
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        original_brightness = body_get1.get("brightness")
+        line = f"[INFO] Original brightness value from device: {original_brightness!r}"
+        LOGGER.result(line)
+        logs.append(line)
+
+        # Step 3: Set brightness to ~60%
+        payload_target = json.dumps({"brightness": target_brightness})
+        line = f"[STEP] Setting brightness to ~60% value with payload: {payload_target}"
+        LOGGER.result(line)
+        logs.append(line)
+
+        rc, response = execute_cmd_and_log(tester, device_id, "system/settings/set", payload_target, logs, result)
+        status = dab_status_from(response, rc)
+        if status == 501:
+            result.test_result = "OPTIONAL_FAILED"
+            line = "[RESULT] OPTIONAL_FAILED — system/settings/set for brightness is not implemented on this device."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+        if status != 200:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — system/settings/set to ~60% returned status {status}; cannot proceed."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        # Step 4: Confirm brightness is at ~60% via get
+        line = "[STEP] Confirming brightness is at ~60% via system/settings/get."
+        LOGGER.result(line)
+        logs.append(line)
+
+        rc, response = execute_cmd_and_log(tester, device_id, "system/settings/get", "{}", logs, result)
+        status = dab_status_from(response, rc)
+        if status != 200:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — system/settings/get after setting ~60% failed with status {status}."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        try:
+            body_get2 = json.loads(response) if isinstance(response, str) else (response or {})
+        except Exception as e:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — system/settings/get returned invalid JSON after setting ~60%: {e}"
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        confirmed_brightness = body_get2.get("brightness")
+        line = f"[INFO] Brightness after setting to ~60%: {confirmed_brightness!r} (target={target_brightness!r})"
+        LOGGER.result(line)
+        logs.append(line)
+
+        if confirmed_brightness != target_brightness:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — Expected brightness {target_brightness!r}, observed {confirmed_brightness!r}."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        # Step 5: Manual video-content verification
+        line = "[STEP] Manual check required — start video playback and validate brightness."
+        LOGGER.result(line)
+        logs.append(line)
+
+        for line in (
+            "[DESC] Start playback of any video content (e.g., YouTube, VOD app).",
+            "[DESC] Observe the picture brightness and compare it with the previous brightness level.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        user_validated = yes_or_no(
+            result,
+            logs,
+            "While video content is playing, does the picture clearly reflect the ~60% brightness setting (different from the original level)?",
+        )
+        if user_validated:
+            result.test_result = "PASS"
+            line = "[RESULT] PASS — User confirmed video brightness matches the ~60% brightness setting."
+        else:
+            result.test_result = "FAILED"
+            line = "[RESULT] FAILED — User reported video brightness does NOT match the ~60% brightness setting."
+
+        LOGGER.result(line)
+        logs.append(line)
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
+        LOGGER.result(line)
+        logs.append(line)
+
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — An unexpected error occurred: {e}"
+        LOGGER.result(line)
+        logs.append(line)
+
+    finally:
+        # Best-effort restore of original brightness
+        try:
+            if original_brightness is not None:
+                payload_restore = json.dumps({"brightness": original_brightness})
+                line = f"[STEP] Restoring original brightness value with payload: {payload_restore}"
+                LOGGER.result(line)
+                logs.append(line)
+                rc, response = execute_cmd_and_log(tester, device_id, "system/settings/set", payload_restore, logs, result)
+                line = f"[INFO] Restore brightness status={dab_status_from(response, rc)}"
+                LOGGER.result(line)
+                logs.append(line)
+        except Exception as e:
+            line = f"[INFO] Failed to restore original brightness value: {e}"
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Final summary log
+        line = f"[SUMMARY] outcome={result.test_result}, user_validated_video={user_validated}, test_id={test_id}, device={device_id}"
+        LOGGER.result(line)
+        logs.append(line)
+
+    return result
+
+def run_brightness_max_increment_guard_check(dab_topic, test_name, tester, device_id):
+    """
+    Validates that attempting to set brightness above the maximum supported value
+    does not drive the stored brightness beyond its upper limit. Fully automatic
+    negative test (no manual confirmation required).
+
+    Flow:
+      1) Use EnforcementManager to resolve brightness min/max range.
+      2) Read and store the original brightness value.
+      3) Set brightness to the maximum value via system/settings/set and confirm.
+      4) Send a system/settings/set with brightness above the maximum (max+1).
+      5) Accept either:
+         - 400 Bad Request (preferred), or
+         - 200 OK if the device clamps/ignores but keeps brightness <= max.
+      6) Read brightness again and verify it is not above max (ideally == max).
+      7) Restore original brightness (best-effort).
+    """
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
+    logs = []
+    result = TestResult(test_id, device_id, "system/settings/set", "{}", "UNKNOWN", "", logs)
+
+    original_brightness = None
+    min_brightness = None
+    max_brightness = None
+
+    try:
+        # Header and description
+        for line in (
+            f"[TEST] Brightness Max Increment Guard Check — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: Verify that attempting to set brightness above the maximum supported value does not exceed that upper limit.",
+            "[DESC] Required operations: system/settings/get, system/settings/set.",
+            "[DESC] Pass criteria: Device rejects or clamps the above-max value; stored brightness does not exceed the max.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Capability gate
+        if not require_capabilities(
+            tester,
+            device_id,
+            "ops: system/settings/get, system/settings/set | settings: brightness",
+            result,
+            logs,
+        ):
+            return result
+
+        # Step 1: Resolve brightness range using EnforcementManager (settings/list)
+        line = "[STEP] Resolving brightness range using EnforcementManager settings descriptor."
+        LOGGER.result(line)
+        logs.append(line)
+
+        em = EnforcementManager()
+        sup = em.get_supported_settings() or {}
+        try:
+            sup_dict = sup if isinstance(sup, dict) else json.loads(sup)
+        except Exception:
+            sup_dict = {}
+
+        settings_map = sup_dict.get("settings", sup_dict) if isinstance(sup_dict, dict) else {}
+        if not isinstance(settings_map, dict):
+            settings_map = {}
+
+        desc = settings_map.get("brightness")
+        if not isinstance(desc, dict) or not {"min", "max"}.issubset(desc.keys()):
+            result.test_result = "OPTIONAL_FAILED"
+            line = "[RESULT] OPTIONAL_FAILED — brightness descriptor does not expose numeric min/max; cannot construct above-max value."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        min_brightness = desc["min"]
+        max_brightness = desc["max"]
+        line = f"[INFO] brightness range from settings/list: min={min_brightness!r}, max={max_brightness!r}"
+        LOGGER.result(line)
+        logs.append(line)
+
+        if not isinstance(min_brightness, (int, float)) or not isinstance(max_brightness, (int, float)):
+            result.test_result = "OPTIONAL_FAILED"
+            line = "[RESULT] OPTIONAL_FAILED — brightness min/max values are not numeric; cannot run max increment guard."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        # Step 2: Read current brightness (for restore later)
+        line = "[STEP] Fetching current brightness value via system/settings/get."
+        LOGGER.result(line)
+        logs.append(line)
+
+        rc, response = execute_cmd_and_log(tester, device_id, "system/settings/get", "{}", logs, result)
+        status = dab_status_from(response, rc)
+        if status != 200:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — system/settings/get failed with status {status}; cannot read current brightness."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        try:
+            body_get1 = json.loads(response) if isinstance(response, str) else (response or {})
+        except Exception as e:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — system/settings/get returned invalid JSON when reading original brightness: {e}"
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        original_brightness = body_get1.get("brightness")
+        line = f"[INFO] Original brightness value from device: {original_brightness!r}"
+        LOGGER.result(line)
+        logs.append(line)
+
+        # Step 3: Set brightness to max and confirm
+        payload_max = json.dumps({"brightness": max_brightness})
+        line = f"[STEP] Setting brightness to its maximum value via system/settings/set: {payload_max}"
+        LOGGER.result(line)
+        logs.append(line)
+
+        rc, response = execute_cmd_and_log(tester, device_id, "system/settings/set", payload_max, logs, result)
+        status = dab_status_from(response, rc)
+        if status == 501:
+            result.test_result = "OPTIONAL_FAILED"
+            line = "[RESULT] OPTIONAL_FAILED — system/settings/set for brightness is not implemented on this device."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+        if status != 200:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — system/settings/set to max brightness returned status {status}; cannot establish precondition."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        line = "[STEP] Confirming brightness is at maximum via system/settings/get."
+        LOGGER.result(line)
+        logs.append(line)
+
+        rc, response = execute_cmd_and_log(tester, device_id, "system/settings/get", "{}", logs, result)
+        status = dab_status_from(response, rc)
+        if status != 200:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — system/settings/get after setting max brightness failed with status {status}."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        try:
+            body_get_max = json.loads(response) if isinstance(response, str) else (response or {})
+        except Exception as e:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — system/settings/get returned invalid JSON after setting max brightness: {e}"
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        confirmed_max = body_get_max.get("brightness")
+        line = f"[INFO] Brightness after setting to max: {confirmed_max!r} (expected max={max_brightness!r})"
+        LOGGER.result(line)
+        logs.append(line)
+
+        if confirmed_max != max_brightness:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — Unable to confirm brightness at max. Expected {max_brightness!r}, observed {confirmed_max!r}."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        # Step 4: Send above-max brightness (negative)
+        invalid_value = max_brightness + 1
+        payload_invalid = json.dumps({"brightness": invalid_value})
+        line = f"[STEP] Sending above-max brightness value via system/settings/set; max={max_brightness!r}, invalid_value={invalid_value!r}, payload={payload_invalid}"
+        LOGGER.result(line)
+        logs.append(line)
+
+        rc, response = execute_cmd_and_log(tester, device_id, "system/settings/set", payload_invalid, logs, result)
+        status = dab_status_from(response, rc)
+
+        # Negative-test expectation: 400 preferred; 200 allowed if device clamps; 501 -> OPTIONAL_FAILED; any other -> FAILED.
+        if status == 501:
+            result.test_result = "OPTIONAL_FAILED"
+            line = "[RESULT] OPTIONAL_FAILED — system/settings/set returned 501 for above-max brightness; cannot validate guard on this device."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+        elif status not in (200, 400):
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — Unexpected status for above-max brightness request: got {status}, expected 400 (Bad Request) or 200 (clamp/ignore)."
+            LOGGER.result(line)
+            logs.append(line)
+            # We still continue to read back brightness to see what happened.
+
+        # Step 5: Verify brightness did not exceed max
+        line = "[STEP] Reading brightness via system/settings/get after above-max request."
+        LOGGER.result(line)
+        logs.append(line)
+
+        rc, response = execute_cmd_and_log(tester, device_id, "system/settings/get", "{}", logs, result)
+        status = dab_status_from(response, rc)
+        if status != 200:
+            if result.test_result == "UNKNOWN":
+                result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — system/settings/get after above-max brightness request failed with status {status}."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        try:
+            body_get2 = json.loads(response) if isinstance(response, str) else (response or {})
+        except Exception as e:
+            if result.test_result == "UNKNOWN":
+                result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — system/settings/get returned invalid JSON after above-max brightness request: {e}"
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        brightness_after = body_get2.get("brightness")
+        line = f"[INFO] Brightness after above-max request: {brightness_after!r} (max={max_brightness!r}, invalid_value={invalid_value!r})"
+        LOGGER.result(line)
+        logs.append(line)
+
+        if brightness_after is None:
+            if result.test_result == "UNKNOWN":
+                result.test_result = "FAILED"
+            line = "[RESULT] FAILED — brightness key missing after above-max request; cannot verify guard."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        if isinstance(brightness_after, (int, float)) and brightness_after <= max_brightness and brightness_after == max_brightness:
+            if result.test_result == "UNKNOWN":
+                result.test_result = "PASS"
+            line = "[RESULT] PASS — Device prevented brightness from exceeding max; value remains at the maximum boundary."
+            LOGGER.result(line)
+            logs.append(line)
+        else:
+            if result.test_result == "UNKNOWN":
+                result.test_result = "FAILED"
+            line = (f"[RESULT] FAILED — Brightness guard failed or behaved unexpectedly. "
+                    f"max={max_brightness!r}, invalid_value={invalid_value!r}, observed brightness={brightness_after!r}.")
+            LOGGER.result(line)
+            logs.append(line)
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
+        LOGGER.result(line)
+        logs.append(line)
+
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — An unexpected error occurred: {e}"
+        LOGGER.result(line)
+        logs.append(line)
+
+    finally:
+        # Best-effort restore of original brightness
+        try:
+            if original_brightness is not None:
+                payload_restore = json.dumps({"brightness": original_brightness})
+                line = f"[STEP] Restoring original brightness value with payload: {payload_restore}"
+                LOGGER.result(line)
+                logs.append(line)
+                rc, response = execute_cmd_and_log(tester, device_id, "system/settings/set", payload_restore, logs, result)
+                line = f"[INFO] Restore brightness status={dab_status_from(response, rc)}"
+                LOGGER.result(line)
+                logs.append(line)
+        except Exception as e:
+            line = f"[INFO] Failed to restore original brightness value: {e}"
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Final summary log
+        line = f"[SUMMARY] outcome={result.test_result}, min={min_brightness!r}, max={max_brightness!r}, test_id={test_id}, device={device_id}"
+        LOGGER.result(line)
+        logs.append(line)
+
+    return result
+
+
+def run_brightness_rapid_change_responsiveness_check(dab_topic, test_name, tester, device_id):
+    """
+    Validates that brightness control remains responsive when rapidly changing brightness
+    between multiple values (approx. 20%, 80%, 40% of the supported range).
+    This is a manual-assisted test.
+    """
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
+    logs = []
+    result = TestResult(test_id, device_id, "system/settings/set", "{}", "UNKNOWN", "", logs)
+    user_validated = "N/A"
+    original_brightness = None
+    min_brightness = None
+    max_brightness = None
+    value_20 = None
+    value_80 = None
+    value_40 = None
+
+    try:
+        # Header and description
+        for line in (
+            f"[TEST] Brightness Rapid-Change Responsiveness Check — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: Quickly change brightness to ~20%, ~80%, then ~40% and verify the control is responsive.",
+            "[DESC] Required operations: system/settings/get, system/settings/set.",
+            "[DESC] Pass criteria: Device accepts rapid updates and user confirms screen brightness changes promptly for each step.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Capability gate
+        if not require_capabilities(
+            tester,
+            device_id,
+            "ops: system/settings/get, system/settings/set | settings: brightness",
+            result,
+            logs,
+        ):
+            return result
+
+        # Step 1: Resolve brightness range using EnforcementManager (settings/list)
+        line = "[STEP] Resolving brightness range using EnforcementManager settings descriptor."
+        LOGGER.result(line)
+        logs.append(line)
+
+        em = EnforcementManager()
+        sup = em.get_supported_settings() or {}
+        try:
+            sup_dict = sup if isinstance(sup, dict) else json.loads(sup)
+        except Exception:
+            sup_dict = {}
+
+        settings_map = sup_dict.get("settings", sup_dict) if isinstance(sup_dict, dict) else {}
+        if not isinstance(settings_map, dict):
+            settings_map = {}
+
+        desc = settings_map.get("brightness")
+        if not isinstance(desc, dict) or not {"min", "max"}.issubset(desc.keys()):
+            result.test_result = "OPTIONAL_FAILED"
+            line = "[RESULT] OPTIONAL_FAILED — brightness descriptor does not expose numeric min/max; cannot compute 20/40/80% values."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        min_brightness = desc["min"]
+        max_brightness = desc["max"]
+        line = f"[INFO] brightness range from settings/list: min={min_brightness!r}, max={max_brightness!r}"
+        LOGGER.result(line)
+        logs.append(line)
+
+        if not isinstance(min_brightness, (int, float)) or not isinstance(max_brightness, (int, float)):
+            result.test_result = "OPTIONAL_FAILED"
+            line = "[RESULT] OPTIONAL_FAILED — brightness min/max values are not numeric; cannot compute percentage-based values."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        try:
+            span = max_brightness - min_brightness
+            if span <= 0:
+                value_20 = min_brightness
+                value_40 = min_brightness
+                value_80 = min_brightness
+            else:
+                value_20 = int(round(min_brightness + 0.2 * span))
+                value_40 = int(round(min_brightness + 0.4 * span))
+                value_80 = int(round(min_brightness + 0.8 * span))
+        except Exception:
+            value_20 = min_brightness
+            value_40 = min_brightness
+            value_80 = min_brightness
+
+        line = f"[INFO] Computed brightness values: ~20%={value_20!r}, ~40%={value_40!r}, ~80%={value_80!r}"
+        LOGGER.result(line)
+        logs.append(line)
+
+        # Step 2: Read current brightness (for restore)
+        line = "[STEP] Fetching current brightness value via system/settings/get."
+        LOGGER.result(line)
+        logs.append(line)
+
+        rc, response = execute_cmd_and_log(tester, device_id, "system/settings/get", "{}", logs, result)
+        status = dab_status_from(response, rc)
+        if status != 200:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — system/settings/get failed with status {status}; cannot read current brightness."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        try:
+            body_get1 = json.loads(response) if isinstance(response, str) else (response or {})
+        except Exception as e:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — system/settings/get returned invalid JSON when reading original brightness: {e}"
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        original_brightness = body_get1.get("brightness")
+        line = f"[INFO] Original brightness value from device: {original_brightness!r}"
+        LOGGER.result(line)
+        logs.append(line)
+
+        # Step 3: Rapidly update brightness to 20% then 80% then 40%
+        line = "[STEP] Manual check required — observe the screen while brightness is changed quickly to ~20%, ~80%, then ~40%."
+        LOGGER.result(line)
+        logs.append(line)
+
+        # 3a: Set to ~20%
+        payload_20 = json.dumps({"brightness": value_20})
+        line = f"[STEP] Setting brightness to ~20% with payload: {payload_20}"
+        LOGGER.result(line)
+        logs.append(line)
+        rc, response = execute_cmd_and_log(tester, device_id, "system/settings/set", payload_20, logs, result)
+        status = dab_status_from(response, rc)
+        if status == 501:
+            result.test_result = "OPTIONAL_FAILED"
+            line = "[RESULT] OPTIONAL_FAILED — system/settings/set for brightness is not implemented on this device."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+        if status != 200:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — system/settings/set to ~20% returned status {status}; cannot continue rapid-change sequence."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        # 3b: Set to ~80%
+        payload_80 = json.dumps({"brightness": value_80})
+        line = f"[STEP] Setting brightness to ~80% with payload: {payload_80}"
+        LOGGER.result(line)
+        logs.append(line)
+        rc, response = execute_cmd_and_log(tester, device_id, "system/settings/set", payload_80, logs, result)
+        status = dab_status_from(response, rc)
+        if status != 200:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — system/settings/set to ~80% returned status {status}; cannot continue rapid-change sequence."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        # 3c: Set to ~40%
+        payload_40 = json.dumps({"brightness": value_40})
+        line = f"[STEP] Setting brightness to ~40% with payload: {payload_40}"
+        LOGGER.result(line)
+        logs.append(line)
+        rc, response = execute_cmd_and_log(tester, device_id, "system/settings/set", payload_40, logs, result)
+        status = dab_status_from(response, rc)
+        if status != 200:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — system/settings/set to ~40% returned status {status}; rapid-change sequence did not complete."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        # Step 4: Confirm final stored value is ~40%
+        line = "[STEP] Confirming final brightness value (~40%) via system/settings/get."
+        LOGGER.result(line)
+        logs.append(line)
+
+        rc, response = execute_cmd_and_log(tester, device_id, "system/settings/get", "{}", logs, result)
+        status = dab_status_from(response, rc)
+        if status != 200:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — system/settings/get after rapid changes failed with status {status}."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        try:
+            body_get2 = json.loads(response) if isinstance(response, str) else (response or {})
+        except Exception as e:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — system/settings/get returned invalid JSON after rapid changes: {e}"
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        final_brightness = body_get2.get("brightness")
+        line = f"[INFO] Brightness after rapid changes: {final_brightness!r} (expected ~40%={value_40!r})"
+        LOGGER.result(line)
+        logs.append(line)
+
+        if final_brightness != value_40:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — Expected final brightness {value_40!r}, observed {final_brightness!r} after rapid changes."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        # Step 5: Manual verification of responsiveness
+        line = "[STEP] Manual verification — confirm that brightness changes were prompt and visible after each update (20% → 80% → 40%)."
+        LOGGER.result(line)
+        logs.append(line)
+
+        user_validated = yes_or_no(
+            result,
+            logs,
+            "While brightness was changed to ~20%, then ~80%, then ~40%, did the screen brightness update promptly after each change?"
+        )
+
+        if user_validated:
+            result.test_result = "PASS"
+            line = "[RESULT] PASS — User confirmed that brightness control remained responsive and screen updated after each change."
+        else:
+            result.test_result = "FAILED"
+            line = "[RESULT] FAILED — User reported that brightness control was not responsive or updates were delayed."
+
+        LOGGER.result(line)
+        logs.append(line)
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
+        LOGGER.result(line)
+        logs.append(line)
+
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — An unexpected error occurred: {e}"
+        LOGGER.result(line)
+        logs.append(line)
+
+    finally:
+        # Best-effort restore of original brightness
+        try:
+            if original_brightness is not None:
+                payload_restore = json.dumps({"brightness": original_brightness})
+                line = f"[STEP] Restoring original brightness value with payload: {payload_restore}"
+                LOGGER.result(line)
+                logs.append(line)
+                rc, response = execute_cmd_and_log(tester, device_id, "system/settings/set", payload_restore, logs, result)
+                line = f"[INFO] Restore brightness status={dab_status_from(response, rc)}"
+                LOGGER.result(line)
+                logs.append(line)
+        except Exception as e:
+            line = f"[INFO] Failed to restore original brightness value: {e}"
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Final summary log
+        line = f"[SUMMARY] outcome={result.test_result}, user_validated_responsiveness={user_validated}, test_id={test_id}, device={device_id}"
+        LOGGER.result(line)
+        logs.append(line)
+
+    return result
+
+def run_brightness_min_value_screen_check(dab_topic, test_name, tester, device_id):
+    """
+    Validates that setting brightness to the minimum supported value via DAB is stored correctly
+    and reflected on the screen. This is a manual-assisted test.
+    """
+    test_id = to_test_id(f"{dab_topic}/{test_name}")
+    logs = []
+    result = TestResult(test_id, device_id, "system/settings/set", "{}", "UNKNOWN", "", logs)
+    user_validated = "N/A"
+    original_brightness = None
+    min_brightness = None
+    max_brightness = None
+
+    try:
+        # Header and description
+        for line in (
+            f"[TEST] Brightness Minimum Value Screen Check — {test_name} (test_id={test_id}, device={device_id})",
+            "[DESC] Goal: Set brightness to the minimum supported value and verify it is reflected on the screen.",
+            "[DESC] Required operations: system/settings/get, system/settings/set.",
+            "[DESC] Pass criteria: Device reports minimum brightness via DAB and user confirms very low screen brightness.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Capability gate
+        if not require_capabilities(
+            tester,
+            device_id,
+            "ops: system/settings/get, system/settings/set | settings: brightness",
+            result,
+            logs,
+        ):
+            return result
+
+        # Step 1: Resolve brightness range using EnforcementManager (settings/list)
+        line = "[STEP] Resolving brightness range using EnforcementManager settings descriptor."
+        LOGGER.result(line)
+        logs.append(line)
+
+        em = EnforcementManager()
+        sup = em.get_supported_settings() or {}
+        try:
+            sup_dict = sup if isinstance(sup, dict) else json.loads(sup)
+        except Exception:
+            sup_dict = {}
+
+        settings_map = sup_dict.get("settings", sup_dict) if isinstance(sup_dict, dict) else {}
+        if not isinstance(settings_map, dict):
+            settings_map = {}
+
+        desc = settings_map.get("brightness")
+        if not isinstance(desc, dict) or not {"min", "max"}.issubset(desc.keys()):
+            result.test_result = "OPTIONAL_FAILED"
+            line = "[RESULT] OPTIONAL_FAILED — brightness descriptor does not expose numeric min/max; cannot determine minimum value."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        min_brightness = desc["min"]
+        max_brightness = desc["max"]
+        line = f"[INFO] brightness range from settings/list: min={min_brightness!r}, max={max_brightness!r}"
+        LOGGER.result(line)
+        logs.append(line)
+
+        if not isinstance(min_brightness, (int, float)):
+            result.test_result = "OPTIONAL_FAILED"
+            line = "[RESULT] OPTIONAL_FAILED — brightness min value is not numeric; cannot run minimum value screen check."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        # Step 2: Read current brightness (for restore)
+        line = "[STEP] Fetching current brightness value via system/settings/get."
+        LOGGER.result(line)
+        logs.append(line)
+
+        rc, response = execute_cmd_and_log(tester, device_id, "system/settings/get", "{}", logs, result)
+        status = dab_status_from(response, rc)
+        if status != 200:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — system/settings/get failed with status {status}; cannot read current brightness."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        try:
+            body_get1 = json.loads(response) if isinstance(response, str) else (response or {})
+        except Exception as e:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — system/settings/get returned invalid JSON when reading original brightness: {e}"
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        original_brightness = body_get1.get("brightness")
+        line = f"[INFO] Original brightness value from device: {original_brightness!r}"
+        LOGGER.result(line)
+        logs.append(line)
+
+        # Step 3: Set brightness to minimum
+        payload_min = json.dumps({"brightness": min_brightness})
+        line = f"[STEP] Setting brightness to minimum value via system/settings/set: {payload_min}"
+        LOGGER.result(line)
+        logs.append(line)
+
+        rc, response = execute_cmd_and_log(tester, device_id, "system/settings/set", payload_min, logs, result)
+        status = dab_status_from(response, rc)
+        if status == 501:
+            result.test_result = "OPTIONAL_FAILED"
+            line = "[RESULT] OPTIONAL_FAILED — system/settings/set for brightness is not implemented on this device."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+        if status != 200:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — system/settings/set to minimum returned status {status}; cannot proceed."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        # Step 4: Confirm brightness is at minimum via get
+        line = "[STEP] Confirming brightness is at minimum via system/settings/get."
+        LOGGER.result(line)
+        logs.append(line)
+
+        rc, response = execute_cmd_and_log(tester, device_id, "system/settings/get", "{}", logs, result)
+        status = dab_status_from(response, rc)
+        if status != 200:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — system/settings/get after setting minimum failed with status {status}."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        try:
+            body_get2 = json.loads(response) if isinstance(response, str) else (response or {})
+        except Exception as e:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — system/settings/get returned invalid JSON after setting minimum: {e}"
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        confirmed_brightness = body_get2.get("brightness")
+        line = f"[INFO] Brightness after setting to minimum: {confirmed_brightness!r} (expected min={min_brightness!r})"
+        LOGGER.result(line)
+        logs.append(line)
+
+        if confirmed_brightness != min_brightness:
+            result.test_result = "FAILED"
+            line = f"[RESULT] FAILED — Expected brightness {min_brightness!r}, observed {confirmed_brightness!r}."
+            LOGGER.result(line)
+            logs.append(line)
+            return result
+
+        # Step 5: Manual visual confirmation on screen
+        line = "[STEP] Manual check required — observe the screen at the minimum brightness setting."
+        LOGGER.result(line)
+        logs.append(line)
+
+        for line in (
+            "[DESC] The screen should now appear very dim / minimally lit compared to normal brightness.",
+            "[DESC] Compare this to a higher brightness level (e.g., before running this test) if needed.",
+        ):
+            LOGGER.result(line)
+            logs.append(line)
+
+        user_validated = yes_or_no(
+            result,
+            logs,
+            "Does the screen appear at a very low / minimum brightness level after setting brightness to the minimum value?"
+        )
+
+        if user_validated:
+            result.test_result = "PASS"
+            line = "[RESULT] PASS — User confirmed the screen reflects the minimum brightness as expected."
+        else:
+            result.test_result = "FAILED"
+            line = "[RESULT] FAILED — User reported the screen does NOT reflect the minimum brightness level."
+
+        LOGGER.result(line)
+        logs.append(line)
+
+    except UnsupportedOperationError as e:
+        result.test_result = "OPTIONAL_FAILED"
+        line = f"[RESULT] OPTIONAL_FAILED — Operation '{e.topic}' is not supported."
+        LOGGER.result(line)
+        logs.append(line)
+
+    except Exception as e:
+        result.test_result = "SKIPPED"
+        line = f"[RESULT] SKIPPED — An unexpected error occurred: {e}"
+        LOGGER.result(line)
+        logs.append(line)
+
+    finally:
+        # Best-effort restore of original brightness
+        try:
+            if original_brightness is not None:
+                payload_restore = json.dumps({"brightness": original_brightness})
+                line = f"[STEP] Restoring original brightness value with payload: {payload_restore}"
+                LOGGER.result(line)
+                logs.append(line)
+                rc, response = execute_cmd_and_log(tester, device_id, "system/settings/set", payload_restore, logs, result)
+                line = f"[INFO] Restore brightness status={dab_status_from(response, rc)}"
+                LOGGER.result(line)
+                logs.append(line)
+        except Exception as e:
+            line = f"[INFO] Failed to restore original brightness value: {e}"
+            LOGGER.result(line)
+            logs.append(line)
+
+        # Final summary log
+        line = f"[SUMMARY] outcome={result.test_result}, user_validated_min={user_validated}, min={min_brightness!r}, test_id={test_id}, device={device_id}"
+        LOGGER.result(line)
+        logs.append(line)
+
+    return result
 
 # === Functional Test Case List ===
 FUNCTIONAL_TEST_CASE = [
@@ -12339,8 +13674,13 @@ FUNCTIONAL_TEST_CASE = [
     ("system/settings/set", "functional", run_high_contrast_text_invalid_value_type_check, "HighContrastText Invalid_Value_Type Check", "2.1", True),
     ("system/settings/set", "functional", run_contrast_max_value_check, "Contrast max value check", "2.1", False),
     ("system/logs/stop-collection", "functional", run_logs_stop_without_active_collection_check, "Logs Stop Without Active Collection Check", "2.1", True),
-    ("contrast", "functional", run_contrast_minimum_value_check, "Contrast Minimum Value Check", "2.1", False),
-    ("contrast", "functional", run_contrast_invalid_value_check, "Contrast Invalid Value Check", "2.1", True),
-    ("brightness", "functional", run_brightness_min_decrement_guard_check, "Brightness Min Decrement Guard Check", "2.1", True),
+    ("system/settings/set", "functional", run_contrast_minimum_value_check, "Contrast Minimum Value Check", "2.1", False),
+    ("system/settings/set", "functional", run_contrast_invalid_value_check, "Contrast Invalid Value Check", "2.1", True),
+    ("system/settings/set", "functional", run_brightness_min_decrement_guard_check, "Brightness Min Decrement Guard Check", "2.1", True),
+    ("system/settings/set", "functional", run_brightness_mid_level_50_screen_check, "Brightness Mid-Level 50 Screen Check", "2.1", False),
+    ("system/settings/set", "functional", run_brightness_60_video_content_check, "Brightness 60 Video_Content Check", "2.1", False),
+    ("system/settings/set", "functional", run_brightness_max_increment_guard_check, "Brightness Max Increment Guard Check", "2.1", True),
+    ("system/settings/set", "functional", run_brightness_rapid_change_responsiveness_check, "Brightness Rapid_Change Responsiveness Check", "2.1", False),
+    ("system/settings/set", "functional", run_brightness_min_value_screen_check, "Brightness Minimum_Value Screen Check", "2.1", False),
 
 ]
