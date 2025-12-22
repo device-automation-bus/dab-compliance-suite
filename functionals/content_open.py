@@ -10,7 +10,6 @@ import sys
 def run_content_open_invalid_content_id_check(dab_topic, test_name, tester, device_id):
     """
     DAB 2.1 – content/open invalid contentId (negative)
-
     Goal:
       - Call content/open with a clearly invalid/non-existent contentId.
       - Verify the device does NOT treat it as success.
@@ -24,7 +23,7 @@ def run_content_open_invalid_content_id_check(dab_topic, test_name, tester, devi
     invalid_content_id = "dab-invalid-content-id-0000-should-not-exist"
 
     try:
-        helpers.log_line(logs, "TEST", f"Content_Open Invalid Content_ID Check — {test_name} (id={test_id}, device={device_id})", result=result)
+        helpers.log_line(logs, "TEST", f"{test_name} (id={test_id}, device={device_id})", result=result)
         helpers.log_line(logs, "DESC", "Ensure content/open rejects a non-existent contentId with an appropriate client error.", result=result)
         helpers.log_line(logs, "DESC", "Required operation: content/open.", result=result)
         helpers.log_line(logs, "DESC", "PASS if content/open returns 400 (client error) for the invalid contentId, not 200.", result=result)
@@ -52,9 +51,12 @@ def run_content_open_invalid_content_id_check(dab_topic, test_name, tester, devi
             return result
 
         error_body = None
-        if body:
+        if body is not None:
             try:
-                error_body = json.loads(body) if isinstance(body, str) else (body or {})
+                if isinstance(body, str):
+                    error_body = json.loads(body) if body.strip() != "" else None
+                else:
+                    error_body = body
             except Exception as e:
                 helpers.finish(result, logs, "FAILED", f"content/open error response for invalid contentId is not valid JSON: {e}")
                 return result

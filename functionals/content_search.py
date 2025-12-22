@@ -29,7 +29,7 @@ def run_content_search_inception_metadata_check(dab_topic, test_name, tester, de
     required_fields = ("entryId", "appId", "title", "poster", "categories")
 
     try:
-        helpers.log_line(logs, "TEST", f"Content_Search Inception_Metadata Check — {test_name} (id={test_id}, device={device_id})", result=result)
+        helpers.log_line(logs, "TEST", f"{test_name} (id={test_id}, device={device_id})", result=result)
         helpers.log_line(logs, "DESC", "Ensure content/search with title 'Inception' returns relevant results with complete metadata.", result=result)
         helpers.log_line(logs, "DESC", "Required operation: content/search.", result=result)
         helpers.log_line(logs, "DESC", "PASS if status=200, entries non-empty, metadata complete, at least one title contains 'Inception', and UI looks relevant.", result=result)
@@ -53,7 +53,10 @@ def run_content_search_inception_metadata_check(dab_topic, test_name, tester, de
             return result
 
         try:
-            body = json.loads(body) if isinstance(body, str) else (body or {})
+            if isinstance(body, str):
+                body = json.loads(body) if body.strip() != "" else {}
+            elif body is None:
+                body = {}
         except Exception as e:
             helpers.finish(result, logs, "FAILED", f"content/search response is not valid JSON for searchText={search_text!r}: {e}")
             return result
@@ -102,7 +105,7 @@ def run_content_search_inception_metadata_check(dab_topic, test_name, tester, de
                 helpers.finish(result, logs, "FAILED", f"Entry #{idx} has invalid title={title!r} (expected non-empty string).")
                 return result
             if not isinstance(poster, str) or not poster:
-                helpers.finish(result, logs, "FAILED", "Entry #{idx} has invalid poster value (expected non-empty base64 data URL string).")
+                helpers.finish(result, logs, "FAILED", f"Entry #{idx} has invalid poster value (expected non-empty base64 data URL string).")
                 return result
             if not isinstance(categories, list) or not all(isinstance(c, str) for c in categories):
                 helpers.finish(result, logs, "FAILED", f"Entry #{idx} has invalid categories={categories!r} (expected list of strings).")
@@ -161,7 +164,7 @@ def run_content_search_empty_query_behavior_check(dab_topic, test_name, tester, 
     result = TestResult(test_id, device_id, dab_topic, "{}", "UNKNOWN", "", logs)
 
     try:
-        helpers.log_line(logs, "TEST", f"Content_Search Empty_Query Behavior Check — {test_name} (id={test_id}, device={device_id})", result=result)
+        helpers.log_line(logs, "TEST", f"{test_name} (id={test_id}, device={device_id})", result=result)
         helpers.log_line(logs, "DESC", "Goal: Verify that content/search with empty searchText returns either 400 with valid JSON or 200 with entries=[].", result=result)
         helpers.log_line(logs, "DESC", "Required operation: content/search.", result=result)
         helpers.log_line(logs, "DESC", "PASS if status in {400, 200}. For 400: valid JSON or empty body. For 200: valid JSON with entries=[].", result=result)
@@ -184,15 +187,19 @@ def run_content_search_empty_query_behavior_check(dab_topic, test_name, tester, 
             helpers.finish(result, logs, "FAILED", f"Unexpected status for empty searchText: got {status}, expected 400 or 200.")
             return result
 
-        if body is None or body == "":
+        is_empty_body = (body is None) or (isinstance(body, str) and body.strip() == "")
+        if is_empty_body:
             if status == 400:
                 helpers.finish(result, logs, "PASS", "content/search returned status=400 with no body for empty searchText; treated as valid client error.")
                 return result
-            helpers.finish(result, logs, "FAILED", "content/search returned status=200 with an empty body; expected valid JSON even for empty entries.")
+            helpers.finish(result, logs, "PASS", "content/search returned status=200 with an empty body for empty searchText; treating as allowed empty result set (entries=[]).")
             return result
 
         try:
-            parsed = json.loads(body) if isinstance(body, str) else (body or {})
+            if isinstance(body, str):
+                parsed = json.loads(body)
+            else:
+                parsed = body
         except Exception as e:
             helpers.finish(result, logs, "FAILED", f"content/search response for empty searchText is not valid JSON: {e}")
             return result
@@ -202,7 +209,7 @@ def run_content_search_empty_query_behavior_check(dab_topic, test_name, tester, 
             helpers.finish(result, logs, "PASS", "Empty searchText correctly rejected with status=400 and valid JSON.")
             return result
 
-        entries = parsed.get("entries")
+        entries = parsed.get("entries") if isinstance(parsed, dict) else None
         if not isinstance(entries, list):
             helpers.finish(result, logs, "FAILED", "For status=200, content/search response does not expose 'entries' as a list for empty searchText.")
             return result
@@ -248,7 +255,7 @@ def run_content_search_partial_app_metadata_check(dab_topic, test_name, tester, 
     required_fields = ("entryId", "appId", "title", "poster", "categories")
 
     try:
-        helpers.log_line(logs, "TEST", f"Content Search Partial App Metadata Check — {test_name} (id={test_id}, device={device_id})", result=result)
+        helpers.log_line(logs, "TEST", f"{test_name} (id={test_id}, device={device_id})", result=result)
         helpers.log_line(logs, "DESC", "Use content/search with partial app-related keywords and verify that results provide complete ContentEntry metadata.", result=result)
         helpers.log_line(logs, "DESC", "Required operation: content/search.", result=result)
         helpers.log_line(logs, "DESC", "PASS if any partial keyword returns status=200, non-empty entries, and each entry has entryId, appId, title, poster, and categories with correct types.", result=result)

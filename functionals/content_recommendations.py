@@ -27,7 +27,7 @@ def run_content_recommendations_update_after_watch_check(dab_topic, test_name, t
     updated_entries = []
 
     try:
-        helpers.log_line(logs, "TEST", f"Content_Recommendations Update_After_Watch Check — {test_name} (id={test_id}, device={device_id})", result=result)
+        helpers.log_line(logs, "TEST", f"{test_name} (id={test_id}, device={device_id})", result=result)
         helpers.log_line(logs, "DESC", "Verify that content/recommendations reflects new viewing activity after watching new content.", result=result)
         helpers.log_line(logs, "DESC", "Required operation: content/recommendations.", result=result)
         helpers.log_line(logs, "DESC", "PASS if second recommendations call appears updated and user confirms the change.", result=result)
@@ -45,7 +45,7 @@ def run_content_recommendations_update_after_watch_check(dab_topic, test_name, t
             helpers.finish(result, logs, "OPTIONAL_FAILED", "content/recommendations is not implemented on this device (status=501).")
             return result
 
-        if status != 200:
+        elif status != 200:
             helpers.finish(result, logs, "FAILED", f"Baseline content/recommendations returned non-200 status={status}.")
             return result
 
@@ -80,7 +80,7 @@ def run_content_recommendations_update_after_watch_check(dab_topic, test_name, t
         helpers.log_line(logs, "STEP", "Manual step — On the device, watch a new movie/TV show not in existing history.", result=result)
         helpers.log_line(logs, "DESC", "Prefer content that is clearly different from usual recommendations (different genre/app).", result=result)
 
-        user_ready = yes_or_no(
+        user_ready = helpers.yes_or_no(
             result,
             logs,
             "Have you watched new content (a few minutes) and returned to the home screen so recommendations can refresh?"
@@ -148,7 +148,7 @@ def run_content_recommendations_update_after_watch_check(dab_topic, test_name, t
             helpers.log_line(logs, "INFO", "No new recommendation signatures detected; updates may be ranking-only or delayed.", result=result)
 
         # Step 5: Manual confirmation on UI
-        user_validated = yes_or_no(
+        user_validated = helpers.yes_or_no(
             result,
             logs,
             "Do recommendations on the device UI appear updated to reflect the new content you watched?"

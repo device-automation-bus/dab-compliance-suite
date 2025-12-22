@@ -31,7 +31,7 @@ def run_system_power_mode_active_to_standby_check(dab_topic, test_name, tester, 
     final_mode = None
 
     try:
-        helpers.log_line(logs, "TEST", f"System_PowerMode Active_To_Standby Check — {test_name} (id={test_id}, device={device_id})", result=result)
+        helpers.log_line(logs, "TEST", f"{test_name} (id={test_id}, device={device_id})", result=result)
         helpers.log_line(logs, "DESC", "Use system/power-mode/set to move the device from 'Active' to 'Standby' and verify via get that DAB stays responsive.", result=result)
         helpers.log_line(logs, "DESC", "Required operations: system/power-mode/get, system/power-mode/set.", result=result)
         helpers.log_line(logs, "DESC", "PASS if set('Standby') returns 200, get reports 'Standby', and DAB remains active.", result=result)
@@ -189,7 +189,7 @@ def run_system_power_mode_set_missing_mode_param_check(dab_topic, test_name, tes
     final_mode = None
 
     try:
-        helpers.log_line(logs, "TEST", f"System_PowerMode_Set Missing_Mode_Param Check — {test_name} (id={test_id}, device={device_id})", result=result)
+        helpers.log_line(logs, "TEST", f"{test_name} (id={test_id}, device={device_id})", result=result)
         helpers.log_line(logs, "DESC", "Verify system/power-mode/set rejects a request missing 'mode' and that power mode stays Active.", result=result)
         helpers.log_line(logs, "DESC", "Required operations: system/power-mode/get, system/power-mode/set.", result=result)
         helpers.log_line(logs, "DESC", "PASS if device is set to Active, invalid {} call returns 400, and power mode remains Active.", result=result)

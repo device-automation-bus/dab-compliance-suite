@@ -24,7 +24,7 @@ def run_contrast_invalid_value_check(dab_topic, test_name, tester, device_id):
     tol = 1
 
     try:
-        helpers.log_line(logs, "TEST", f"Contrast Invalid Value Check — {test_name} (id={test_id}, device={device_id})", result=result)
+        helpers.log_line(logs, "TEST", f"{test_name} (id={test_id}, device={device_id})", result=result)
         helpers.log_line(logs, "DESC", "Send out-of-range contrast; expect 400 and no change in stored value.", result=result)
 
         cap_spec = "ops: system/settings/get, system/settings/set | settings: contrast"
@@ -100,7 +100,7 @@ def run_contrast_minimum_value_check(dab_topic, test_name, tester, device_id):
     tol = 1
 
     try:
-        helpers.log_line(logs, "TEST", f"Contrast Minimum Value Check — {test_name} (id={test_id}, device={device_id})", result=result)
+        helpers.log_line(logs, "TEST", f"{test_name} (id={test_id}, device={device_id})", result=result)
         helpers.log_line(logs, "DESC", "Set contrast to descriptor min and verify via system/settings/get.", result=result)
 
         cap_spec = "ops: system/settings/get, system/settings/set | settings: contrast"

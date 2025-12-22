@@ -27,7 +27,7 @@ def run_system_setup_skip_mid_wizard_check(dab_topic, test_name, tester, device_
     user_validated_skip = "N/A"
 
     try:
-        helpers.log_line(logs, "TEST", f"System_Setup Skip_Mid_Wizard Check — {test_name} (id={test_id}, device={device_id})", result=result)
+        helpers.log_line(logs, "TEST", f"{test_name} (id={test_id}, device={device_id})", result=result)
         helpers.log_line(logs, "DESC", "From a partially completed setup wizard, call system/setup/skip and verify that the device lands on the home screen with account features disabled.", result=result)
         helpers.log_line(logs, "DESC", "Required operation: system/setup/skip. Factory reset and wizard navigation are handled manually or by other tests.", result=result)
         helpers.log_line(logs, "DESC", "PASS if system/setup/skip returns 200 and tester confirms the device exits the wizard to home without a signed-in account.", result=result)
@@ -121,7 +121,7 @@ def run_system_setup_skip_initial_wizard_check(dab_topic, test_name, tester, dev
     user_validated_home = "N/A"
 
     try:
-        helpers.log_line(logs, "TEST", f"System_Setup Skip_Initial_Wizard Check — {test_name} (id={test_id}, device={device_id})", result=result)
+        helpers.log_line(logs, "TEST", f"{test_name} (id={test_id}, device={device_id})", result=result)
         helpers.log_line(logs, "DESC", "From the initial setup wizard screen after factory reset, call system/setup/skip and verify the device lands on the home screen with account features disabled.", result=result)
         helpers.log_line(logs, "DESC", "Required operation: system/setup/skip. Factory reset is handled outside this test.", result=result)
         helpers.log_line(logs, "DESC", "PASS if system/setup/skip returns 200 and tester confirms the wizard is bypassed and home screen is shown without a signed-in account.", result=result)
