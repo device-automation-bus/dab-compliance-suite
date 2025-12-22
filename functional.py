@@ -16,6 +16,11 @@ from util.enforcement_manager import ValidateCode
 from logger import LOGGER
 import functionals.brightness
 import functionals.contrast
+import functionals.content_recommendations
+import functionals.content_open
+import functionals.content_search
+import functionals.setup_skip
+import functionals.power_mode
 
 # --- Sleep Time Constants ---
 APP_LAUNCH_WAIT = 10
@@ -11813,5 +11818,14 @@ FUNCTIONAL_TEST_CASE = [
     ("system/settings/set", "functional", functionals.brightness.run_brightness_max_increment_guard_check, "Brightness Max Increment Guard Check", "2.1", True),
     ("system/settings/set", "functional", functionals.brightness.run_brightness_rapid_change_responsiveness_check, "Brightness Rapid_Change Responsiveness Check", "2.1", False),
     ("system/settings/set", "functional", functionals.brightness.run_brightness_min_value_screen_check, "Brightness Minimum_Value Screen Check", "2.1", False),
+    ("content/search", "functional", functionals.content_search.run_content_search_partial_app_metadata_check, "Content_Search Partial_App Metadata Check", "2.1", False),
+    ("content/search", "functional", functionals.content_search.run_content_search_inception_metadata_check, "Content_Search Inception_Metadata Check", "2.1", False),
+    ("content/search", "functional", functionals.content_search.run_content_search_empty_query_behavior_check, "Content_Search Empty_Query Behavior Check", "2.1", True),
+    ("content/open", "functional", functionals.content_open.run_content_open_invalid_content_id_check, "Content_Open Invalid_Content_ID Check", "2.1", True),
+    ("content/recommendations", "functional", functionals.content_recommendations.run_content_recommendations_update_after_watch_check, "Content_Recommendations Update_After_Watch Check", "2.1", False),
+    ("system/setup/skip", "functional", functionals.setup_skip.run_system_setup_skip_mid_wizard_check, "System_Setup Skip_Mid_Wizard Check", "2.1", False),
+    ("system/setup/skip", "functional", functionals.setup_skip.run_system_setup_skip_initial_wizard_check, "System_Setup Skip_Initial_Wizard Check", "2.1", False),
+    ("system/power-mode/set", "functional", functionals.power_mode.run_system_power_mode_active_to_standby_check, "System_PowerMode Active_To_Standby Check", "2.1", False),
+    ("system/power-mode/set", "functional", functionals.power_mode.run_system_power_mode_set_missing_mode_param_check, "System_PowerMode_Set Missing_Mode_Param Check", "2.1", True),
 
 ]
