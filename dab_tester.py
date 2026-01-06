@@ -1009,8 +1009,13 @@ class DabTester:
                             if not isinstance(ln, str):
                                 cleaned.append(ln); continue
                             s = ln.lstrip()
-                            # drop JSON-looking blocks or response previews
-                            if s.startswith("{") or s.startswith("[") or s.startswith("items[") or s.startswith("status:") or s.startswith("[RESPONSE"):
+                            # Remove only raw response previews (JSON-ish), not our structured log tags like [TEST]/[INFO]/[PASS].
+                            if s.startswith("{") or s.startswith("status:") or s.startswith("[RESPONSE"):
+                                continue
+                            if s.startswith("item[") or s.startswith("items["):
+                                continue
+                            # Only drop JSON-like arrays, not log tags.
+                            if s.startswith("[{") or s.startswith('["') or (len(s) > 1 and s[0] == "[" and s[1].isdigit()):
                                 continue
                             cleaned.append(ln)
                         r.logs = cleaned
