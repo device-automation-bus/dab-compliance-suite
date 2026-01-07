@@ -29,7 +29,7 @@ def run_brightness_min_decrement_guard_check(dab_topic, test_name, tester, devic
     tol = 1
 
     try:
-        helpers.log_line(logs, "TEST", f"Brightness Min Decrement Guard — {test_name} (id={test_id}, device={device_id})", result=result)
+        helpers.log_line(logs, "TEST", f"{test_name} (id={test_id}, device={device_id})", result=result)
         helpers.log_line(logs, "DESC", "Set min, send below-min, expect 400; brightness must not go below min.", result=result)
 
         if not helpers.require_capabilities(tester, device_id, "ops: system/settings/get, system/settings/set | settings: brightness", result, logs):
@@ -170,7 +170,7 @@ def run_brightness_mid_level_50_screen_check(dab_topic, test_name, tester, devic
     tol = 1
 
     try:
-        helpers.log_line(logs, "TEST", f"Brightness mid (~50%) screen check — {test_name} (id={test_id}, device={device_id})", result=result)
+        helpers.log_line(logs, "TEST", f"{test_name} (id={test_id}, device={device_id})", result=result)
         helpers.log_line(logs, "DESC", "Set brightness to ~50% of supported range, confirm via DAB, then confirm on screen (manual).", result=result)
 
         if not helpers.require_capabilities(tester, device_id, "ops: system/settings/get, system/settings/set | settings: brightness", result=result, logs=logs):
@@ -264,7 +264,7 @@ def run_brightness_60_video_content_check(dab_topic, test_name, tester, device_i
     logs = []
     result = TestResult(test_id, device_id, "system/settings/set", "{}", "UNKNOWN", "", logs)
 
-    helpers.log_line(logs, f"[TEST] Brightness ~60% Video Check — {test_name}")
+    helpers.log_line(logs, "TEST", f"{test_name} (id={test_id}, device={device_id})", result=result)
     helpers.log_line(logs, "[DESC] Set ~60% and confirm during video playback (manual).")
 
     if not helpers.require_capabilities(tester, device_id, "ops: system/settings/get, system/settings/set | settings: brightness", result, logs):
@@ -350,7 +350,7 @@ def run_brightness_min_decrement_guard_check(dab_topic, test_name, tester, devic
     logs = []
     result = TestResult(test_id, device_id, dab_topic, "{}", "UNKNOWN", "", logs)
 
-    helpers.log_line(logs, f"[TEST] Brightness Min Decrement Guard — {test_name}")
+    helpers.log_line(logs, "TEST", f"{test_name} (id={test_id}, device={device_id})", result=result)
     helpers.log_line(logs, "[DESC] Set min, try below-min, verify value does not drop below min.")
 
     if not helpers.require_capabilities(tester, device_id, "ops: system/settings/get, system/settings/set | settings: brightness", result, logs):
@@ -452,7 +452,7 @@ def run_brightness_mid_level_50_screen_check(dab_topic, test_name, tester, devic
     logs = []
     result = TestResult(test_id, device_id, "system/settings/set", "{}", "UNKNOWN", "", logs)
 
-    helpers.log_line(logs, f"[TEST] Brightness Mid (~50%) Screen Check — {test_name}")
+    helpers.log_line(logs, "TEST", f"{test_name} (id={test_id}, device={device_id})", result=result)
     helpers.log_line(logs, "[DESC] Set mid value and confirm on screen (manual).")
 
     if not helpers.require_capabilities(tester, device_id, "ops: system/settings/get, system/settings/set | settings: brightness", result, logs):
@@ -531,7 +531,7 @@ def run_brightness_60_video_content_check(dab_topic, test_name, tester, device_i
     logs = []
     result = TestResult(test_id, device_id, "system/settings/set", "{}", "UNKNOWN", "", logs)
 
-    helpers.log_line(logs, f"[TEST] Brightness ~60% Video Check — {test_name}")
+    helpers.log_line(logs, "TEST", f"{test_name} (id={test_id}, device={device_id})", result=result)
     helpers.log_line(logs, "[DESC] Set ~60% and confirm during video playback (manual).")
 
     if not helpers.require_capabilities(tester, device_id, "ops: system/settings/get, system/settings/set | settings: brightness", result, logs):
@@ -615,7 +615,7 @@ def run_brightness_max_increment_guard_check(dab_topic, test_name, tester, devic
     max_brightness = None
 
     try:
-        helpers.log_line(logs, "TEST", f"Brightness max guard — {test_name} (id={test_id}, device={device_id})")
+        helpers.log_line(logs, "TEST", f"{test_name} (id={test_id}, device={device_id})", result=result)
         helpers.log_line(logs, "DESC", "Set max, then try max+1. Must not exceed max.")
 
         if not helpers.require_capabilities(
@@ -770,7 +770,7 @@ def run_brightness_rapid_change_responsiveness_check(dab_topic, test_name, teste
     value_40 = None
 
     try:
-        helpers.log_line(logs, "TEST", f"Brightness rapid change — {test_name} (id={test_id}, device={device_id})")
+        helpers.log_line(logs, "TEST", f"{test_name} (id={test_id}, device={device_id})", result=result)
         helpers.log_line(logs, "DESC", "Set ~20%, ~80%, ~40%. Confirm screen updates quickly.")
 
         if not helpers.require_capabilities(tester, device_id, "ops: system/settings/get, system/settings/set | settings: brightness", result, logs):
@@ -897,7 +897,7 @@ def run_brightness_min_value_screen_check(dab_topic, test_name, tester, device_i
     max_brightness = None
 
     try:
-        helpers.log_line(logs, "TEST", f"Brightness min screen check — {test_name} (id={test_id}, device={device_id})")
+        helpers.log_line(logs, "TEST", f"{test_name} (id={test_id}, device={device_id})", result=result)
         helpers.log_line(logs, "DESC", "Set brightness to minimum, confirm via DAB, then confirm on screen.")
 
         if not helpers.require_capabilities(tester, device_id, "ops: system/settings/get, system/settings/set | settings: brightness", result, logs):
