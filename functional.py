@@ -11718,12 +11718,12 @@ def run_logs_stop_without_active_collection_check(dab_topic, test_name, tester, 
 
 # === Functional Test Case List ===
 FUNCTIONAL_TEST_CASE = [
-    ("applications/get-state", "functional", run_app_foreground_check, "AppForegroundCheck", "2.0", False),
-    ("applications/get-state", "functional", run_app_background_check, "AppBackgroundCheck", "2.0", False),
-    ("applications/get-state", "functional", run_app_stopped_check, "AppStoppedCheck", "2.0", False),
-    ("applications/launch-with-content", "functional", run_launch_without_content_id, "LaunchWithoutContentID", "2.0", True),
-    ("applications/exit", "functional", run_exit_after_video_check, "ExitAfterVideoCheck", "2.0", False),
-    ("applications/launch", "functional", run_relaunch_stability_check, "RelaunchStabilityCheck", "2.0", False),
+    ("applications/get-state", "functional", run_app_foreground_check, "AppForegroundCheck", "2.0", False, "ytlr"),
+    ("applications/get-state", "functional", run_app_background_check, "AppBackgroundCheck", "2.0", False, "ytlr"),
+    ("applications/get-state", "functional", run_app_stopped_check, "AppStoppedCheck", "2.0", False, "ytlr"),
+    ("applications/launch-with-content", "functional", run_launch_without_content_id, "LaunchWithoutContentID", "2.0", True, "ytlr"),
+    ("applications/exit", "functional", run_exit_after_video_check, "ExitAfterVideoCheck", "2.0", False, "ytlr"),
+    ("applications/launch", "functional", run_relaunch_stability_check, "RelaunchStabilityCheck", "2.0", False, "ytlr"),
     ("system/settings/set", "functional", run_screensaver_enable_check, "ScreensaverEnableCheck", "2.1", False),
     ("system/settings/set", "functional", run_screensaver_disable_check, "ScreensaverDisableCheck", "2.1", False),
     ("system/settings/set", "functional", run_screensaver_active_check, "ScreensaverActiveCheck", "2.1", False),
@@ -11825,7 +11825,7 @@ FUNCTIONAL_TEST_CASE = [
     ("content/recommendations", "functional", functionals.content_recommendations.run_content_recommendations_update_after_watch_check, "Content_Recommendations Update_After_Watch Check", "2.1", False),
     ("system/setup/skip", "functional", functionals.setup_skip.run_system_setup_skip_mid_wizard_check, "System_Setup Skip_Mid_Wizard Check", "2.1", False),
     ("system/setup/skip", "functional", functionals.setup_skip.run_system_setup_skip_initial_wizard_check, "System_Setup Skip_Initial_Wizard Check", "2.1", False),
-    ("system/power-mode/set", "functional", functionals.power_mode.run_system_power_mode_active_to_standby_check, "System_PowerMode Active_To_Standby Check", "2.1", False),
-    ("system/power-mode/set", "functional", functionals.power_mode.run_system_power_mode_set_missing_mode_param_check, "System_PowerMode_Set Missing_Mode_Param Check", "2.1", True),
+    ("system/power-mode/set", "functional", functionals.power_mode.run_system_power_mode_active_to_standby_check, "System_PowerMode Active_To_Standby Check", "2.1", False, "ytlr"),
+    ("system/power-mode/set", "functional", functionals.power_mode.run_system_power_mode_set_missing_mode_param_check, "System_PowerMode_Set Missing_Mode_Param Check", "2.1", True, "ytlr"),
 
 ]

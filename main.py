@@ -74,6 +74,12 @@ if __name__ == "__main__":
 
     parser.add_argument("--init", action="store_true",
                         help="Interactive setup: prompt for app paths (and optional store URL), then exit.")
+    
+    parser.add_argument("--cert",
+                    help="Run only cert-enforced tests tagged for this cert (e.g., --cert ytlr).",
+                    type=str,
+                    default=None)
+
 
     parser.set_defaults(output="")
     parser.set_defaults(case=99999)
@@ -108,6 +114,16 @@ if __name__ == "__main__":
     else:
         suite_to_run = ALL_SUITES
         LOGGER.info(f"No suite specified. All suites selected: {', '.join(suite_to_run.keys())}.")
+
+    if getattr(args, "cert", None):
+        cert_value = str(args.cert).strip()
+        LOGGER.info(f"Cert mode enabled: cert='{cert_value}'. Filtering tests across selected suites.")
+        for s in list(suite_to_run.keys()):
+            before = len(suite_to_run[s])
+            suite_to_run[s] = Tester.filter_tests_for_cert(suite_to_run[s], cert_value)
+            after = len(suite_to_run[s])
+            LOGGER.info(f"Cert filter: suite='{s}' {before} -> {after}")
+
 
     if (args.list == True):
         for suite in suite_to_run:

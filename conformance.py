@@ -16,8 +16,8 @@ from util.config_loader import ensure_app_available, build_install_from_app_stor
 
 # Implement the test cases for conformance test.
 CONFORMANCE_TEST_CASE = [
-    ("operations/list",'{}', dab.operations.list, 200, "Conformance", "2.0", False),
-    ("applications/list",'{}', dab.applications.list, 250, "Conformance", "2.0", False),
+    ("operations/list",'{}', dab.operations.list, 200, "Conformance", "2.0", False, "ytlr"),
+    ("applications/list",'{}', dab.applications.list, 250, "Conformance", "2.0", False, "ytlr"),
     ("applications/launch",lambda: f'{{"appId": "{config.apps["youtube"]}"}}', dab.applications.launch, 10000, "Conformance", "2.0", False),
     ("applications/launch",f'{{"appId_": "{config.apps["youtube"]}"}}', dab.applications.launch, 10000, "Conformance Bad Request 1", "2.0", True),
     ("applications/launch",'{"appId": "invalid"}', dab.applications.launch, 10000, "Conformance Bad Request 2", "2.0", True),
