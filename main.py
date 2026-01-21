@@ -1,3 +1,4 @@
+import sys 
 from dab_tester import DabTester
 from dab_tester import Default_Validations
 from dab_tester import to_test_id
@@ -21,7 +22,7 @@ import netflix
 import functional
 from logger import LOGGER
 from util.config_loader import init_interactive_setup, make_app_id_list
-import sys 
+from util.runtime_config_store import load_config, apply_overrides, save_config
 
 ALL_SUITES = {
     "conformance": conformance.CONFORMANCE_TEST_CASE,
@@ -75,14 +76,48 @@ if __name__ == "__main__":
     parser.add_argument("--init", action="store_true",
                         help="Interactive setup: prompt for app paths (and optional store URL), then exit.")
 
+    parser.add_argument("--config-app", action="append", default=None,
+                        help="Update runtime apps mapping and exit. Repeat: --config-app key=value")
+    
+    parser.add_argument("--config-va", type=str, default=None,
+                        help="Update runtime VA and exit. Example: --config-va GoogleAssistant")
+    
+    parser.add_argument("--config-show", action="store_true",
+                    help="Print current runtime config and exit.")
+
     parser.set_defaults(output="")
     parser.set_defaults(case=99999)
     args = parser.parse_args()
     LOGGER.verbose = bool(args.verbose)
     device_id = args.ID
 
+    if args.config_app or args.config_va:
+        try:
+            from util.runtime_config_store import load_config, apply_overrides, save_config
+            _path, _cfg, _created = load_config()
+            _changed = apply_overrides(_cfg, apps_kv_list=args.config_app, va=args.config_va)
+
+            if _changed:
+                save_config(_path, _cfg)
+                LOGGER.result(f"[CONFIG] Updated: {_path}")
+            else:
+                LOGGER.result(f"[CONFIG] No changes: {_path}")
+
+            if args.config_va:
+                LOGGER.result(f"[CONFIG] VA = {_cfg.get('va')}")
+
+            if args.config_app:
+                LOGGER.result(f"[CONFIG] Apps updated: {', '.join(args.config_app)}")
+
+            LOGGER.result("[CONFIG] Done. Exiting....")
+        except Exception as e:
+            LOGGER.result(f"[CONFIG] Update failed: {type(e).__name__}: {e}")
+            sys.exit(2)
+
+        sys.exit(0)
+
     # ---- interactive bootstrap for sample apps ----
-    if getattr(args, "init", False):
+    elif getattr(args, "init", False):
         # Fixed to exactly three apps; make_app_id_list() now returns the allowed set.
         ids = make_app_id_list()
         print(f"[INIT] Managing fixed app set: {ids}")

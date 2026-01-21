@@ -1,14 +1,6 @@
-# Please config the app value to device app name here. 
-apps = dict(
-    youtube = 'YouTube',
-    netflix = 'Netflix',
-    amazon = 'PrimeVideo',
-    sample_app = 'Sample_App',
-    sample_app1 = 'Sample_App1',
-    large_app = "Large_App",
-    sample_app_url = 'Sample_App_Url',
-    removable_app = 'Netflix' 
-)
+import os
+from util.runtime_config_store import load_config
 
-# Please set the voice asssitant you want to set here.
-va = 'GoogleAssistant'
+_path, config, _created = load_config(os.environ.get("DAB_CONFIG_JSON"))
+apps = config["apps"]
+va = config["va"]
