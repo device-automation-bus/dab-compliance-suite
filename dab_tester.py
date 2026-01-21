@@ -1081,56 +1081,47 @@ class DabTester:
     def unpack_test_case(self, test_case):
         def fail(reason):
             self.logger.warn(f"Invalid test case: {reason}. This case will be skipped. Case: {test_case}")
-            return (None,) * 7  # Expected structure length
+            return (None,) * 7  # keep original shape
 
         if isinstance(test_case, tuple) and len(test_case) >= 3:
             if test_case[1] == "functional" and callable(test_case[2]):
-                # Functional test detected
                 topic = test_case[0]
-                body_str = "{}"  # No fixed payload required
+                body_str = "{}"
                 func = test_case[2]
                 title = test_case[3] if len(test_case) > 3 else "FunctionalTest"
                 test_version = str(test_case[4]) if len(test_case) > 4 else "2.0"
                 is_negative = bool(test_case[5]) if len(test_case) > 5 else False
-                expected = 0  # Expected not used but kept for tuple shape
-
+                expected = 0
                 return topic, body_str, func, expected, title, is_negative, test_version
 
-        # Validate input type
         if not isinstance(test_case, tuple):
             return fail("Test case is not a tuple")
 
-        if len(test_case) not in (5, 6, 7):
-            return fail(f"Expected 5, 6, or 7 elements, got {len(test_case)}")
+        # allow 8 too (cert_tag is ignored here)
+        if len(test_case) not in (5, 6, 7, 8):
+            return fail(f"Expected 5, 6, 7, or 8 elements, got {len(test_case)}")
 
         try:
-            # Unpack mandatory components
             topic, body_str, func, expected, title = test_case[:5]
 
-            # Defaults
             test_version = "2.0"
             is_negative = False
 
-            # logic: test_version is always the 6th, is_negative is 7th
             if len(test_case) >= 6:
                 test_version = str(test_case[5])
-            if len(test_case) == 7:
+            if len(test_case) >= 7:
                 is_negative = bool(test_case[6])
 
-            # NOTE: Do NOT evaluate lambdas here — keep body_str as-is (callable allowed)
             if body_str is not None and not (isinstance(body_str, (str, dict, list)) or callable(body_str)):
                 return fail("Body must be a string, dict/list, callable, or None")
             if not isinstance(topic, str) or not topic.strip():
                 return fail("Invalid or empty topic")
             if topic not in self.valid_dab_topics:
                 return fail(f"Unknown or unsupported DAB topic: {topic}")
-            # Validate function
             if not callable(func):
                 return fail("Validator function is not callable")
-            # Validate expected response
             if not ((isinstance(expected, int) and expected >= 0) or (isinstance(expected, str) and expected.strip())):
                 return fail("Expected must be a non-negative int or non-empty string")
-            # Validate test title
             if not isinstance(title, str) or not title.strip():
                 return fail("Invalid or empty title")
 
@@ -1138,6 +1129,7 @@ class DabTester:
 
         except Exception as e:
             return fail(f"Unexpected error: {str(e)}")
+
 
     def detect_dab_version(self, device_id):
         """
@@ -1189,6 +1181,52 @@ class DabTester:
         except Exception as e:
             self.logger.error(f"Could not fetch the device info from 'dab/{device_id}/device/info'. Reason: {e}")
         return {}
+        
+    def _get_cert_tag(self, test_case):
+        """
+        Returns cert_tag for a test tuple if present, else None.
+        Supports both:
+        - functional tuples: (topic, "functional", func, title, version, is_negative, [cert_tag])
+        - non-functional tuples: ... + [cert_tag] (8th)
+        """
+        try:
+            if isinstance(test_case, tuple) and len(test_case) >= 3 and test_case[1] == "functional":
+                return test_case[6] if len(test_case) > 6 else None
+            # non-functional tuple: cert_tag is 8th element
+            return test_case[7] if isinstance(test_case, tuple) and len(test_case) >= 8 else None
+        except Exception:
+            return None
+
+
+    def cert_match(self, test_case, cert_value):
+        """
+        cert_value: string passed from CLI --cert
+        Matches if cert_tag is:
+        - "*"  (runs for any cert)
+        - equals cert_value (case-insensitive)
+        """
+        if not cert_value:
+            return True
+
+        cert_tag = self._get_cert_tag(test_case)
+        if not cert_tag:
+            return False
+
+        cert_tag_s = str(cert_tag).strip().lower()
+        if cert_tag_s == "*":
+            return True
+
+        return cert_tag_s == str(cert_value).strip().lower()
+
+
+    def filter_tests_for_cert(self, test_cases, cert_value):
+        """
+        Filters a list of test tuples by cert tag.
+        """
+        if not cert_value:
+            return list(test_cases)
+        return [tc for tc in test_cases if self.cert_match(tc, cert_value)]
+
 
     def clean_result_fields(self, result_list, fields_to_clean=["logs", "request", "response"]):
         """
