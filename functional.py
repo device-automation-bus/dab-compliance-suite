@@ -21,6 +21,8 @@ import functionals.content_open
 import functionals.content_search
 import functionals.setup_skip
 import functionals.power_mode
+import functionals.send_text
+import functionals.applications_exit    
 
 # --- Sleep Time Constants ---
 APP_LAUNCH_WAIT = 10
@@ -11827,5 +11829,8 @@ FUNCTIONAL_TEST_CASE = [
     ("system/setup/skip", "functional", functionals.setup_skip.run_system_setup_skip_initial_wizard_check, "System_Setup Skip_Initial_Wizard Check", "2.1", False),
     ("system/power-mode/set", "functional", functionals.power_mode.run_system_power_mode_active_to_standby_check, "System_PowerMode Active_To_Standby Check", "2.1", False),
     ("system/power-mode/set", "functional", functionals.power_mode.run_system_power_mode_set_missing_mode_param_check, "System_PowerMode_Set Missing_Mode_Param Check", "2.1", True),
+    ("voice/send-text", "functional", functionals.send_text.run_voice_send_text_invalid_payload_check, "VoiceSendTextInvalidPayload", "2.0", True),
+    ("applications/exit", "functional", functionals.applications_exit.run_exit_app_while_in_background_check, "ExitAppWhileInBackground", "2.0", True),
+    ("applications/exit", "functional", functionals.applications_exit.run_exit_app_without_parameters_check, "ExitAppWithoutParameters", "2.0", True),
 
 ]
