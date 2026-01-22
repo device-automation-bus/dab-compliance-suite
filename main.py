@@ -1,4 +1,6 @@
 import sys 
+import config
+import os
 from dab_tester import DabTester
 from dab_tester import Default_Validations
 from dab_tester import to_test_id
@@ -16,26 +18,20 @@ import dab.content
 import dab.output
 import dab.version
 import argparse
-import conformance
-import output_image
-import netflix
-import functional
 from logger import LOGGER
 from util.config_loader import init_interactive_setup, make_app_id_list
 from util.runtime_config_store import load_config, apply_overrides, save_config
 
-ALL_SUITES = {
-    "conformance": conformance.CONFORMANCE_TEST_CASE,
-    "output_image": output_image.OUTPUT_IMAGE_TEST_CASES,
-    "netflix": netflix.NETFLIX_TEST_CASES,
-    "functional": functional.FUNCTIONAL_TEST_CASE,
-}
+config_path = os.environ.get("DAB_CONFIG_JSON")
+
+SUITE_NAMES = ["conformance", "output_image", "netflix", "functional"]
 
 if __name__ == "__main__":
     test_suites_str = ""
-    for field_name in ALL_SUITES.keys():
+    for field_name in SUITE_NAMES:
         test_suites_str += field_name + ", "
     test_suites_str = test_suites_str[:-2]
+
     parser = argparse.ArgumentParser()
     parser.add_argument("-v","--verbose", 
                         help="increase output verbosity",
@@ -91,10 +87,30 @@ if __name__ == "__main__":
     LOGGER.verbose = bool(args.verbose)
     device_id = args.ID
 
+
+    if getattr(args, "config_show", False):
+        path, cfg, created = load_config(config_path)
+
+        LOGGER.result(f"[CONFIG] Path: {path}")
+        if created:
+            LOGGER.result("[CONFIG] Created default runtime config file.")
+        LOGGER.result(f"[CONFIG] VA = {cfg.get('va')}")
+
+        apps = cfg.get("apps", {})
+        if isinstance(apps, dict) and apps:
+            LOGGER.result(f"[CONFIG] Apps ({len(apps)}):")
+            for k in sorted(apps.keys()):
+                LOGGER.result(f"[CONFIG]   {k} = {apps[k]}")
+        else:
+            LOGGER.result("[CONFIG] Apps: <empty>")
+
+        LOGGER.result("[CONFIG] Done. Exiting....")
+        raise SystemExit(0)
+
     if args.config_app or args.config_va:
         try:
             from util.runtime_config_store import load_config, apply_overrides, save_config
-            _path, _cfg, _created = load_config()
+            _path, _cfg, _created = load_config(config_path)
             _changed = apply_overrides(_cfg, apps_kv_list=args.config_app, va=args.config_va)
 
             if _changed:
@@ -124,6 +140,22 @@ if __name__ == "__main__":
         init_interactive_setup(app_ids=tuple(ids))  # safe: function uses the fixed allow-list
         print("[INIT] Done.")
         sys.exit(0)  # if you use 'from sys import exit as sys_exit', change to: sys_exit(0)
+
+    # Read runtime config ONCE for this run and apply in memory
+    config.init_runtime_config(config_path)
+    LOGGER.result(f"[CONFIG] Active: va={config.va}, youtube={config.apps.get('youtube')}")
+
+    import conformance
+    import output_image
+    import netflix
+    import functional
+
+    ALL_SUITES = {
+        "conformance": conformance.CONFORMANCE_TEST_CASE,
+        "output_image": output_image.OUTPUT_IMAGE_TEST_CASES,
+        "netflix": netflix.NETFLIX_TEST_CASES,
+        "functional": functional.FUNCTIONAL_TEST_CASE,
+    }
 
     Tester = DabTester(args.broker, override_dab_version=args.dab_version)
 

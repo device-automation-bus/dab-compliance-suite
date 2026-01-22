@@ -24,6 +24,7 @@ import functionals.power_mode
 import functionals.send_text
 import functionals.applications_exit    
 
+
 # --- Sleep Time Constants ---
 APP_LAUNCH_WAIT = 10
 APP_UNINSTALL_WAIT = 5
