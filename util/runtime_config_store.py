@@ -6,6 +6,18 @@ DEFAULT_PATH = os.path.join("config", "runtime_config.json")
 
 
 def _defaults():
+    # Pull defaults from config.py safely (avoid circular import at module import time)
+    try:
+        import config as _config  # local import is intentional
+
+        apps = getattr(_config, "DEFAULT_APPS", None)
+        va = getattr(_config, "DEFAULT_VA", None)
+        if isinstance(apps, dict) and va:
+            return {"apps": dict(apps), "va": str(va)}
+    except Exception:
+        pass
+
+    # Fallback (should not normally be used)
     return {
         "apps": {
             "youtube": "YouTube",

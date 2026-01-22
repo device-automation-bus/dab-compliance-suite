@@ -4,7 +4,7 @@
 
 from util.runtime_config_store import load_config
 
-apps = dict(
+DEFAULT_APPS = dict(
     youtube="YouTube",
     netflix="Netflix",
     amazon="PrimeVideo",
@@ -15,7 +15,10 @@ apps = dict(
     removable_app="Netflix",
 )
 
-va = "GoogleAssistant"
+DEFAULT_VA = "GoogleAssistant"
+
+apps = dict(DEFAULT_APPS)
+va = DEFAULT_VA
 
 _RUNTIME_LOADED = False
 
@@ -35,7 +38,8 @@ def init_runtime_config(path=None):
 
     if isinstance(cfg, dict):
         if isinstance(cfg.get("apps"), dict):
-            apps = cfg["apps"]
+            # Merge so missing keys still use defaults
+            apps.update(cfg["apps"])
         if cfg.get("va"):
             va = cfg["va"]
 
