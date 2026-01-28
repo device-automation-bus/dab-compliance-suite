@@ -1,14 +1,46 @@
-# Please config the app value to device app name here. 
-apps = dict(
-    youtube = 'YouTube',
-    netflix = 'Netflix',
-    amazon = 'PrimeVideo',
-    sample_app = 'Sample_App',
-    sample_app1 = 'Sample_App1',
-    large_app = "Large_App",
-    sample_app_url = 'Sample_App_Url',
-    removable_app = 'Netflix' 
+# config.py
+# Default application identifiers and voice assistant used by tests and runners.
+# Values can be overridden at runtime by calling init_runtime_config(path).
+
+from util.runtime_config_store import load_config
+
+DEFAULT_APPS = dict(
+    youtube="YouTube",
+    netflix="Netflix",
+    amazon="PrimeVideo",
+    sample_app="Sample_App",
+    sample_app1="Sample_App1",
+    large_app="Large_App",
+    sample_app_url="Sample_App_Url",
+    removable_app="Netflix",
 )
 
-# Please set the voice asssitant you want to set here.
-va = 'GoogleAssistant'
+DEFAULT_VA = "GoogleAssistant"
+
+apps = dict(DEFAULT_APPS)
+va = DEFAULT_VA
+
+_RUNTIME_LOADED = False
+
+
+def init_runtime_config(path=None):
+    """
+    Loads runtime overrides (apps/va) from the runtime config store.
+
+    Call this once from main.py after argument parsing.
+    If runtime config is missing or partial, defaults above remain in effect.
+    """
+    global apps, va, _RUNTIME_LOADED
+    if _RUNTIME_LOADED:
+        return
+
+    _path, cfg, _created = load_config(path)
+
+    if isinstance(cfg, dict):
+        if isinstance(cfg.get("apps"), dict):
+            # Merge so missing keys still use defaults
+            apps.update(cfg["apps"])
+        if cfg.get("va"):
+            va = cfg["va"]
+
+    _RUNTIME_LOADED = True
