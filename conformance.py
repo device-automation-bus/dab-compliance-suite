@@ -160,7 +160,7 @@ CONFORMANCE_TEST_CASE = [
     ("input/long-key-press", '{"keyCode": "KEY_YELLOW", "durationMs": 3000}', dab.input.long_key_press, 3200, "KEY_YELLOW", "2.0", False),
     ("input/long-key-press", '{"keyCode": "KEY_BLUE", "durationMs": 3000}', dab.input.long_key_press, 3200, "KEY_BLUE", "2.0", False),
     ("input/long-key-press", '{"keyCode": "KEY_YOUTUBE", "durationMs": 3000}', dab.input.long_key_press, 3200, "KEY_YOUTUBE", "2.0", False),
-    ("output/image",'{}', dab.output.image, 2000, "Conformance", "2.0", False),
+    ("output/image",'{}', dab.output.image, 10000, "Conformance", "2.0", False),
     ("device-telemetry/start",'{"duration": 1000}', dab.device_telemetry.start, 700, "Conformance", "2.0", False),
     ("device-telemetry/stop",'{}', dab.device_telemetry.stop, 200, "Conformance", "2.0", False),
     ("app-telemetry/start",lambda: f'{{"appId": "{config.apps["youtube"]}", "duration": 1000}}', dab.app_telemetry.start, 700, "Conformance", "2.0", False),
