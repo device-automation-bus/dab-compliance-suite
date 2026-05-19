@@ -167,7 +167,11 @@ if __name__ == "__main__":
         "functional": functional.FUNCTIONAL_TEST_CASE,
     }
 
-    Tester = DabTester(args.broker, override_dab_version=args.dab_version)
+    try:
+        Tester = DabTester(args.broker, override_dab_version=args.dab_version)
+    except Exception as e:
+        print(f"Error: could not connect to MQTT broker at {args.broker}:1883 — {e}", file=sys.stderr)
+        sys.exit(1)
 
     Tester.verbose = args.verbose
     try:
