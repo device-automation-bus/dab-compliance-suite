@@ -32,7 +32,12 @@ if __name__ == "__main__":
         test_suites_str += field_name + ", "
     test_suites_str = test_suites_str[:-2]
 
-    parser = argparse.ArgumentParser()
+    class HelpOnErrorParser(argparse.ArgumentParser):
+        def error(self, message):
+            self.print_help(sys.stderr)
+            self.exit(2, f"\nerror: {message}\n")
+
+    parser = HelpOnErrorParser()
     parser.add_argument("-v","--verbose", 
                         help="increase output verbosity",
                         action="store_true")
@@ -83,6 +88,11 @@ if __name__ == "__main__":
 
     parser.set_defaults(output="")
     parser.set_defaults(case=99999)
+
+    if len(sys.argv) == 1:
+        parser.print_help()
+        sys.exit(0)
+
     args = parser.parse_args()
     LOGGER.verbose = bool(args.verbose)
     device_id = args.ID
