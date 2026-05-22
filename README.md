@@ -129,7 +129,7 @@ For local `applications/install` flows, the suite opens a temporary FastAPI brid
 
   The following is command to run Spec conformance Test Suite:
   ```
-  ❯ python3 main.py -v -b <mqtt-broker-ip> -I <dab-device-id> -s "conformance"
+  python3 main.py -v -b <mqtt-broker-ip> -I <dab-device-id> -s conformance
   ```
 
 
