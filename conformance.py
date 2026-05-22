@@ -25,7 +25,7 @@ CONFORMANCE_TEST_CASE = [
     ("applications/launch",lambda: f'{{"appId": "{config.apps["youtube"]}", "parameters": ["v%3DSs75O8yllyc","enableEventConsole%3Dtrue","env_showConsole%3Dtrue"]}}', dab.applications.launch, 10000, "with parameters", "2.0", False),
     ("applications/launch",f'{{"appId": "{config.apps["youtube"]}", "parameters_": ["v%3DSs75O8yllyc","enableEventConsole%3Dtrue","env_showConsole%3Dtrue"]}}', dab.applications.launch, 10000, "with parameters bad request 1", "2.0", True),
     ("applications/launch",f'{{"appId": "{config.apps["youtube"]}", "parameters": true}}', dab.applications.launch, 10000, "with parameters bad request 2", "2.0", True),
-    ("applications/launch-with-content",f'{{"appId": "{config.apps["youtube"]}", "contentId": "jfKfPfyJRdk"}}', dab.applications.launch_with_content, 10000, "Conformance", "2.0", False),
+    ("applications/launch-with-content",f'{{"appId": "{config.apps["youtube"]}", "contentId": "CNeakmoER7Q"}}', dab.applications.launch_with_content, 10000, "Conformance", "2.0", False),
     ("applications/launch-with-content",f'{{"appId": "{config.apps["youtube"]}", "contentId": "invalid_id"}}', dab.applications.launch_with_content, 10000, "Conformance invalid content", "2.0", True),
     ("applications/get-state",f'{{"appId": "{config.apps["youtube"]}"}}', dab.applications.get_state, 200, "Conformance", "2.0", False),
     ("applications/exit",f'{{"appId": "{config.apps["youtube"]}"}}', dab.applications.exit, 5000, "Conformance", "2.0", False),
