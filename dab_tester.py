@@ -22,6 +22,7 @@ from packaging.version import Version, InvalidVersion
 DAB_VERSION = "2.0" # default dab version is 2.0, this global value will be used in system/settings/... operations.
 
 # Raised when preflight (discovery/health) decides we should stop the run.
+ACTIVE_TESTER = None
 class PreflightTermination(Exception):
     pass
 
@@ -35,6 +36,7 @@ class DabTester:
         self.override_dab_version = override_dab_version
         self.logger = LOGGER
         self.logger.verbose = self.verbose
+        global ACTIVE_TESTER; ACTIVE_TESTER = self
         # Load valid DAB topics using jsons
         try:
             with open("valid_dab_topics.json", "r", encoding="utf-8") as f:
