@@ -52,6 +52,87 @@ class DabTester:
         else:
             return 1
 
+    @staticmethod
+    def _response_object(response):
+        """Return a response dictionary without raising on transport formatting."""
+        if isinstance(response, dict):
+            return response
+        if not isinstance(response, str):
+            return {}
+        try:
+            return json.loads(response)
+        except (TypeError, ValueError):
+            # Some MQTT responses are represented as a list of text chunks.
+            try:
+                import ast
+                chunks = ast.literal_eval(response)
+                if isinstance(chunks, list):
+                    parsed = json.loads(" ".join(str(chunk) for chunk in chunks if chunk))
+                    return parsed if isinstance(parsed, dict) else {}
+            except (SyntaxError, TypeError, ValueError):
+                pass
+            return {}
+
+    def _capture_restore_request(self, device_id, topic, request_body, test_result):
+        """Capture the values a state-changing conformance request will overwrite."""
+        try:
+            requested = self._response_object(request_body)
+            if not requested:
+                return None
+
+            if topic == "system/power-mode/set":
+                if self.execute_cmd(device_id, "system/power-mode/get", "{}") != 0:
+                    log(test_result, "[WARN] Could not read the original power mode; restore skipped.")
+                    return None
+                original = self._response_object(self.dab_client.response()).get("powerMode")
+                if original is None:
+                    log(test_result, "[WARN] Original power mode was not returned; restore skipped.")
+                    return None
+                log(test_result, f"[INFO] Captured original power mode: {original!r}.")
+                return ("system/power-mode/set", json.dumps({"powerMode": original}), {"powerMode": original})
+
+            if topic == "system/settings/set":
+                if self.execute_cmd(device_id, "system/settings/get", "{}") != 0:
+                    log(test_result, "[WARN] Could not read the original settings; restore skipped.")
+                    return None
+                current = self._response_object(self.dab_client.response())
+                restore_values = {key: current[key] for key in requested if key in current}
+                if not restore_values:
+                    log(test_result, "[WARN] None of the changed settings were returned; restore skipped.")
+                    return None
+                log(test_result, f"[INFO] Captured original values for: {', '.join(restore_values)}.")
+                return ("system/settings/set", json.dumps(restore_values), restore_values)
+        except Exception as error:
+            log(test_result, f"[WARN] Could not capture original state; restore skipped. {error}")
+        return None
+
+    def _restore_request(self, device_id, restore_request, test_result):
+        """Best-effort state restoration; never changes the test's verdict."""
+        if not restore_request:
+            return
+        topic, body, expected_values = restore_request
+        try:
+            if self.execute_cmd(device_id, topic, body) == 0:
+                self.dab_client.response()  # Drain the restore response.
+                get_topic = "system/power-mode/get" if topic == "system/power-mode/set" else "system/settings/get"
+                if self.execute_cmd(device_id, get_topic, "{}") != 0:
+                    log(test_result, f"[WARN] Restore request to '{topic}' succeeded, but verification could not read the current value.")
+                    return
+                current = self._response_object(self.dab_client.response())
+                mismatches = {
+                    key: (expected, current.get(key))
+                    for key, expected in expected_values.items()
+                    if current.get(key) != expected
+                }
+                if mismatches:
+                    log(test_result, f"[WARN] Restore verification failed for '{topic}': {mismatches}. Manual restore may be required.")
+                else:
+                    log(test_result, f"[INFO] Restored and verified original state with '{topic}'.")
+            else:
+                log(test_result, f"[WARN] Restore request to '{topic}' failed; manual restore may be required.")
+        except Exception as error:
+            log(test_result, f"[WARN] Restore request to '{topic}' failed; manual restore may be required. {error}")
+
     # -----------------------------
     # Early-skip helpers (generic, payload/config aware)
     # -----------------------------
@@ -471,6 +552,11 @@ class DabTester:
         section_wall_start = time.time()
         # -------------------------------------------------------------
 
+        # State-changing tests must leave the device in the state observed before the test.
+        restore_request = None
+        state_change_attempted = False
+        test_result = None
+
         # NEW: make sure we always try to return to Home after this test finishes
         try:
             # Full preflight (discovery + health). If it fails/terminates, let it propagate to stop the run.
@@ -478,6 +564,11 @@ class DabTester:
 
             # Initialize result object for logging and reporting
             test_result = TestResult(to_test_id(f"{dab_request_topic}/{test_title}"), device_id, dab_request_topic, dab_request_body, "UNKNOWN", "", [])
+
+            if dab_request_topic in {"system/settings/set", "system/power-mode/set"}:
+                restore_request = self._capture_restore_request(
+                    device_id, dab_request_topic, dab_request_body, test_result
+                )
 
             # ------------------------------------------------------------------------
             # Capability filter 
@@ -521,6 +612,8 @@ class DabTester:
             try:
                 # Send DAB request via broker
                 try:
+                    if dab_request_topic in {"system/settings/set", "system/power-mode/set"}:
+                        state_change_attempted = True
                     code = self.execute_cmd(device_id, dab_request_topic, dab_request_body)
                     resp_text = self.dab_client.response() or ""
                     status_code = self.dab_client.last_error_code()
@@ -696,6 +789,8 @@ class DabTester:
             return test_result
 
         finally:
+            if test_result is not None and state_change_attempted:
+                self._restore_request(device_id, restore_request, test_result)
             if dab_request_topic == "applications/install":
                 try:
                     from util.runtime_api_server import stop_runtime_install_bridge
