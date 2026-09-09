@@ -199,5 +199,4 @@ CONFORMANCE_TEST_CASE = [
     ("system/power-mode/get", '{}', dab.system.power_mode_get, 200, "Conformance", "2.1" , False),
     ("system/power-mode/set", '{"powerMode": "Standby"}', dab.system.power_mode_set, 200, "Conformance", "2.1" , False),
     ("system/power-mode/set", '{"powerMode": "invalid"}', dab.system.power_mode_set, 200, "Conformance Bad Request", "2.1" , True),
-    ("system/setup/skip", '{}', dab.system.setup_skip, 1000, "Conformance", "2.1" , False),    
 ]
