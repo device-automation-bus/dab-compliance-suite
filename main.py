@@ -33,7 +33,12 @@ if __name__ == "__main__":
         test_suites_str += field_name + ", "
     test_suites_str = test_suites_str[:-2]
 
-    parser = argparse.ArgumentParser()
+    class HelpOnErrorParser(argparse.ArgumentParser):
+        def error(self, message):
+            self.print_help(sys.stderr)
+            self.exit(2, f"\nerror: {message}\n")
+
+    parser = HelpOnErrorParser()
     parser.add_argument("-v","--verbose", 
                         help="increase output verbosity",
                         action="store_true")
@@ -84,6 +89,11 @@ if __name__ == "__main__":
 
     parser.set_defaults(output="")
     parser.set_defaults(case=99999)
+
+    if len(sys.argv) == 1:
+        parser.print_help()
+        sys.exit(0)
+
     args = parser.parse_args()
     validate_arguments_and_warn(args)
     LOGGER.verbose = bool(args.verbose)
@@ -159,17 +169,7 @@ if __name__ == "__main__":
         "functional": functional.FUNCTIONAL_TEST_CASE,
     }
 
-    Tester = DabTester(args.broker, override_dab_version=args.dab_version)
-
-    Tester.verbose = args.verbose
-    try:
-        Tester.logger.verbose = Tester.verbose
-    except Exception:
-        pass
-    LOGGER.info(f"Starting run with broker {args.broker}, device ID '{device_id}', suite='{args.suite or 'ALL'}', output='{args.output or '(default)'}', dab-version override='{args.dab_version or 'auto'}'.")
-
     suite_to_run = {}
-
     if (args.suite):
         # Let dict throw KeyError here
         suite_to_run.update({args.suite: ALL_SUITES[args.suite]})
@@ -178,13 +178,21 @@ if __name__ == "__main__":
         suite_to_run = ALL_SUITES
         LOGGER.info(f"No suite specified. All suites selected: {', '.join(suite_to_run.keys())}.")
 
-    if (args.list == True):
+    if args.list:
         for suite in suite_to_run:
             LOGGER.info(f"Listing test cases for suite '{suite}'...")
             listed = 0
             for test_case in suite_to_run[suite]:
                 try:
-                    topic, _body_spec, _func, _expected, title, _is_neg, _ver = Tester.unpack_test_case(test_case)
+                    if not isinstance(test_case, tuple):
+                        raise ValueError("not a tuple")
+                    if len(test_case) >= 3 and test_case[1] == "functional" and callable(test_case[2]):
+                        topic = test_case[0]
+                        title = test_case[3] if len(test_case) > 3 else "FunctionalTest"
+                    elif len(test_case) >= 5:
+                        topic, title = test_case[0], test_case[4]
+                    else:
+                        raise ValueError(f"unexpected tuple length {len(test_case)}")
                     if topic and title:
                         LOGGER.result(to_test_id(f"{topic}/{title}"))
                         listed += 1
@@ -195,6 +203,19 @@ if __name__ == "__main__":
             LOGGER.ok(f"Listed {listed} case(s) in suite '{suite}'.")
 
     else:
+        try:
+            Tester = DabTester(args.broker, override_dab_version=args.dab_version)
+        except Exception as e:
+            print(f"Error: could not connect to MQTT broker at {args.broker}:1883 — {e}", file=sys.stderr)
+            sys.exit(1)
+
+        Tester.verbose = args.verbose
+        try:
+            Tester.logger.verbose = Tester.verbose
+        except Exception:
+            pass
+        LOGGER.info(f"Starting run with broker {args.broker}, device ID '{device_id}', suite='{args.suite or 'ALL'}', output='{args.output or '(default)'}', dab-version override='{args.dab_version or 'auto'}'.")
+
         if ((not isinstance(args.case, (str)) or len(args.case) == 0)):
             LOGGER.result("Testing all cases")
             for suite in suite_to_run:
@@ -224,5 +245,5 @@ if __name__ == "__main__":
             else:
                 LOGGER.error(f"None of the requested test case IDs matched: {requested_cases}")
 
-    Tester.Close()
-    LOGGER.ok("Run complete. Connection closed.")
+        Tester.Close()
+        LOGGER.ok("Run complete. Connection closed.")
