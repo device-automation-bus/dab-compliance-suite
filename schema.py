@@ -275,6 +275,11 @@ device_information_schema = {
                  "screenWidthPixels", "screenHeightPixels", "uptimeSince", "deviceId"]
 }
 
+# Operation: system/factory-reset
+# FactoryResetRequest and FactoryResetResponse
+factory_reset_request_schema = dab_request_schema
+factory_reset_response_schema = dab_response_schema
+
 # Operation: system/restart
 # RestartRequest and RestartResponse
 restart_request_schema = dab_request_schema
@@ -971,6 +976,10 @@ class dab_response_validator(object):
     @staticmethod
     def validate_device_information_schema(response):
         validate(instance=jsons.loads(response), schema=device_information_schema)
+
+    @staticmethod
+    def validate_factory_reset_response_schema(response):
+        validate(instance=jsons.loads(response), schema=factory_reset_response_schema)
 
     @staticmethod
     def validate_restart_response_schema(response):

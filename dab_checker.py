@@ -2,7 +2,7 @@ from dab_client import DabClient
 from schema import dab_response_validator
 from util.enforcement_manager import EnforcementManager
 from util.enforcement_manager import ValidateCode
-from time import sleep
+from time import sleep, monotonic
 import json
 import re
 import types
@@ -15,6 +15,9 @@ class DabChecker:
 
         # Keep track of the last payload actually sent for system/settings/set
         self._last_effective_settings_payload = None
+
+        # device/info uptimeSince before system/factory-reset, to detect the reboot
+        self._uptime_before_factory_reset = None
 
         # --- Patch dab_tester.execute_cmd to intercept real sends ---
         original_execute_cmd = dab_tester.execute_cmd  # bound method
@@ -406,6 +409,8 @@ class DabChecker:
                 return self.__precheck_key_press(device_id, dab_request_body)
             case 'system/logs/stop-collection':
                 return self.__precheck_logs_stop_collection(device_id, dab_request_body)
+            case 'system/factory-reset':
+                return self.__precheck_factory_reset(device_id)
             case _:
                 return ValidateCode.SUPPORT, ""
 
@@ -734,6 +739,13 @@ class DabChecker:
 
         return validate_code, prechecker_log
 
+    def __precheck_factory_reset(self, device_id):
+        dab_response = self.__execute_cmd(device_id, "device/info", "{}")
+        self._uptime_before_factory_reset = dab_response.get("uptimeSince") if dab_response else None
+        if self._uptime_before_factory_reset is None:
+            return ValidateCode.UNCERTAIN, "\ndevice/info did not report uptimeSince before factory reset.\n"
+        return ValidateCode.SUPPORT, f"\nuptimeSince before factory reset: {self._uptime_before_factory_reset}\n"
+
     def end_precheck(self, device_id, dab_request_topic, dab_request_body):
         match dab_request_topic:
             case 'device-telemetry/start' | 'device-telemetry/stop':
@@ -775,10 +787,31 @@ class DabChecker:
                 return self.__check_app_telemetry_start(device_id, dab_request_body)
             case 'app-telemetry/stop':
                 return self.__check_app_telemetry_stop(device_id, dab_request_body)
+            case 'system/factory-reset':
+                return self.__check_factory_reset(device_id)
             case 'system/logs/stop-collection':
                 return self.__check_logs_chunks(device_id, dab_request_body)
             case _:
                 return True, ""
+
+    def __check_factory_reset(self, device_id, timeout_s=600):
+        # The reset must complete within 10 minutes and DAB must come back with
+        # the same Device ID (spec 5.3). The device may still answer before it
+        # goes down, so wait for uptimeSince to move forward. Devices derive it
+        # from the current time minus the uptime, so allow for some jitter.
+        deadline = monotonic() + timeout_s
+        sleep(15)
+        before = self._uptime_before_factory_reset or 0
+        while monotonic() < deadline:
+            dab_response = self.__execute_cmd(device_id, "device/info", "{}")
+            uptime = dab_response.get("uptimeSince") if dab_response else None
+            if isinstance(uptime, int) and uptime > before + 10000:
+                actual_id = dab_response.get("deviceId")
+                if actual_id != device_id:
+                    return False, f"\nDevice ID changed after factory reset, Expected: {device_id}, Actual: {actual_id}\n"
+                return True, f"\nDevice rebooted (uptimeSince {self._uptime_before_factory_reset} -> {uptime}) and DAB responded with the same Device ID\n"
+            sleep(15)
+        return False, f"\nDevice did not reboot and respond to device/info within {timeout_s} s after factory reset\n"
 
     def __check_application_state(self, device_id, dab_request_body, expected_state = 'FOREGROUND'):
         dab_check_topic = "applications/get-state"

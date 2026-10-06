@@ -16,6 +16,7 @@
   "operations/list",
   "output/image",
   "system/restart",
+  "system/factory-reset",
   "system/settings/get",
   "system/settings/list",
   "system/settings/set",

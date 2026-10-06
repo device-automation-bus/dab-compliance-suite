@@ -7,6 +7,23 @@ from logger import LOGGER
 from schema import list_system_settings_schema_20, list_system_settings_schema_21
 import dab_tester
 
+def factory_reset(test_result, durationInMs=0, expectedLatencyMs=0):
+    try:
+        dab_response_validator.validate_factory_reset_response_schema(test_result.response)
+    except Exception as error:
+        print("Schema error:", error)
+        return False
+    response = jsons.loads(test_result.response)
+    if response['status'] != 200:
+        return False
+    return Default_Validations(test_result, durationInMs, expectedLatencyMs)
+
+def factory_reset_manual(test_result, durationInMs=0, expectedLatencyMs=0):
+    if not factory_reset(test_result, durationInMs, expectedLatencyMs):
+        return False
+    LOGGER.info("system/factory-reset issued. Wait until the device finishes rebooting and shows its UI before answering.")
+    return YesNoQuestion(test_result, "Did the device return to the factory state (first-boot/setup screen, user settings and app data cleared)?")
+
 def restart(test_result, durationInMs=0,expectedLatencyMs=0):
     try:
         dab_response_validator.validate_dab_response_schema(test_result.response)
