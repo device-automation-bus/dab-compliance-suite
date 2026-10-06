@@ -25,6 +25,77 @@ DAB_VERSION = "2.0" # default dab version is 2.0, this global value will be used
 class PreflightTermination(Exception):
     pass
 
+def load_valid_dab_topics():
+    # Load valid DAB topics using jsons
+    try:
+        with open("valid_dab_topics.json", "r", encoding="utf-8") as f:
+            return set(jsons.load(jsons.loads(f.read())))
+    except Exception as e:
+        LOGGER.error(f"Could not load 'valid_dab_topics.json'. The topic validation set is empty. Exception: {type(e).__name__}: {e}")
+        return set()
+
+# Broker-free: shared by DabTester.unpack_test_case() and the --list path in main.py.
+def parse_test_case(test_case, valid_dab_topics):
+    def fail(reason):
+        LOGGER.warn(f"Invalid test case: {reason}. This case will be skipped. Case: {test_case}")
+        return (None,) * 7  # Expected structure length
+
+    if isinstance(test_case, tuple) and len(test_case) >= 3:
+        if test_case[1] == "functional" and callable(test_case[2]):
+            # Functional test detected
+            topic = test_case[0]
+            body_str = "{}"  # No fixed payload required
+            func = test_case[2]
+            title = test_case[3] if len(test_case) > 3 else "FunctionalTest"
+            test_version = str(test_case[4]) if len(test_case) > 4 else "2.0"
+            is_negative = bool(test_case[5]) if len(test_case) > 5 else False
+            expected = 0  # Expected not used but kept for tuple shape
+
+            return topic, body_str, func, expected, title, is_negative, test_version
+
+    # Validate input type
+    if not isinstance(test_case, tuple):
+        return fail("Test case is not a tuple")
+
+    if len(test_case) not in (5, 6, 7):
+        return fail(f"Expected 5, 6, or 7 elements, got {len(test_case)}")
+
+    try:
+        # Unpack mandatory components
+        topic, body_str, func, expected, title = test_case[:5]
+
+        # Defaults
+        test_version = "2.0"
+        is_negative = False
+
+        # logic: test_version is always the 6th, is_negative is 7th
+        if len(test_case) >= 6:
+            test_version = str(test_case[5])
+        if len(test_case) == 7:
+            is_negative = bool(test_case[6])
+
+        # NOTE: Do NOT evaluate lambdas here — keep body_str as-is (callable allowed)
+        if body_str is not None and not (isinstance(body_str, (str, dict, list)) or callable(body_str)):
+            return fail("Body must be a string, dict/list, callable, or None")
+        if not isinstance(topic, str) or not topic.strip():
+            return fail("Invalid or empty topic")
+        if topic not in valid_dab_topics:
+            return fail(f"Unknown or unsupported DAB topic: {topic}")
+        # Validate function
+        if not callable(func):
+            return fail("Validator function is not callable")
+        # Validate expected response
+        if not ((isinstance(expected, int) and expected >= 0) or (isinstance(expected, str) and expected.strip())):
+            return fail("Expected must be a non-negative int or non-empty string")
+        # Validate test title
+        if not isinstance(title, str) or not title.strip():
+            return fail("Invalid or empty title")
+
+        return topic, body_str, func, expected, title, is_negative, test_version
+
+    except Exception as e:
+        return fail(f"Unexpected error: {str(e)}")
+
 class DabTester:
     def __init__(self, broker, override_dab_version=None):
         self.dab_client = DabClient()
@@ -35,13 +106,7 @@ class DabTester:
         self.override_dab_version = override_dab_version
         self.logger = LOGGER
         self.logger.verbose = self.verbose
-        # Load valid DAB topics using jsons
-        try:
-            with open("valid_dab_topics.json", "r", encoding="utf-8") as f:
-                self.valid_dab_topics = set(jsons.load(jsons.loads(f.read())))
-        except Exception as e:
-            self.logger.error(f"Could not load 'valid_dab_topics.json'. The topic validation set is empty. Exception: {type(e).__name__}: {e}")
-            self.valid_dab_topics = set()
+        self.valid_dab_topics = load_valid_dab_topics()
     # -----------------------------
     # Core send/request wrapper
     # -----------------------------
@@ -1192,65 +1257,7 @@ class DabTester:
             return ""
 
     def unpack_test_case(self, test_case):
-        def fail(reason):
-            self.logger.warn(f"Invalid test case: {reason}. This case will be skipped. Case: {test_case}")
-            return (None,) * 7  # Expected structure length
-
-        if isinstance(test_case, tuple) and len(test_case) >= 3:
-            if test_case[1] == "functional" and callable(test_case[2]):
-                # Functional test detected
-                topic = test_case[0]
-                body_str = "{}"  # No fixed payload required
-                func = test_case[2]
-                title = test_case[3] if len(test_case) > 3 else "FunctionalTest"
-                test_version = str(test_case[4]) if len(test_case) > 4 else "2.0"
-                is_negative = bool(test_case[5]) if len(test_case) > 5 else False
-                expected = 0  # Expected not used but kept for tuple shape
-
-                return topic, body_str, func, expected, title, is_negative, test_version
-
-        # Validate input type
-        if not isinstance(test_case, tuple):
-            return fail("Test case is not a tuple")
-
-        if len(test_case) not in (5, 6, 7):
-            return fail(f"Expected 5, 6, or 7 elements, got {len(test_case)}")
-
-        try:
-            # Unpack mandatory components
-            topic, body_str, func, expected, title = test_case[:5]
-
-            # Defaults
-            test_version = "2.0"
-            is_negative = False
-
-            # logic: test_version is always the 6th, is_negative is 7th
-            if len(test_case) >= 6:
-                test_version = str(test_case[5])
-            if len(test_case) == 7:
-                is_negative = bool(test_case[6])
-
-            # NOTE: Do NOT evaluate lambdas here — keep body_str as-is (callable allowed)
-            if body_str is not None and not (isinstance(body_str, (str, dict, list)) or callable(body_str)):
-                return fail("Body must be a string, dict/list, callable, or None")
-            if not isinstance(topic, str) or not topic.strip():
-                return fail("Invalid or empty topic")
-            if topic not in self.valid_dab_topics:
-                return fail(f"Unknown or unsupported DAB topic: {topic}")
-            # Validate function
-            if not callable(func):
-                return fail("Validator function is not callable")
-            # Validate expected response
-            if not ((isinstance(expected, int) and expected >= 0) or (isinstance(expected, str) and expected.strip())):
-                return fail("Expected must be a non-negative int or non-empty string")
-            # Validate test title
-            if not isinstance(title, str) or not title.strip():
-                return fail("Invalid or empty title")
-
-            return topic, body_str, func, expected, title, is_negative, test_version
-
-        except Exception as e:
-            return fail(f"Unexpected error: {str(e)}")
+        return parse_test_case(test_case, self.valid_dab_topics)
 
     def detect_dab_version(self, device_id):
         """

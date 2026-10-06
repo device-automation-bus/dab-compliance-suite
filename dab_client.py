@@ -6,7 +6,6 @@ import paho.mqtt.client as mqtt
 import json
 import uuid
 from logger import LOGGER 
-from util.argument_validator import handle_connection_error
 
 METRICS_TIMES = 5
 
@@ -50,11 +49,9 @@ class DabClient:
         self.__client.disconnect()
 
     def connect(self,broker_address,broker_port):
-        try:
-            self.__client.connect(broker_address, port=broker_port)
-            self.__client.loop_start()
-        except Exception as e:
-            handle_connection_error(broker_address, broker_port, e)
+        # Connection errors are left to the caller, which owns the CLI output
+        self.__client.connect(broker_address, port=broker_port)
+        self.__client.loop_start()
     
     def request(self,device_id,operation,msg="{}"):
         # Send request and block until get the response or timeout
