@@ -19,6 +19,17 @@ def restart(test_result, durationInMs=0,expectedLatencyMs=0):
     LOGGER.info("system/restart issued. Device will reboot; subsequent preflight health-check will wait for readiness.")
     return YesNoQuestion(test_result, "Device re-started?")
 
+def network_reset(test_result, durationInMs=0, expectedLatencyMs=0):
+    try:
+        dab_response_validator.validate_network_reset_response_schema(test_result.response)
+    except Exception as error:
+        print("Schema error:", error)
+        return False
+    response = jsons.loads(test_result.response)
+    if response['status'] != 200:
+        return False
+    return Default_Validations(test_result, durationInMs, expectedLatencyMs)
+
 def settings_get(test_result, durationInMs=0,expectedLatencyMs=0):
     try:
         dab_response_validator.validate_get_system_settings_response_schema(test_result.response)

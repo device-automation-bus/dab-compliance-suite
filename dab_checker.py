@@ -777,6 +777,8 @@ class DabChecker:
                 return self.__check_app_telemetry_stop(device_id, dab_request_body)
             case 'system/logs/stop-collection':
                 return self.__check_logs_chunks(device_id, dab_request_body)
+            case 'system/network-reset':
+                return self.__check_network_reset(device_id)
             case _:
                 return True, ""
 
@@ -802,6 +804,18 @@ class DabChecker:
 
         checker_log = f"\napplication {appId} State, Expected: {expected_state}, Actual: {actual_state}\n"
         return validate_result, checker_log
+
+    def __check_network_reset(self, device_id, attempts=5):
+        # DAB must remain functional after the reset (spec 5.3). The network
+        # drops shortly after the response, so give it time to go down, then
+        # poll device/info while the device and the broker reconnect.
+        sleep(15)
+        for attempt in range(1, attempts + 1):
+            if self.__execute_cmd(device_id, "device/info", "{}"):
+                return True, f"\nDAB responded to device/info after network reset (attempt {attempt}/{attempts})\n"
+            if attempt < attempts:
+                sleep(10)
+        return False, f"\nDAB did not respond to device/info after network reset ({attempts} attempts)\n"
 
     def __check_system_settings_set(self, device_id, dab_request_body):
         dab_check_topic = "system/settings/get"

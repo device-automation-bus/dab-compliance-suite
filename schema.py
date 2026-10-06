@@ -280,6 +280,11 @@ device_information_schema = {
 restart_request_schema = dab_request_schema
 restart_response_schema = dab_response_schema
 
+# Operation: system/network-reset
+# NetworkResetRequest and NetworkResetResponse
+network_reset_request_schema = dab_request_schema
+network_reset_response_schema = dab_response_schema
+
 # Operation: system/settings/list
 # SettingsListRequest
 settings_list_request_schema = dab_request_schema
@@ -975,6 +980,10 @@ class dab_response_validator(object):
     @staticmethod
     def validate_restart_response_schema(response):
         validate(instance=jsons.loads(response), schema=restart_response_schema)
+
+    @staticmethod
+    def validate_network_reset_response_schema(response):
+        validate(instance=jsons.loads(response), schema=network_reset_response_schema)
 
     @staticmethod
     def validate_list_system_settings_schema(response):
