@@ -18,7 +18,7 @@ def run_system_power_mode_active_to_standby_check(dab_topic, test_name, tester, 
 
     Expected behavior:
       - Precondition: device is (or can be set) to 'Active'.
-      - system/power-mode/set {"mode": "Standby"} returns status=200.
+      - system/power-mode/set {"powerMode": "Standby"} returns status=200.
       - system/power-mode/get reports mode "Standby".
       - DAB is still responsive (we prove this by the successful get).
       - 501 on get/set → OPTIONAL_FAILED.
@@ -58,12 +58,12 @@ def run_system_power_mode_active_to_standby_check(dab_topic, test_name, tester, 
             helpers.finish(result, logs, "FAILED", f"Initial system/power-mode/get response is not valid JSON: {e}")
             return result
 
-        original_mode = body_init.get("mode")
+        original_mode = body_init.get("powerMode")
         helpers.log_line(logs, "INFO", f"Original power mode reported by device: {original_mode!r}", result=result)
 
         # Step 1: Ensure precondition 'Active'
         if original_mode != "Active":
-            payload_active = json.dumps({"mode": "Active"})
+            payload_active = json.dumps({"powerMode": "Active"})
             helpers.log_line(logs, "STEP", f"Precondition: setting power mode to 'Active' via system/power-mode/set, payload={payload_active}", result=result)
             status, body = helpers.execute_cmd_and_log(tester, device_id, "system/power-mode/set", payload_active, logs=logs, result=result)
             helpers.log_line(logs, "INFO", f"system/power-mode/set('Active') returned status={status}.", result=result)
@@ -89,7 +89,7 @@ def run_system_power_mode_active_to_standby_check(dab_topic, test_name, tester, 
                 helpers.finish(result, logs, "FAILED", f"JSON parsing failed after setting 'Active': {e}")
                 return result
 
-            mode_after_active = body_active.get("mode")
+            mode_after_active = body_active.get("powerMode")
             helpers.log_line(logs, "INFO", f"Power mode after setting 'Active': {mode_after_active!r}", result=result)
 
             if mode_after_active != "Active":
@@ -97,7 +97,7 @@ def run_system_power_mode_active_to_standby_check(dab_topic, test_name, tester, 
                 return result
 
         # Step 2: Set power mode to 'Standby'
-        payload_standby = json.dumps({"mode": "Standby"})
+        payload_standby = json.dumps({"powerMode": "Standby"})
         helpers.log_line(logs, "STEP", f"Setting power mode to 'Standby' via system/power-mode/set, payload={payload_standby}", result=result)
         status, body = helpers.execute_cmd_and_log(tester, device_id, "system/power-mode/set", payload_standby, logs=logs, result=result)
         helpers.log_line(logs, "INFO", f"system/power-mode/set('Standby') returned status={status}.", result=result)
@@ -127,7 +127,7 @@ def run_system_power_mode_active_to_standby_check(dab_topic, test_name, tester, 
             helpers.finish(result, logs, "FAILED", f"JSON parsing failed after setting 'Standby': {e}")
             return result
 
-        final_mode = body_final.get("mode")
+        final_mode = body_final.get("powerMode")
         helpers.log_line(logs, "INFO", f"Power mode after setting 'Standby': {final_mode!r}", result=result)
 
         if final_mode != "Standby":
@@ -146,7 +146,7 @@ def run_system_power_mode_active_to_standby_check(dab_topic, test_name, tester, 
         # Best-effort restore original mode if known and different from Standby
         try:
             if original_mode is not None and original_mode != "Standby":
-                payload_restore = json.dumps({"mode": original_mode})
+                payload_restore = json.dumps({"powerMode": original_mode})
                 helpers.log_line(logs, "STEP", f"Best-effort restore: setting power mode back to original value {original_mode!r}.", result=result)
                 restore_status, _ = helpers.execute_cmd_and_log(
                     tester, device_id, "system/power-mode/set", payload_restore, logs=logs, result=None
@@ -169,10 +169,10 @@ def run_system_power_mode_active_to_standby_check(dab_topic, test_name, tester, 
 
 def run_system_power_mode_set_missing_mode_param_check(dab_topic, test_name, tester, device_id):
     """
-    DAB 2.1 – system/power-mode/set missing 'mode' parameter (negative, functional)
+    DAB 2.1 – system/power-mode/set missing 'powerMode' parameter (negative, functional)
 
     Goal:
-      - Ensure system/power-mode/set rejects a request that omits the required 'mode' field.
+      - Ensure system/power-mode/set rejects a request that omits the required 'powerMode' field.
       - Confirm that the device remains in the previous power mode (Active) after the invalid request.
 
     Expected behavior:
@@ -190,7 +190,7 @@ def run_system_power_mode_set_missing_mode_param_check(dab_topic, test_name, tes
 
     try:
         helpers.log_line(logs, "TEST", f"{test_name} (id={test_id}, device={device_id})", result=result)
-        helpers.log_line(logs, "DESC", "Verify system/power-mode/set rejects a request missing 'mode' and that power mode stays Active.", result=result)
+        helpers.log_line(logs, "DESC", "Verify system/power-mode/set rejects a request missing 'powerMode' and that power mode stays Active.", result=result)
         helpers.log_line(logs, "DESC", "Required operations: system/power-mode/get, system/power-mode/set.", result=result)
         helpers.log_line(logs, "DESC", "PASS if device is set to Active, invalid {} call returns 400, and power mode remains Active.", result=result)
 
@@ -213,13 +213,13 @@ def run_system_power_mode_set_missing_mode_param_check(dab_topic, test_name, tes
             except Exception as e:
                 helpers.finish(result, logs, "FAILED", f"Initial system/power-mode/get response is not valid JSON: {e}")
                 return result
-            original_mode = body_init.get("mode")
+            original_mode = body_init.get("powerMode")
             helpers.log_line(logs, "INFO", f"Original power mode reported by device: {original_mode!r}", result=result)
         else:
             helpers.log_line(logs, "INFO", f"Could not determine original power mode; proceeding with test (status={status}).", result=result)
 
         # Step 1: Set power mode to "Active"
-        payload_active = json.dumps({"mode": "Active"})
+        payload_active = json.dumps({"powerMode": "Active"})
         helpers.log_line(logs, "STEP", f"Setting power mode to 'Active' via system/power-mode/set, payload={payload_active}", result=result)
         status, body = helpers.execute_cmd_and_log(tester, device_id, "system/power-mode/set", payload_active, logs=logs, result=result)
         helpers.log_line(logs, "INFO", f"system/power-mode/set('Active') returned status={status}.", result=result)
@@ -246,23 +246,23 @@ def run_system_power_mode_set_missing_mode_param_check(dab_topic, test_name, tes
             helpers.finish(result, logs, "FAILED", f"system/power-mode/get JSON parsing failed after setting 'Active': {e}")
             return result
 
-        mode_after_active = body_active.get("mode")
+        mode_after_active = body_active.get("powerMode")
         helpers.log_line(logs, "INFO", f"Power mode after setting 'Active': {mode_after_active!r}", result=result)
         if mode_after_active != "Active":
             helpers.finish(result, logs, "FAILED", f"Expected power mode 'Active', but got {mode_after_active!r}.")
             return result
 
-        # Step 3: Send invalid system/power-mode/set without 'mode' field
+        # Step 3: Send invalid system/power-mode/set without 'powerMode' field
         payload_invalid = "{}"
-        helpers.log_line(logs, "STEP", f"Sending system/power-mode/set with missing 'mode' field, payload={payload_invalid}", result=result)
+        helpers.log_line(logs, "STEP", f"Sending system/power-mode/set with missing 'powerMode' field, payload={payload_invalid}", result=result)
         status, body = helpers.execute_cmd_and_log(tester, device_id, "system/power-mode/set", payload_invalid, logs=logs, result=result)
-        helpers.log_line(logs, "INFO", f"system/power-mode/set (missing 'mode') returned status={status}.", result=result)
+        helpers.log_line(logs, "INFO", f"system/power-mode/set (missing 'powerMode') returned status={status}.", result=result)
 
         if status == 501:
-            helpers.finish(result, logs, "OPTIONAL_FAILED", "system/power-mode/set reported status=501 for missing 'mode' payload.")
+            helpers.finish(result, logs, "OPTIONAL_FAILED", "system/power-mode/set reported status=501 for missing 'powerMode' payload.")
             return result
         if status != 400:
-            helpers.finish(result, logs, "FAILED", f"Expected status=400 for missing 'mode' field, but got status={status}.")
+            helpers.finish(result, logs, "FAILED", f"Expected status=400 for missing 'powerMode' field, but got status={status}.")
             return result
 
         # Step 4: Confirm power mode is still 'Active'
@@ -280,14 +280,14 @@ def run_system_power_mode_set_missing_mode_param_check(dab_topic, test_name, tes
             helpers.finish(result, logs, "FAILED", f"system/power-mode/get JSON parsing failed after invalid set: {e}")
             return result
 
-        final_mode = body_final.get("mode")
+        final_mode = body_final.get("powerMode")
         helpers.log_line(logs, "INFO", f"Power mode after invalid set: {final_mode!r}", result=result)
 
         if final_mode != "Active":
             helpers.finish(result, logs, "FAILED", f"Power mode changed unexpectedly after invalid set. Expected 'Active', observed {final_mode!r}.")
             return result
 
-        helpers.finish(result, logs, "PASS", "Missing 'mode' parameter correctly rejected with status=400 and power mode remained 'Active'.")
+        helpers.finish(result, logs, "PASS", "Missing 'powerMode' parameter correctly rejected with status=400 and power mode remained 'Active'.")
 
     except helpers.UnsupportedOperationError as e:
         helpers.finish(result, logs, "OPTIONAL_FAILED", f"Unsupported op: {e.topic}")

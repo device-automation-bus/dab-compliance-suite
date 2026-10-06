@@ -11,6 +11,15 @@ class TestResult:
     response: str
     logs: List[str]
 
+    @property
+    def test_result(self) -> str:
+        """Alias kept in sync with 'outcome' for tests/writers using either name."""
+        return self.outcome
+
+    @test_result.setter
+    def test_result(self, value: str) -> None:
+        self.outcome = value
+
 @dataclass
 class TestSuite:
     test_result_list: List[TestResult]
