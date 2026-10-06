@@ -148,7 +148,9 @@ options:
   -b BROKER, --broker BROKER
                         set the IP of the MQTT broker. Ex: -b 192.168.0.100
   -I ID, --ID ID        set the DAB Device ID. Ex: -I mydevice123
-  -c CASE, --case CASE  test only the specified case(s). Use comma to separate multiple. Ex: -c InputLongKeyPressKeyDown,AppLaunchNegativeTest
+  -c CASE, --case CASE  test only the specified case(s). Use comma to separate multiple or repeat -c. Supports shell-style wildcards (*, ?, []). Ex: -c 'SystemPower*' -c 'App*'
+  --skip-manual         skip the test cases that prompt the operator for input
+  --manual-only         run only the test cases that prompt the operator for input
   -o OUTPUT, --output OUTPUT
                         output location for the json file
   -s SUITE, --suite SUITE
@@ -191,6 +193,31 @@ The DAB Compliance Test Tool supports running tests in different ways:
   Use Case:
   Useful for re-running a group of specific tests.
 
+  Wildcards can be used to select test IDs by name. Quote the argument so the
+  shell passes the `*` through to the compliance suite:
+
+  ❯ python3 main.py --dab-version '2.1' -b 192.168.15.112 -I D4CFF9768418 -c 'SystemPower*'
+
+  Add `-l` to list the matching test IDs without executing them:
+
+  ❯ python3 main.py --dab-version '2.1' -b 192.168.15.112 -I D4CFF9768418 -l -c 'SystemPower*'
+
+  `-c` can be repeated, and each value can hold comma separated IDs or
+  patterns. When the selection spans more than one suite, a combined results
+  summary is printed at the end:
+
+  ❯ python3 main.py --dab-version '2.1' -b 192.168.15.112 -I D4CFF9768418 -c 'SystemPower*' -c 'DeviceInfo*,OperationsList*'
+
+  Manual tests are the ones that prompt the operator (Y/N questions, option
+  selection). Use `--skip-manual` to leave them out, e.g. for unattended runs,
+  or `--manual-only` to run just them. Both options work together with `-s`,
+  `-c` and `-l`:
+
+  ❯ python3 main.py --dab-version '2.1' -b 192.168.15.112 -I D4CFF9768418 -s functional --skip-manual
+
+  With `--skip-manual`, a failed preflight (discovery or health check) stops
+  the run instead of asking the operator what to do.
+
 3. Full Suite Execution
 
   - Run command:
@@ -214,6 +241,7 @@ The DAB Compliance Test Tool supports running tests in different ways:
 
   How It Works:
   - If `-o <file>` is provided, the tool writes results to that file in JSON format.
+  - When `-c` selects tests from more than one suite, that file holds the results of all of them.
 
   5. If `-o` is NOT provided:
 
