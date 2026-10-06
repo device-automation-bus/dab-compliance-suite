@@ -96,7 +96,7 @@ def require_capabilities(tester, device_id, spec, result=None, logs=None):
 
     Uses DabChecker to precheck and populate caches for:
       - operations/list    → is_operation_supported(...)
-      - system/settings/list → precheck('system/settings/set', {"setting_key": "dummy_val"})
+      - system/settings/list → is_setting_supported(device_id, 'setting_key')
       - input/key/list       → precheck('input/key-press', {"keyCode":"KEY_HOME"})
       - voice/list           → precheck('voice/set', {"voiceSystem":{"name":"__probe__","enabled":True}})
 
@@ -127,8 +127,8 @@ def require_capabilities(tester, device_id, spec, result=None, logs=None):
 
         # ---------- Settings gate (system/settings/list) ----------
         for setting in sorted(set_req):
-            # Use a dummy value; precheck only cares about the key's descriptor in the settings list
-            validate_code, _ = checker.precheck(device_id, "system/settings/set", json.dumps({setting: True}))
+            # Only the presence of the key in settings/list matters here, not a value
+            validate_code, _ = checker.is_setting_supported(device_id, setting)
             if validate_code != ValidateCode.SUPPORT:
                 msg = f"[OPTIONAL_FAILED] Required setting not supported: {setting}"
                 LOGGER.warn(msg)
@@ -172,9 +172,13 @@ def require_capabilities(tester, device_id, spec, result=None, logs=None):
             result.test_result = "OPTIONAL_FAILED"
         return False
     
-def execute_cmd_and_log(tester, device_id, topic, payload, logs=None, result=None):
+def execute_cmd_and_log(tester, device_id, topic, payload, logs=None, result=None, adjust_payload=True):
     """
     Executes a DAB command and logs the request and response.
+
+    Set adjust_payload=False when the test drives an exact system/settings/set
+    value, so that DabChecker does not replace it with a value taken from
+    system/settings/list.
 
     Returns:
         (status_code: int, resp_json: str)
@@ -201,7 +205,12 @@ def execute_cmd_and_log(tester, device_id, topic, payload, logs=None, result=Non
             pass
 
     LOGGER.info(f"Executing {topic} with payload {payload}")
-    rc = tester.execute_cmd(device_id, topic, payload)
+    previous_adjust = getattr(tester, "adjust_settings_payload", True)
+    tester.adjust_settings_payload = adjust_payload
+    try:
+        rc = tester.execute_cmd(device_id, topic, payload)
+    finally:
+        tester.adjust_settings_payload = previous_adjust
     resp = tester.dab_client.response()  # may be str, dict, list, None
 
     # Normalize response to JSON string
@@ -255,15 +264,19 @@ def print_response(response, topic_for_color=None, indent=10):
         LOGGER.info(f"{' ' * indent}{key}: {value}")
 
 
-def yes_or_no(result, logs, question=""):
+def yes_or_no(question="", logs=None, default=None):
     positive = ['YES', 'Y']
     negative = ['NO', 'N']
+    default_norm = str(default).strip().upper()[:1] if default is not None else None
     while True:
-        prompt = f"{question}(Y/N)"
+        hint = "(Y/N)" if default_norm not in ("Y", "N") else ("(Y/n)" if default_norm == "Y" else "(y/N)")
+        prompt = f"{question}{hint}"
         LOGGER.prompt(prompt)
         if logs is not None:
             logs.append(prompt)
         ch = readchar().upper()
+        if ch in ('\r', '\n') and default_norm in ("Y", "N"):
+            ch = default_norm
         echo = f"[{ch}]"
         LOGGER.result(echo)
         if logs is not None:
@@ -274,7 +287,7 @@ def yes_or_no(result, logs, question=""):
             return False
 
 
-def select_input(result, logs, arr):
+def select_input(arr, logs=None):
     # Show options
     line0 = "*0: There is no option that meet the requirement."
     LOGGER.info(line0)
@@ -324,7 +337,7 @@ def countdown(title, count):
 
 def waiting_for_screensaver(result, logs, screenSaverTimeout, tips):
     while True:
-        if yes_or_no(result, logs, tips):
+        if yes_or_no(tips, logs):
             break
         else:
             continue
@@ -1411,7 +1424,7 @@ def run_screensaver_active_check(dab_topic, test_name, tester, device_id):
         LOGGER.result(line)
         logs.append(line)
 
-        user_validated = yes_or_no(result, logs, "Did the screensaver activate on the device?")
+        user_validated = yes_or_no("Did the screensaver activate on the device?", logs)
         if user_validated:
             result.test_result = "PASS"
             line = "[RESULT] PASS — User confirmed that the screensaver activated successfully."
@@ -1510,7 +1523,7 @@ def run_screensaver_inactive_check(dab_topic, test_name, tester, device_id):
         logs.append(line)
 
         # Note the inverted logic here
-        user_validated = yes_or_no(result, logs, "Did the screensaver activate on the device?")
+        user_validated = yes_or_no("Did the screensaver activate on the device?", logs)
         if not user_validated:
             result.test_result = "PASS"
             line = "[RESULT] PASS — User confirmed that the screensaver did NOT activate, as expected."
@@ -1598,7 +1611,7 @@ def run_screensaver_active_return_check(dab_topic, test_name, tester, device_id)
         waiting_for_screensaver(result, logs, SCREENSAVER_TIMEOUT_WAIT, "Ready to begin the idle wait?")
 
         # Step 4: Manually verify activation and then the return state
-        user_validated_active = yes_or_no(result, logs, "Did the screensaver activate on the device?")
+        user_validated_active = yes_or_no("Did the screensaver activate on the device?", logs)
         if not user_validated_active:
             result.test_result = "FAILED"
             line = "[RESULT] FAILED — Prerequisite failed: User reported that the screensaver did not activate."
@@ -1606,7 +1619,7 @@ def run_screensaver_active_return_check(dab_topic, test_name, tester, device_id)
             logs.append(line)
             return result
 
-        user_validated_return = yes_or_no(result, logs, "Now, press a key to exit the screensaver. Did the screen return to its previous state?")
+        user_validated_return = yes_or_no("Now, press a key to exit the screensaver. Did the screen return to its previous state?", logs)
         if user_validated_return:
             result.test_result = "PASS"
             line = "[RESULT] PASS — User confirmed the screen returned to its previous state."
@@ -1700,7 +1713,7 @@ def run_screensaver_active_after_continuous_idle_check(dab_topic, test_name, tes
         LOGGER.result(line)
         logs.append(line)
 
-        user_validated = yes_or_no(result, logs, f"Did the screensaver activate after the {SCREENSAVER_TIMEOUT_WAIT}-second continuous idle period?")
+        user_validated = yes_or_no(f"Did the screensaver activate after the {SCREENSAVER_TIMEOUT_WAIT}-second continuous idle period?", logs)
         if user_validated:
             result.test_result = "PASS"
             line = "[RESULT] PASS — User confirmed the screensaver activated after a continuous idle period, as expected."
@@ -1790,7 +1803,7 @@ def run_screensaver_inactive_after_reboot_check(dab_topic, test_name, tester, de
         line = "[STEP] Waiting for manual confirmation that the device has restarted."
         LOGGER.result(line)
         logs.append(line)
-        while not yes_or_no(result, logs, "Has the device finished rebooting and is now idle?"):
+        while not yes_or_no("Has the device finished rebooting and is now idle?", logs):
             logs.append("Waiting for 'Y' confirmation.")
             time.sleep(5) # Add a small delay between prompts
 
@@ -1801,7 +1814,7 @@ def run_screensaver_inactive_after_reboot_check(dab_topic, test_name, tester, de
         waiting_for_screensaver(result, logs, SCREENSAVER_TIMEOUT_WAIT, "Ready to begin the idle wait?")
 
         # Step 6: Manually verify if the screensaver remained inactive
-        user_validated = yes_or_no(result, logs, "Did the screensaver activate?")
+        user_validated = yes_or_no("Did the screensaver activate?", logs)
         if not user_validated:
             result.test_result = "PASS"
             line = "[RESULT] PASS — User confirmed the screensaver did NOT activate, as expected."
@@ -1892,7 +1905,7 @@ def run_screensavertimeout_300_check(dab_topic, test_name, tester, device_id):
         LOGGER.result(line)
         logs.append(line)
 
-        user_validated = yes_or_no(result, logs, f"Did the screensaver activate after {timeout_seconds} seconds?")
+        user_validated = yes_or_no(f"Did the screensaver activate after {timeout_seconds} seconds?", logs)
         if user_validated:
             result.test_result = "PASS"
             line = "[RESULT] PASS — User confirmed that the screensaver activated successfully."
@@ -1978,7 +1991,7 @@ def run_screensavertimeout_reboot_check(dab_topic, test_name, tester, device_id)
         line = "[STEP] Waiting for manual confirmation that the device has restarted."
         LOGGER.result(line)
         logs.append(line)
-        while not yes_or_no(result, logs, "Has the device finished rebooting and is now idle?"):
+        while not yes_or_no("Has the device finished rebooting and is now idle?", logs):
             logs.append("Waiting for 'Y' confirmation.")
             time.sleep(5)
 
@@ -2025,7 +2038,7 @@ def run_screensavertimeout_reboot_check(dab_topic, test_name, tester, device_id)
         logs.append(line)
         waiting_for_screensaver(result, logs, SCREENSAVER_TIMEOUT_WAIT, "Ready to begin the idle wait?")
 
-        user_validated_active = yes_or_no(result, logs, "Did the screensaver activate?")
+        user_validated_active = yes_or_no("Did the screensaver activate?", logs)
         if user_validated_active:
             result.test_result = "PASS"
             line = "[RESULT] PASS — User confirmed the screensaver activated using the persisted timeout."
@@ -2094,7 +2107,7 @@ def run_screensavertimeout_guest_mode_check(dab_topic, test_name, tester, device
         line = "[STEP] Manual check required: Checking for Guest Mode support."
         LOGGER.result(line)
         logs.append(line)
-        supports_guest_mode = yes_or_no(result, logs, "Does this device support a Guest Mode feature?")
+        supports_guest_mode = yes_or_no("Does this device support a Guest Mode feature?", logs)
         if not supports_guest_mode:
             result.test_result = "OPTIONAL_FAILED"
             line = "[RESULT] OPTIONAL_FAILED — Test skipped because the device does not support Guest Mode."
@@ -2106,7 +2119,7 @@ def run_screensavertimeout_guest_mode_check(dab_topic, test_name, tester, device
         line = "[STEP] Manual action required: Please switch the device to Guest Mode."
         LOGGER.result(line)
         logs.append(line)
-        user_in_guest_mode = yes_or_no(result, logs, "Is the device now in Guest Mode? (Answering 'N' will fail this test)")
+        user_in_guest_mode = yes_or_no("Is the device now in Guest Mode? (Answering 'N' will fail this test)", logs)
         if not user_in_guest_mode:
             result.test_result = "FAILED"
             line = "[RESULT] FAILED — Test failed because the device was not put into guest mode as required."
@@ -2139,7 +2152,7 @@ def run_screensavertimeout_guest_mode_check(dab_topic, test_name, tester, device
         waiting_for_screensaver(result, logs, SCREENSAVER_TIMEOUT_WAIT, "Ready to begin the idle wait?")
 
         # Step 6: Manually verify activation
-        user_validated_active = yes_or_no(result, logs, "Did the screensaver activate while in guest mode?")
+        user_validated_active = yes_or_no("Did the screensaver activate while in guest mode?", logs)
         if user_validated_active:
             result.test_result = "PASS"
             line = "[RESULT] PASS — User confirmed the screensaver activated in guest mode."
@@ -2245,7 +2258,7 @@ def run_screensavertimeout_minimum_check(dab_topic, test_name, tester, device_id
         LOGGER.result(line)
         logs.append(line)
 
-        user_validated = yes_or_no(result, logs, f"Did the screensaver activate after {min_timeout} seconds?")
+        user_validated = yes_or_no(f"Did the screensaver activate after {min_timeout} seconds?", logs)
         if user_validated:
             result.test_result = "PASS"
             line = "[RESULT] PASS — User confirmed the screensaver activated with the minimum timeout."
@@ -2326,7 +2339,7 @@ def run_screensavermintimeout_reboot_check(dab_topic, test_name, tester, device_
         line = "[STEP] Waiting for manual confirmation that the device has restarted."
         LOGGER.result(line)
         logs.append(line)
-        while not yes_or_no(result, logs, "Has the device finished rebooting and is now idle?"):
+        while not yes_or_no("Has the device finished rebooting and is now idle?", logs):
             logs.append("Waiting for 'Y' confirmation.")
             time.sleep(5)
 
@@ -2416,7 +2429,7 @@ def run_highContrastText_text_over_images_check(dab_topic, test_name, tester, de
         line = "[STEP] Manual action required: Navigate to a screen where text is displayed over an image."
         LOGGER.result(line)
         logs.append(line)
-        user_navigated = yes_or_no(result, logs, "Are you on a screen with text over an image?")
+        user_navigated = yes_or_no("Are you on a screen with text over an image?", logs)
         if not user_navigated:
             result.test_result = "FAILED"
             line = "[RESULT] FAILED — Test failed because the required screen was not navigated to."
@@ -2438,7 +2451,7 @@ def run_highContrastText_text_over_images_check(dab_topic, test_name, tester, de
             return result
 
         # Step 4: Manually verify the visual change
-        user_validated_legible = yes_or_no(result, logs, "Is the text over the image now clearly legible with high contrast?")
+        user_validated_legible = yes_or_no("Is the text over the image now clearly legible with high contrast?", logs)
         if user_validated_legible:
             result.test_result = "PASS"
             line = "[RESULT] PASS — User confirmed the text is now legible."
@@ -2513,7 +2526,7 @@ def run_highContrastText_video_playback_check(dab_topic, test_name, tester, devi
         line = "[STEP] Manual action required: Start playing any video on the device (e.g., in YouTube)."
         LOGGER.result(line)
         logs.append(line)
-        video_was_playing = yes_or_no(result, logs, "Is a video currently playing on the screen?")
+        video_was_playing = yes_or_no("Is a video currently playing on the screen?", logs)
         if not video_was_playing:
             result.test_result = "FAILED"
             line = "[RESULT] FAILED — Test failed because video playback was not started as required."
@@ -2535,7 +2548,7 @@ def run_highContrastText_video_playback_check(dab_topic, test_name, tester, devi
             return result
 
         # Step 4: Manually verify the video playback was not affected
-        playback_unaffected = yes_or_no(result, logs, "Was the video playback smooth and uninterrupted when the setting was changed?")
+        playback_unaffected = yes_or_no("Was the video playback smooth and uninterrupted when the setting was changed?", logs)
         if playback_unaffected:
             result.test_result = "PASS"
             line = "[RESULT] PASS — User confirmed video playback was not affected."
@@ -3662,7 +3675,7 @@ def run_personalized_ads_manual_check(dab_topic, test_name, tester, device_id):
         line = "[STEP] Manual check: Please navigate ad surfaces (home screen, YouTube, etc.)."
         LOGGER.result(line)
         logs.append(line)
-        user_validated = yes_or_no(result, logs, "Do the ads appear to be personalized to the user's interests?")
+        user_validated = yes_or_no("Do the ads appear to be personalized to the user's interests?", logs)
         if user_validated:
             result.test_result = "PASS"
             line = "[RESULT] PASS — User confirmed ads are personalized."
@@ -3978,7 +3991,7 @@ def run_clear_data_system_app_check(dab_topic, test_name, tester, device_id):
         line = "Please select one SYSTEM application from the list to clear its data:"
         LOGGER.prompt(line)
         logs.append(line)
-        index = select_input(result, logs, app_id_list)
+        index = select_input(app_id_list, logs)
         if index == 0:
             result.test_result = "OPTIONAL_FAILED"
             line = "[RESULT] OPTIONAL_FAILED — No system app was selected."
@@ -5573,7 +5586,7 @@ def run_voice_log_collection_check(dab_topic, test_name, tester, device_id):
 
         logs.append(f"Please select one supported voice system in the list.")
         print(f"Please select one supported voice system in the list.")
-        index = select_input(result, logs, voiceSystem_list)
+        index = select_input(voiceSystem_list, logs)
         if index == 0:
             print(f"There are no supported voice system in the list.")
             logs.append(f"[OPTIONAL_FAILED] There are no supported voice system in the list.")
@@ -5665,7 +5678,7 @@ def run_voice_log_collection_check(dab_topic, test_name, tester, device_id):
         line = "[STEP] Manual action required: Please retrieve and inspect the collected system logs."
         LOGGER.result(line)
         logs.append(line)
-        logs_contain_voice_activity = yes_or_no(result, logs, f"Do the logs contain entries related to the voice command '{voice_command}'?")
+        logs_contain_voice_activity = yes_or_no(f"Do the logs contain entries related to the voice command '{voice_command}'?", logs)
         
         if logs_contain_voice_activity:
             result.test_result = "PASS"
@@ -5774,7 +5787,7 @@ def run_idle_log_collection_check(dab_topic, test_name, tester, device_id):
         line = "[STEP] Manual action required: Please retrieve and inspect the collected system logs."
         LOGGER.result(line)
         logs.append(line)
-        logs_are_valid = yes_or_no(result, logs, "Are the logs in the correct format and complete for the idle period?")
+        logs_are_valid = yes_or_no("Are the logs in the correct format and complete for the idle period?", logs)
         
         if logs_are_valid:
             result.test_result = "PASS"
@@ -5884,7 +5897,7 @@ def run_channel_switch_log_check(dab_topic, test_name, tester, device_id):
         line = "[STEP] Manual action required: Please retrieve and inspect the collected system logs."
         LOGGER.result(line)
         logs.append(line)
-        logs_are_valid = yes_or_no(result, logs, "Do the logs contain entries for each channel switch and related system events?")
+        logs_are_valid = yes_or_no("Do the logs contain entries for each channel switch and related system events?", logs)
         
         if logs_are_valid:
             result.test_result = "PASS"
@@ -6017,7 +6030,7 @@ def run_app_switch_log_check(dab_topic, test_name, tester, device_id):
         line = "[STEP] Manual action required: Please retrieve and inspect the collected system logs."
         LOGGER.result(line)
         logs.append(line)
-        logs_are_valid = yes_or_no(result, logs, f"Do the logs contain entries for both '{app1_id}' and '{app2_id}' activities?")
+        logs_are_valid = yes_or_no(f"Do the logs contain entries for both '{app1_id}' and '{app2_id}' activities?", logs)
         
         if logs_are_valid:
             result.test_result = "PASS"
@@ -6089,7 +6102,7 @@ def run_clear_data_preinstalled_app_check(dab_topic, test_name, tester, device_i
         line = "Please select one NON-REMovable, PRE-INSTALLED app from the list:"
         LOGGER.prompt(line)
         logs.append(line)
-        index = select_input(result, logs, app_id_list)
+        index = select_input(app_id_list, logs)
         if index == 0:
             result.test_result = "OPTIONAL_FAILED"
             line = "[RESULT] OPTIONAL_FAILED — No suitable pre-installed app was selected."
@@ -6131,7 +6144,7 @@ def run_clear_data_preinstalled_app_check(dab_topic, test_name, tester, device_i
         time.sleep(APP_LAUNCH_WAIT)
         
         # Step 5: Manual verification
-        user_validated_reset = yes_or_no(result, logs, "Did the application start up in its initial, first-run state (e.g., asking for login)?")
+        user_validated_reset = yes_or_no("Did the application start up in its initial, first-run state (e.g., asking for login)?", logs)
         if user_validated_reset:
             result.test_result = "PASS"
             line = "[RESULT] PASS — User confirmed the app was reset to its initial state."
@@ -6195,7 +6208,7 @@ def run_install_region_specific_app_check(dab_topic, test_name, tester, device_i
         line = "[STEP] Manual action required: Please set the device's region/locale to a supported one for the test app (e.g., 'de-DE')."
         LOGGER.result(line)
         logs.append(line)
-        if not yes_or_no(result, logs, "Is the device's region set correctly for the test?"):
+        if not yes_or_no("Is the device's region set correctly for the test?", logs):
             result.test_result = "SKIPPED"
             line = "[RESULT] SKIPPED — Precondition failed: device region not set."
             LOGGER.result(line)
@@ -6230,7 +6243,7 @@ def run_install_region_specific_app_check(dab_topic, test_name, tester, device_i
         time.sleep(APP_LAUNCH_WAIT)
 
         # Step 4: Manual verification
-        user_validated_localization = yes_or_no(result, logs, "Does the app show the correct language, content, or features for the region you set?")
+        user_validated_localization = yes_or_no("Does the app show the correct language, content, or features for the region you set?", logs)
         if user_validated_localization:
             result.test_result = "PASS"
             line = "[RESULT] PASS — User confirmed the app shows correct localization."
@@ -6305,7 +6318,7 @@ def run_update_installed_app_check(dab_topic, test_name, tester, device_id):
         line = f"[STEP] Manual action required: Please ensure an OLDER version of the app '{app_id}' is installed."
         LOGGER.result(line)
         logs.append(line)
-        if not yes_or_no(result, logs, "Is an older version of the app installed and ready for an update?"):
+        if not yes_or_no("Is an older version of the app installed and ready for an update?", logs):
             result.test_result = "SKIPPED"
             line = "[RESULT] SKIPPED — Precondition failed: an older version of the app was not installed."
             LOGGER.result(line)
@@ -6340,7 +6353,7 @@ def run_update_installed_app_check(dab_topic, test_name, tester, device_id):
         time.sleep(APP_LAUNCH_WAIT)
 
         # Step 4: Manual verification
-        user_validated_update = yes_or_no(result, logs, "Has the app been successfully updated to the newer version?")
+        user_validated_update = yes_or_no("Has the app been successfully updated to the newer version?", logs)
         if user_validated_update:
             result.test_result = "PASS"
             line = "[RESULT] PASS — User confirmed the app was successfully updated."
@@ -6519,7 +6532,7 @@ def run_logs_collection_for_major_system_services_check(dab_topic, test_name, te
 
         validate_state = False
         while(validate_state == False):
-            validate_state = yes_or_no(result, logs, f"Complete the above operations?")
+            validate_state = yes_or_no(f"Complete the above operations?", logs)
 
         # Step 3: Waiting for 10 seconds to collect logs.
         line = f"[STEP] Waiting for {LOGS_COLLECTION_WAIT} seconds to collect logs."
@@ -6559,7 +6572,7 @@ def run_logs_collection_for_major_system_services_check(dab_topic, test_name, te
         LOGGER.result(line)
         logs.append(line)
         print(f"Please enter logs folder and verify logs about major system services.")
-        validate_state = yes_or_no(result, logs, f"Logs collaction includes AV Decoder, Power Manager, and Networking Module?")
+        validate_state = yes_or_no(f"Logs collaction includes AV Decoder, Power Manager, and Networking Module?", logs)
         if validate_state == True:
             print(f"Logs collection includes major system services.")
             logs.append(f"[PASS] Logs collection includes major system services.")
@@ -6685,7 +6698,7 @@ def run_logs_collection_app_pause_check(dab_topic, test_name, tester, device_id)
         LOGGER.result(line)
         logs.append(line)
         print(f"Please enter logs folder and verify logs about application '{appId}'.")
-        validate_state = yes_or_no(result, logs, f"Logs collaction includes pausing application '{appId}'?")
+        validate_state = yes_or_no(f"Logs collaction includes pausing application '{appId}'?", logs)
         if validate_state == True:
             print(f"Logs collection includes pausing application '{appId}'.")
             logs.append(f"[PASS] Logs collection includes pausing application '{appId}'.")
@@ -6826,7 +6839,7 @@ def run_logs_collection_app_force_stop_check(dab_topic, test_name, tester, devic
         LOGGER.result(line)
         logs.append(line)
         print(f"Please enter logs folder and verify logs about application '{appId}'.")
-        validate_state = yes_or_no(result, logs, f"Logs collaction includes force stop application '{appId}'?")
+        validate_state = yes_or_no(f"Logs collaction includes force stop application '{appId}'?", logs)
         if validate_state == True:
             print(f"Logs collection includes force stop application '{appId}'.")
             logs.append(f"[PASS] Logs collection includes force stop application '{appId}'.")
@@ -6957,7 +6970,7 @@ def run_logs_collection_app_uninstall_check(dab_topic, test_name, tester, device
         LOGGER.result(line)
         logs.append(line)
         print(f"Please enter logs folder and verify logs about application '{appId}'.")
-        validate_state = yes_or_no(result, logs, f"Logs collection includes application '{appId}' uninstallation log?")
+        validate_state = yes_or_no(f"Logs collection includes application '{appId}' uninstallation log?", logs)
         if validate_state == True:
             print(f"Logs collection includes application '{appId}' uninstallation log.")
             logs.append(f"[PASS] Logs collection includes application '{appId}' uninstallation log.")
@@ -7116,7 +7129,7 @@ def run_logs_collection_app_install_and_launch_check(dab_topic, test_name, teste
         LOGGER.result(line)
         logs.append(line)
         print(f"Please enter logs folder and verify logs about application '{appId}'.")
-        validate_state = yes_or_no(result, logs, f"Logs collaction includes application '{appId}' install and launch log?")
+        validate_state = yes_or_no(f"Logs collaction includes application '{appId}' install and launch log?", logs)
         if validate_state == True:
             print(f"Logs collection includes application '{appId}' install and launch log.")
             logs.append(f"[PASS] Logs collection includes application '{appId}' install and launch log.")
@@ -7174,7 +7187,7 @@ def run_network_reset_wifi_default_restoration(dab_topic, test_name, tester, dev
         # Preconditions (manual)
         line = "[STEP] Ensure device is currently connected to Wi-Fi with a custom setting applied (static IP / DNS / proxy)."
         LOGGER.result(line); logs.append(line)
-        if not yes_or_no("Confirm custom Wi-Fi configuration is active on the device [y/N]: "):
+        if not yes_or_no("Confirm custom Wi-Fi configuration is active on the device [y/N]: ", logs):
             result.test_result = "SKIPPED"
             line = f"[RESULT] SKIPPED — precondition not met (no custom Wi-Fi config). (test_id={test_id}, device={device_id})"
             LOGGER.result(line); logs.append(line)
@@ -7214,10 +7227,10 @@ def run_network_reset_wifi_default_restoration(dab_topic, test_name, tester, dev
 
         # Manual validations
         LOGGER.result("[STEP] Validate on device UI that Wi-Fi settings are reset to defaults.")
-        cleared_saved = yes_or_no("Are saved Wi-Fi networks cleared? [y/N]: ")
-        defaults_ip  = yes_or_no("Are IP settings back to DHCP/Automatic (not static)? [y/N]: ")
-        defaults_dns = yes_or_no("Are DNS/Proxy settings cleared/reset to defaults? [y/N]: ")
-        manual_reconnect = yes_or_no("Did the device require manual reconnection (credentials prompted)? [y/N]: ")
+        cleared_saved = yes_or_no("Are saved Wi-Fi networks cleared? [y/N]: ", logs)
+        defaults_ip  = yes_or_no("Are IP settings back to DHCP/Automatic (not static)? [y/N]: ", logs)
+        defaults_dns = yes_or_no("Are DNS/Proxy settings cleared/reset to defaults? [y/N]: ", logs)
+        manual_reconnect = yes_or_no("Did the device require manual reconnection (credentials prompted)? [y/N]: ", logs)
 
         # Decide outcome
         if cleared_saved and defaults_ip and defaults_dns and manual_reconnect:
@@ -7301,7 +7314,7 @@ def run_setup_skip_privacy_bypass(dab_topic, test_name, tester, device_id):
 
         # Optional factory reset to ensure clean setup state
         LOGGER.result("[STEP] If not already at setup wizard, trigger factory reset via system/factory-reset (optional).")
-        do_reset = yes_or_no("Do you want to perform system/factory-reset now? This will erase the device. [y/N]: ")
+        do_reset = yes_or_no("Do you want to perform system/factory-reset now? This will erase the device. [y/N]: ", logs)
         if do_reset:
             LOGGER.result(f"[STEP] Calling system/factory-reset with payload: {payload_empty}")
             code_fr, resp_fr = execute_cmd_and_log(tester, device_id, "system/factory-reset", payload_empty, logs, result)
@@ -7324,7 +7337,7 @@ def run_setup_skip_privacy_bypass(dab_topic, test_name, tester, device_id):
         LOGGER.info(line); logs.append(line)
         time.sleep(SETUP_RESUME_WAIT)
 
-        at_privacy = yes_or_no("Is the device on the Privacy Settings screen now? [y/N]: ")
+        at_privacy = yes_or_no("Is the device on the Privacy Settings screen now? [y/N]: ", logs)
         if not at_privacy:
             result.test_result = "SKIPPED"
             line = "[RESULT] SKIPPED — device not at Privacy Settings screen."
@@ -7353,8 +7366,8 @@ def run_setup_skip_privacy_bypass(dab_topic, test_name, tester, device_id):
         time.sleep(SKIP_TRANSITION_WAIT)
 
         # Verify Home
-        on_home = yes_or_no("Did the device exit setup wizard and land on the Home screen? [y/N]: ")
-        opt_features_disabled = yes_or_no("Optional: Are account-based/personalized features disabled until configured? [y/N]: ")
+        on_home = yes_or_no("Did the device exit setup wizard and land on the Home screen? [y/N]: ", logs)
+        opt_features_disabled = yes_or_no("Optional: Are account-based/personalized features disabled until configured? [y/N]: ", logs)
 
         if on_home:
             result.test_result = "PASS"
@@ -7429,7 +7442,7 @@ def run_content_search_special_chars_validation(dab_topic, test_name, tester, de
             return result  # 'require_capabilities' already logged and set result
 
         # Optional precondition confirmation about UI
-        if not yes_or_no("Is the device currently on the search interface? [y/N]: "):
+        if not yes_or_no("Is the device currently on the search interface? [y/N]: ", logs):
             result.test_result = "SKIPPED"
             line = f"[RESULT] SKIPPED — device not on search interface."
             LOGGER.result(line); logs.append(line)
@@ -7481,7 +7494,7 @@ def run_content_search_special_chars_validation(dab_topic, test_name, tester, de
                 LOGGER.result(line); logs.append(line)
             elif isinstance(results, list) and len(results) == 0:
                 # Optional UI stability check
-                ui_stable = yes_or_no("Did the UI remain stable (no crash/hang) and show no results or a validation message? [y/N]: ")
+                ui_stable = yes_or_no("Did the UI remain stable (no crash/hang) and show no results or a validation message? [y/N]: ", logs)
                 ui_ok = "Y" if ui_stable else "N"
                 if ui_stable:
                     result.test_result = "PASS"
@@ -7517,7 +7530,7 @@ def run_content_search_special_chars_validation(dab_topic, test_name, tester, de
 
             if json_ok and clear_error:
                 # Optional UI stability check
-                ui_stable = yes_or_no("Did the UI remain stable (no crash/hang) and show an appropriate validation message? [y/N]: ")
+                ui_stable = yes_or_no("Did the UI remain stable (no crash/hang) and show an appropriate validation message? [y/N]: ", logs)
                 ui_ok = "Y" if ui_stable else "N"
                 if ui_stable:
                     result.test_result = "PASS"
@@ -7602,7 +7615,7 @@ def run_power_mode_get_standby_verify(dab_topic, test_name, tester, device_id):
             return result  # 'require_capabilities' already handled
 
         # Preconditions (manual confirmation)
-        if not yes_or_no("Confirm the device is currently in STANDBY and network/DAB connectivity is stable [y/N]: "):
+        if not yes_or_no("Confirm the device is currently in STANDBY and network/DAB connectivity is stable [y/N]: ", logs):
             result.test_result = "SKIPPED"
             line = "[RESULT] SKIPPED — precondition not met (device not confirmed in STANDBY/connected)."
             LOGGER.result(line); logs.append(line)
@@ -7733,7 +7746,7 @@ def run_power_mode_get_on_verify(dab_topic, test_name, tester, device_id):
             return result  # 'require_capabilities' already handled
 
         # Preconditions (manual confirmation)
-        if not yes_or_no("Confirm the device is ON (Home screen visible) and connectivity is stable [y/N]: "):
+        if not yes_or_no("Confirm the device is ON (Home screen visible) and connectivity is stable [y/N]: ", logs):
             result.test_result = "SKIPPED"
             line = "[RESULT] SKIPPED — precondition not met (device not confirmed ON/connected)."
             LOGGER.result(line); logs.append(line)
@@ -8379,10 +8392,9 @@ def run_set_contrast_to_max(dab_topic, test_name, tester, device_id):
 
             # Optional manual visual confirmation
             if yes_or_no(
-                result,
-                logs,
                 "Is the device screen at maximum contrast visually "
                 "(should appear with very strong contrast)? ",
+                logs,
             ):
                 result.test_result = "PASS"
             else:
@@ -8698,7 +8710,7 @@ def run_contrast_rapid_change_min_to_max(dab_topic, test_name, tester, device_id
             logs.append(LOGGER.stamp(msg))
 
             # Optional manual visual confirmation
-            if yes_or_no(result, logs, "Did the screen visibly update to maximum contrast immediately after the change? ",):
+            if yes_or_no("Did the screen visibly update to maximum contrast immediately after the change? ", logs):
                 result.test_result = "PASS"
             else:
                 result.test_result = "FAILED"
@@ -9970,7 +9982,7 @@ def run_voice_multilanguage_language_alignment_check(dab_topic, test_name, teste
         LOGGER.result(line)
         logs.append(line)
 
-        user_ok = yes_or_no(result, logs, question)
+        user_ok = yes_or_no(question, logs)
         if not user_ok:
             result.test_result = "FAILED"
             line = (
@@ -10062,13 +10074,13 @@ def run_timezone_iana_america_new_york_check(dab_topic, test_name, tester, devic
     try:
         # 2) Read current timeZone
         LOGGER.result("[STEP] Reading current timeZone via system/settings/get.")
-        before_resp = execute_cmd_and_log(tester, device_id, "system/settings/get", {"id": "timeZone"}, logs, result)
-        before_status = before_resp.get("status")
+        before_status, before_body = execute_cmd_and_log(tester, device_id, "system/settings/get", "{}", logs, result)
+        before_resp = json.loads(before_body)
         if before_status != 200:
             summary = f"system/settings/get for timeZone failed with status {before_status}."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            logs.append(summary_line)
+            logs.append(summary)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
             logs.append(summary_line)
@@ -10079,13 +10091,12 @@ def run_timezone_iana_america_new_york_check(dab_topic, test_name, tester, devic
 
         # 3) Set to America/New_York
         LOGGER.result(f"[STEP] Setting timeZone to {target_tz!r}.")
-        set_resp = execute_cmd_and_log(tester, device_id, "system/settings/set", {"id": "timeZone", "value": target_tz}, logs, result)
-        set_status = set_resp.get("status")
+        set_status, _ = execute_cmd_and_log(tester, device_id, "system/settings/set", json.dumps({"timeZone": target_tz}), logs, result, adjust_payload=False)
         if set_status == 400:
             summary = f"system/settings/set rejected valid IANA timezone {target_tz!r} with status 400."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            logs.append(summary_line)
+            logs.append(summary)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
             logs.append(summary_line)
@@ -10094,24 +10105,24 @@ def run_timezone_iana_america_new_york_check(dab_topic, test_name, tester, devic
             summary = f"system/settings/set for timeZone returned unexpected status {set_status}."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            logs.append(summary_line)
+            logs.append(summary)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
             logs.append(summary_line)
             return result
 
         LOGGER.result("[WAIT] Waiting 3 seconds for the timeZone change to apply.")
-        countdown(3, LOGGER)
+        countdown("Waiting for the timeZone change to apply", 3)
 
         # 4) Verify new value
         LOGGER.result("[STEP] Reading back timeZone to verify update.")
-        after_resp = execute_cmd_and_log(tester, device_id, "system/settings/get", {"id": "timeZone"}, logs, result)
-        after_status = after_resp.get("status")
+        after_status, after_body = execute_cmd_and_log(tester, device_id, "system/settings/get", "{}", logs, result)
+        after_resp = json.loads(after_body)
         if after_status != 200:
             summary = f"system/settings/get after update failed with status {after_status}."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            logs.append(summary_line)
+            logs.append(summary)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
             logs.append(summary_line)
@@ -10122,7 +10133,7 @@ def run_timezone_iana_america_new_york_check(dab_topic, test_name, tester, devic
             summary = f"timeZone did not update correctly: expected {target_tz!r}, got {new_tz!r}."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            logs.append(summary_line)
+            logs.append(summary)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
             logs.append(summary_line)
@@ -10130,11 +10141,11 @@ def run_timezone_iana_america_new_york_check(dab_topic, test_name, tester, devic
 
         # Optional UI confirmation
         LOGGER.result("[STEP] Please confirm in UI that the time zone is America/New_York (or equivalent).")
-        if not yes_or_no("Does the device time settings page now show America/New_York (or equivalent)?", default="y"):
+        if not yes_or_no("Does the device time settings page now show America/New_York (or equivalent)?", logs, default="y"):
             summary = "API reports timeZone=America/New_York but UI verification failed."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            logs.append(summary_line)
+            logs.append(summary)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
             logs.append(summary_line)
@@ -10143,14 +10154,14 @@ def run_timezone_iana_america_new_york_check(dab_topic, test_name, tester, devic
         # 5) Restore original (best-effort)
         if original_tz and original_tz != target_tz:
             LOGGER.result(f"[STEP] Restoring original timeZone: {original_tz!r}.")
-            restore_resp = execute_cmd_and_log(tester, device_id, "system/settings/set", {"id": "timeZone", "value": original_tz}, logs, result)
-            if restore_resp.get("status") != 200:
+            restore_status, _ = execute_cmd_and_log(tester, device_id, "system/settings/set", json.dumps({"timeZone": original_tz}), logs, result, adjust_payload=False)
+            if restore_status != 200:
                 LOGGER.result("[INFO] Failed to restore original timeZone; manual restore may be required.")
 
         summary = "Device supports timeZone and accepts valid IANA timezone America/New_York."
         LOGGER.result(f"[SUMMARY] PASS – {summary}")
         result.test_result = "PASS"
-        logs.append(summary_line)
+        logs.append(summary)
         summary_line = f"[SUMMARY] {test_name} — final result: PASS, test_id={test_id}, device={device_id}"
         LOGGER.result(summary_line)
         logs.append(summary_line)
@@ -10160,7 +10171,7 @@ def run_timezone_iana_america_new_york_check(dab_topic, test_name, tester, devic
         summary = f"Unexpected error during timeZone IANA validation: {e}"
         LOGGER.result(f"[RESULT] FAILED – {summary}")
         result.test_result = "FAILED"
-        logs.append(summary_line)
+        logs.append(summary)
         summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
         LOGGER.result(summary_line)
         logs.append(summary_line)
@@ -10186,13 +10197,13 @@ def run_timezone_invalid_format_rejection_check(dab_topic, test_name, tester, de
     try:
         # 2) Read current timeZone
         LOGGER.result("[STEP] Reading current timeZone via system/settings/get.")
-        before_resp = execute_cmd_and_log(tester, device_id, "system/settings/get", {"id": "timeZone"}, logs, result)
-        before_status = before_resp.get("status")
+        before_status, before_body = execute_cmd_and_log(tester, device_id, "system/settings/get", "{}", logs, result)
+        before_resp = json.loads(before_body)
         if before_status != 200:
             summary = f"system/settings/get for timeZone failed with status {before_status}."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            logs.append(summary_line)
+            logs.append(summary)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
             logs.append(summary_line)
@@ -10203,15 +10214,14 @@ def run_timezone_invalid_format_rejection_check(dab_topic, test_name, tester, de
 
         # 3) Attempt to set invalid value
         LOGGER.result(f"[STEP] Attempting to set timeZone to invalid value {invalid_tz!r}.")
-        set_resp = execute_cmd_and_log(tester, device_id, "system/settings/set", {"id": "timeZone", "value": invalid_tz}, logs, result)
-        set_status = set_resp.get("status")
+        set_status, _ = execute_cmd_and_log(tester, device_id, "system/settings/set", json.dumps({"timeZone": invalid_tz}), logs, result, adjust_payload=False)
 
         # For negative tests, 400 is the expected client error.
         if set_status != 400:
             summary = f"system/settings/set for invalid timeZone returned status {set_status}; expected 400."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            logs.append(summary_line)
+            logs.append(summary)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
             logs.append(summary_line)
@@ -10221,13 +10231,13 @@ def run_timezone_invalid_format_rejection_check(dab_topic, test_name, tester, de
 
         # 4) Verify timeZone did not change
         LOGGER.result("[STEP] Reading timeZone again to confirm it did not change.")
-        after_resp = execute_cmd_and_log(tester, device_id, "system/settings/get", {"id": "timeZone"}, logs, result)
-        after_status = after_resp.get("status")
+        after_status, after_body = execute_cmd_and_log(tester, device_id, "system/settings/get", "{}", logs, result)
+        after_resp = json.loads(after_body)
         if after_status != 200:
             summary = f"system/settings/get after invalid set failed with status {after_status}."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            logs.append(summary_line)
+            logs.append(summary)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
             logs.append(summary_line)
@@ -10238,7 +10248,7 @@ def run_timezone_invalid_format_rejection_check(dab_topic, test_name, tester, de
             summary = f"timeZone changed after invalid set: expected {original_tz!r}, got {new_tz!r}."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            logs.append(summary_line)
+            logs.append(summary)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
             logs.append(summary_line)
@@ -10249,11 +10259,11 @@ def run_timezone_invalid_format_rejection_check(dab_topic, test_name, tester, de
         # Optional manual UI check
         LOGGER.result("[STEP] Please verify on the device UI that the time zone has not changed.")
         prompt = f"On the device time settings screen, does the time zone still show the original value ({original_tz!r})?"
-        if not yes_or_no(prompt, default="y"):
+        if not yes_or_no(prompt, logs, default="y"):
             summary = "API reports unchanged timeZone after invalid set, but manual UI verification indicates a change."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            logs.append(summary_line)
+            logs.append(summary)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
             logs.append(summary_line)
@@ -10262,7 +10272,7 @@ def run_timezone_invalid_format_rejection_check(dab_topic, test_name, tester, de
         summary = "Device correctly rejects invalid timeZone value with status 400 and preserves the original timeZone."
         LOGGER.result(f"[SUMMARY] PASS – {summary}")
         result.test_result = "PASS"
-        logs.append(summary_line)
+        logs.append(summary)
         summary_line = f"[SUMMARY] {test_name} — final result: PASS, test_id={test_id}, device={device_id}"
         LOGGER.result(summary_line)
         logs.append(summary_line)
@@ -10272,7 +10282,7 @@ def run_timezone_invalid_format_rejection_check(dab_topic, test_name, tester, de
         summary = f"Unexpected error during timeZone invalid-format validation: {e}"
         LOGGER.result(f"[RESULT] FAILED – {summary}")
         result.test_result = "FAILED"
-        logs.append(summary_line)
+        logs.append(summary)
         summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
         LOGGER.result(summary_line)
         logs.append(summary_line)
@@ -10286,7 +10296,12 @@ def run_timezone_case_insensitive_america_los_angeles_check(dab_topic, test_name
     result = TestResult(test_id, device_id, dab_topic, "{}", "UNKNOWN", "", logs)
 
     LOGGER.result("[TEST] TimeZone case-insensitive IANA validation (america/los_angeles → America/Los_Angeles)")
-    LOGGER.result("[DESC] Verify that system/settings/set accepts a lower-case IANA timeZone and returns the canonical form via system/settings/get.")
+    # The spec (4, Data Types) only requires IANA tzdb names, whose IDs are
+    # case-sensitive, and does not say how a non-canonical name is handled.
+    # Both answers are compliant: reject it with 400 and keep the setting, or
+    # accept it and store the canonical name. Storing the raw lower-case
+    # string would make system/settings/get return a non-IANA value.
+    LOGGER.result("[DESC] Verify that system/settings/set either rejects a lower-case IANA timeZone with 400 or stores its canonical form.")
 
     # --- Step 1: Capability check (timeZone setting support) ---
     cap_spec = "ops: system/settings/get, system/settings/set | settings: timeZone"
@@ -10299,13 +10314,13 @@ def run_timezone_case_insensitive_america_los_angeles_check(dab_topic, test_name
     try:
         # 2) Read current timeZone
         LOGGER.result("[STEP] Reading current timeZone via system/settings/get.")
-        before_resp = execute_cmd_and_log(tester, device_id, "system/settings/get", {"id": "timeZone"}, logs, result)
-        before_status = before_resp.get("status")
+        before_status, before_body = execute_cmd_and_log(tester, device_id, "system/settings/get", "{}", logs, result)
+        before_resp = json.loads(before_body)
         if before_status != 200:
             summary = f"system/settings/get for timeZone failed with status {before_status}."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            logs.append(summary_line)
+            logs.append(summary)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
             logs.append(summary_line)
@@ -10316,30 +10331,50 @@ def run_timezone_case_insensitive_america_los_angeles_check(dab_topic, test_name
 
         # 3) Set using lower-case IANA value
         LOGGER.result(f"[STEP] Setting timeZone to lower-case IANA value {input_tz!r}.")
-        set_resp = execute_cmd_and_log(tester, device_id, "system/settings/set", {"id": "timeZone", "value": input_tz}, logs, result)
-        set_status = set_resp.get("status")
+        set_status, _ = execute_cmd_and_log(tester, device_id, "system/settings/set", json.dumps({"timeZone": input_tz}), logs, result, adjust_payload=False)
+        if set_status == 400:
+            after_status, after_body = execute_cmd_and_log(tester, device_id, "system/settings/get", "{}", logs, result)
+            current_tz = json.loads(after_body).get("timeZone") if after_status == 200 else None
+            # A missing timeZone on both reads must not count as unchanged
+            if not isinstance(current_tz, str) or current_tz != original_tz:
+                summary = f"lower-case timeZone was rejected with 400, but timeZone is not confirmed unchanged (before {original_tz!r}, after {current_tz!r})."
+                LOGGER.result(f"[RESULT] FAILED – {summary}")
+                result.test_result = "FAILED"
+                logs.append(summary)
+                summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
+                LOGGER.result(summary_line)
+                logs.append(summary_line)
+                return result
+            summary = f"Device rejects non-canonical timeZone {input_tz!r} with 400 and keeps {original_tz!r}."
+            LOGGER.result(f"[SUMMARY] PASS – {summary}")
+            result.test_result = "PASS"
+            logs.append(summary)
+            summary_line = f"[SUMMARY] {test_name} — final result: PASS, test_id={test_id}, device={device_id}"
+            LOGGER.result(summary_line)
+            logs.append(summary_line)
+            return result
         if set_status != 200:
-            summary = f"system/settings/set for lower-case timeZone returned status {set_status}; expected 200."
+            summary = f"system/settings/set for lower-case timeZone returned status {set_status}; expected 200 or 400."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            logs.append(summary_line)
+            logs.append(summary)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
             logs.append(summary_line)
             return result
 
         LOGGER.result("[WAIT] Waiting 3 seconds for the timeZone change to apply.")
-        countdown(3, LOGGER)
+        countdown("Waiting for the timeZone change to apply", 3)
 
         # 4) Verify canonical value via get
         LOGGER.result("[STEP] Reading back timeZone to verify canonical normalization.")
-        after_resp = execute_cmd_and_log(tester, device_id, "system/settings/get", {"id": "timeZone"}, logs, result)
-        after_status = after_resp.get("status")
+        after_status, after_body = execute_cmd_and_log(tester, device_id, "system/settings/get", "{}", logs, result)
+        after_resp = json.loads(after_body)
         if after_status != 200:
             summary = f"system/settings/get after update failed with status {after_status}."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            logs.append(summary_line)
+            logs.append(summary)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
             logs.append(summary_line)
@@ -10350,7 +10385,7 @@ def run_timezone_case_insensitive_america_los_angeles_check(dab_topic, test_name
             summary = f"timeZone did not normalize correctly: expected {canonical_tz!r}, got {new_tz!r}."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            logs.append(summary_line)
+            logs.append(summary)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
             logs.append(summary_line)
@@ -10361,11 +10396,11 @@ def run_timezone_case_insensitive_america_los_angeles_check(dab_topic, test_name
         # Optional manual UI confirmation
         LOGGER.result("[STEP] Please verify on the device UI that the time zone is displayed as America/Los_Angeles (or equivalent canonical label).")
         prompt = "On the device time settings screen, is the time zone now shown as America/Los_Angeles (or equivalent canonical label)?"
-        if not yes_or_no(prompt, default="y"):
+        if not yes_or_no(prompt, logs, default="y"):
             summary = "API reports canonical timeZone=America/Los_Angeles but manual UI verification failed."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
-            logs.append(summary_line)
+            logs.append(summary)
             summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
             LOGGER.result(summary_line)
             logs.append(summary_line)
@@ -10374,14 +10409,14 @@ def run_timezone_case_insensitive_america_los_angeles_check(dab_topic, test_name
         # 5) Restore original (best-effort)
         if original_tz and original_tz != canonical_tz:
             LOGGER.result(f"[STEP] Restoring original timeZone: {original_tz!r}.")
-            restore_resp = execute_cmd_and_log(tester, device_id, "system/settings/set", {"id": "timeZone", "value": original_tz}, logs, result)
-            if restore_resp.get("status") != 200:
+            restore_status, _ = execute_cmd_and_log(tester, device_id, "system/settings/set", json.dumps({"timeZone": original_tz}), logs, result, adjust_payload=False)
+            if restore_status != 200:
                 LOGGER.result("[INFO] Failed to restore original timeZone; manual restore may be required.")
 
         summary = "Device accepts lower-case IANA timeZone america/los_angeles and normalizes it to canonical America/Los_Angeles."
         LOGGER.result(f"[SUMMARY] PASS – {summary}")
         result.test_result = "PASS"
-        logs.append(summary_line)
+        logs.append(summary)
         summary_line = f"[SUMMARY] {test_name} — final result: PASS, test_id={test_id}, device={device_id}"
         LOGGER.result(summary_line)
         logs.append(summary_line)
@@ -10391,7 +10426,7 @@ def run_timezone_case_insensitive_america_los_angeles_check(dab_topic, test_name
         summary = f"Unexpected error during timeZone case-insensitive validation: {e}"
         LOGGER.result(f"[RESULT] FAILED – {summary}")
         result.test_result = "FAILED"
-        logs.append(summary_line)
+        logs.append(summary)
         summary_line = f"[SUMMARY] {test_name} — final result: FAILED, test_id={test_id}, device={device_id}"
         LOGGER.result(summary_line)
         logs.append(summary_line)
@@ -10431,7 +10466,7 @@ def run_network_reset_multi_interface_manual_check(dab_topic, test_name, tester,
             "Is the device currently connected to BOTH Wi-Fi and Ethernet, and have you changed some Wi-Fi/Ethernet "
             "network settings away from their default values in the settings UI?"
         )
-        if not yes_or_no(precondition_prompt, default="y"):
+        if not yes_or_no(precondition_prompt, logs, default="y"):
             summary = "Preconditions not met: device is not in the required Wi-Fi + Ethernet, non-default network state."
             LOGGER.result(f"[RESULT] OPTIONAL_FAILED – {summary}")
             result.test_result = "OPTIONAL_FAILED"
@@ -10447,7 +10482,7 @@ def run_network_reset_multi_interface_manual_check(dab_topic, test_name, tester,
             "This test will trigger system/network-reset, which may drop network connections and clear Wi-Fi settings. "
             "Do you want to continue?"
         )
-        if not yes_or_no(confirm_prompt, default="n"):
+        if not yes_or_no(confirm_prompt, logs, default="n"):
             summary = "Tester chose not to trigger system/network-reset; destructive action cancelled."
             LOGGER.result(f"[RESULT] OPTIONAL_FAILED – {summary}")
             result.test_result = "OPTIONAL_FAILED"
@@ -10494,7 +10529,7 @@ def run_network_reset_multi_interface_manual_check(dab_topic, test_name, tester,
             "  3) Saved Wi-Fi profiles are cleared and you can re-connect Wi-Fi manually.\n"
             "Did the network reset behave as expected for all of the above points?"
         )
-        if not yes_or_no(verify_prompt, default="y"):
+        if not yes_or_no(verify_prompt, logs, default="y"):
             summary = "Manual verification failed: network settings/reset did not behave as expected for Wi-Fi and Ethernet."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
             result.test_result = "FAILED"
@@ -10583,7 +10618,7 @@ def run_identifier_for_advertising_persistence_across_restart_check(dab_topic, t
             "This test will restart the device using system/restart. "
             "Make sure it is safe to reboot now (no critical foreground activity). Continue?"
         )
-        if not yes_or_no(restart_prompt, default="n"):
+        if not yes_or_no(restart_prompt, logs, default="n"):
             summary = "Tester chose not to restart the device; aborting identifierForAdvertising persistence test."
             LOGGER.result(f"[RESULT] OPTIONAL_FAILED – {summary}")
             result.test_result = "OPTIONAL_FAILED"
@@ -10616,7 +10651,7 @@ def run_identifier_for_advertising_persistence_across_restart_check(dab_topic, t
             "Has the device fully restarted, reached the home screen, and is DAB reachable again "
             "(e.g., other simple DAB operations work)?"
         )
-        if not yes_or_no(ready_prompt, default="y"):
+        if not yes_or_no(ready_prompt, logs, default="y"):
             summary = "Device/DAB not confirmed ready after restart; cannot safely verify identifierForAdvertising."
             LOGGER.result(f"[RESULT] OPTIONAL_FAILED – {summary}")
             result.test_result = "OPTIONAL_FAILED"
@@ -10760,8 +10795,8 @@ def run_identifier_for_advertising_unsupported_device_ui_absence_check(dab_topic
             "Press 'y' if you SEE an ID, 'n' if there is NO Advertising ID shown."
         )
 
-        # yes_or_no should be called as yes_or_no(result, logs, prompt)
-        saw_id = yes_or_no(result, logs, prompt)
+        # yes_or_no should be called as yes_or_no(prompt, logs)
+        saw_id = yes_or_no(prompt, logs)
         user_saw_ad_id = "Y" if saw_id else "N"
 
         if saw_id:

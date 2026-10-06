@@ -40,9 +40,8 @@ def run_system_setup_skip_mid_wizard_check(dab_topic, test_name, tester, device_
         helpers.log_line(logs, "DESC", "If needed, perform factory reset and progress the wizard until DAB is restored and the device is reachable.", result=result)
 
         env_ok = helpers.yes_or_no(
-            result,
+            "Is the device currently on a mid-setup wizard screen and reachable over DAB (yes), or not ready for this test (no)?",
             logs,
-            "Is the device currently on a mid-setup wizard screen and reachable over DAB (yes), or not ready for this test (no)?"
         )
         if not env_ok:
             helpers.finish(result, logs, "SKIPPED", "Device is not in the required mid-setup wizard state for this test.")
@@ -71,9 +70,8 @@ def run_system_setup_skip_mid_wizard_check(dab_topic, test_name, tester, device_
         helpers.log_line(logs, "DESC", "Device should have exited the setup wizard and show the Android TV home screen with account features not configured.", result=result)
 
         user_validated_skip = helpers.yes_or_no(
-            result,
+            "Is the device now on the home screen AND still in an unsigned / account-not-configured state?",
             logs,
-            "Is the device now on the home screen AND still in an unsigned / account-not-configured state?"
         )
 
         if user_validated_skip:
@@ -134,9 +132,8 @@ def run_system_setup_skip_initial_wizard_check(dab_topic, test_name, tester, dev
         helpers.log_line(logs, "DESC", "If needed, perform a factory reset and wait until the first setup screen appears and the device is reachable over DAB.", result=result)
 
         env_ok = helpers.yes_or_no(
-            result,
+            "Is the device currently on the initial setup wizard screen after factory reset and reachable over DAB?",
             logs,
-            "Is the device currently on the initial setup wizard screen after factory reset and reachable over DAB?"
         )
         if not env_ok:
             helpers.finish(result, logs, "SKIPPED", "Device is not in the required initial setup wizard state for this test.")
@@ -168,9 +165,8 @@ def run_system_setup_skip_initial_wizard_check(dab_topic, test_name, tester, dev
         helpers.countdown(result, logs, 60, "Waiting up to 60 seconds for the device to reach the home screen after system/setup/skip...")
 
         user_validated_home = helpers.yes_or_no(
-            result,
+            "After waiting, is the device now on the Android TV home screen with the setup wizard gone and account-based features still disabled / not configured?",
             logs,
-            "After waiting, is the device now on the Android TV home screen with the setup wizard gone and account-based features still disabled / not configured?"
         )
 
         if user_validated_home:

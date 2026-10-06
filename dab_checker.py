@@ -22,7 +22,9 @@ class DabChecker:
         def _patched_execute_cmd(_self, device_id, dab_topic, dab_body):
             # Intercept only system/settings/set
             try:
-                if dab_topic == "system/settings/set":
+                if dab_topic == "system/settings/set" and getattr(
+                    dab_tester, "adjust_settings_payload", True
+                ):
                     adjusted = self.__maybe_adjust_settings_set_payload(dab_body)
                     # Persist what we are *actually* sending so checker can validate against it
                     self._last_effective_settings_payload = adjusted if isinstance(adjusted, str) else json.dumps(adjusted)
@@ -369,6 +371,39 @@ class DabChecker:
             prechecker_log = f"\n{operation} is NOT supported on this device. Ongoing...\n"
 
         return validate_code, prechecker_log
+
+    def is_setting_supported(self, device_id, setting):
+        """
+        Checks whether a system setting is advertised by system/settings/list.
+
+        Unlike precheck(), this only asks whether the device supports the
+        setting at all, not whether a given value is acceptable. The probe value
+        is therefore irrelevant: any descriptor other than 'capability false' or
+        'no options advertised' means the setting is supported, including the
+        list descriptors used by settings such as language or timeZone.
+
+        Args:
+            device_id: The device id
+            setting: the system setting name, e.g. 'timeZone'
+
+        Returns:
+            validate_code:
+                ValidateCode.SUPPORT, target advertises this setting.
+                ValidateCode.UNSUPPORT, target doesn't advertise this setting.
+            prechecker_log:
+                output message
+        """
+        validate_code, prechecker_log = self.__precheck_system_settings_set(
+            device_id, json.dumps({setting: True})
+        )
+
+        if validate_code == ValidateCode.UNSUPPORT:
+            return validate_code, prechecker_log
+
+        # UNCERTAIN only happens once the setting was found in settings/list, so
+        # the value didn't fit the descriptor; for a capability gate that still
+        # means the setting is supported.
+        return ValidateCode.SUPPORT, prechecker_log
 
     def precheck(self, device_id, dab_request_topic, dab_request_body):
         """
