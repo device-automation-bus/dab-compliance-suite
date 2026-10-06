@@ -181,6 +181,7 @@ CONFORMANCE_TEST_CASE = [
     ("voice/send-text",f'{{"requestText" : "Play lady Gaga music on YouTube", "voiceSystem": true}}', dab.voice.send_text, 10000, "Conformance With VA Bad Request5", "2.0", True),
     ("version",' {}', dab.version.default, 200, "Conformance", "2.0", False),
     ("system/restart",' {}', dab.system.restart, 30000, "Conformance", "2.0", False),
+    ("system/restart", ' {}', dab.system.restart_compliance, 30000, "Reboot Compliance Test", "2.0", False),    
     ("applications/install", lambda: json.dumps(ensure_app_available(app_id="Sample_App", prompt_if_missing=False)), dab.applications.install, 120000, "Install App Conformance", "2.1", False),
     ("applications/install", lambda: json.dumps({"fileLocation": f""}), dab.applications.install, 120000, "Install App Conformance With Blank URL", "2.1", True),
     ("applications/install", lambda: json.dumps(build_incorrect_format_body()), dab.applications.install, 120000, "Install App Conformance With Incorrect Format", "2.1", True),    
