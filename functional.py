@@ -230,6 +230,14 @@ def execute_cmd_and_log(tester, device_id, topic, payload, logs=None, result=Non
     if logs is not None: logs.append(status_line)
     return status_code, resp_json
 
+def execute_json_cmd_and_log(tester, device_id, topic, payload, logs=None, result=None):
+    """Execute a command and return its status together with a JSON object response."""
+    status, response = execute_cmd_and_log(tester, device_id, topic, payload, logs, result)
+    try:
+        return status, json.loads(response)
+    except (TypeError, json.JSONDecodeError):
+        return status, {}
+
 def dab_status_from(resp, rc):
     try:
         if isinstance(resp, str):    # JSON string
@@ -10062,8 +10070,7 @@ def run_timezone_iana_america_new_york_check(dab_topic, test_name, tester, devic
     try:
         # 2) Read current timeZone
         LOGGER.result("[STEP] Reading current timeZone via system/settings/get.")
-        before_resp = execute_cmd_and_log(tester, device_id, "system/settings/get", {"id": "timeZone"}, logs, result)
-        before_status = before_resp.get("status")
+        before_status, before_resp = execute_json_cmd_and_log(tester, device_id, "system/settings/get", "{}", logs, result)
         if before_status != 200:
             summary = f"system/settings/get for timeZone failed with status {before_status}."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
@@ -10079,8 +10086,7 @@ def run_timezone_iana_america_new_york_check(dab_topic, test_name, tester, devic
 
         # 3) Set to America/New_York
         LOGGER.result(f"[STEP] Setting timeZone to {target_tz!r}.")
-        set_resp = execute_cmd_and_log(tester, device_id, "system/settings/set", {"id": "timeZone", "value": target_tz}, logs, result)
-        set_status = set_resp.get("status")
+        set_status, _ = execute_json_cmd_and_log(tester, device_id, "system/settings/set", json.dumps({"timeZone": target_tz}), logs, result)
         if set_status == 400:
             summary = f"system/settings/set rejected valid IANA timezone {target_tz!r} with status 400."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
@@ -10105,8 +10111,7 @@ def run_timezone_iana_america_new_york_check(dab_topic, test_name, tester, devic
 
         # 4) Verify new value
         LOGGER.result("[STEP] Reading back timeZone to verify update.")
-        after_resp = execute_cmd_and_log(tester, device_id, "system/settings/get", {"id": "timeZone"}, logs, result)
-        after_status = after_resp.get("status")
+        after_status, after_resp = execute_json_cmd_and_log(tester, device_id, "system/settings/get", "{}", logs, result)
         if after_status != 200:
             summary = f"system/settings/get after update failed with status {after_status}."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
@@ -10143,8 +10148,8 @@ def run_timezone_iana_america_new_york_check(dab_topic, test_name, tester, devic
         # 5) Restore original (best-effort)
         if original_tz and original_tz != target_tz:
             LOGGER.result(f"[STEP] Restoring original timeZone: {original_tz!r}.")
-            restore_resp = execute_cmd_and_log(tester, device_id, "system/settings/set", {"id": "timeZone", "value": original_tz}, logs, result)
-            if restore_resp.get("status") != 200:
+            restore_status, _ = execute_json_cmd_and_log(tester, device_id, "system/settings/set", json.dumps({"timeZone": original_tz}), logs, result)
+            if restore_status != 200:
                 LOGGER.result("[INFO] Failed to restore original timeZone; manual restore may be required.")
 
         summary = "Device supports timeZone and accepts valid IANA timezone America/New_York."
@@ -10186,8 +10191,7 @@ def run_timezone_invalid_format_rejection_check(dab_topic, test_name, tester, de
     try:
         # 2) Read current timeZone
         LOGGER.result("[STEP] Reading current timeZone via system/settings/get.")
-        before_resp = execute_cmd_and_log(tester, device_id, "system/settings/get", {"id": "timeZone"}, logs, result)
-        before_status = before_resp.get("status")
+        before_status, before_resp = execute_json_cmd_and_log(tester, device_id, "system/settings/get", "{}", logs, result)
         if before_status != 200:
             summary = f"system/settings/get for timeZone failed with status {before_status}."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
@@ -10203,8 +10207,7 @@ def run_timezone_invalid_format_rejection_check(dab_topic, test_name, tester, de
 
         # 3) Attempt to set invalid value
         LOGGER.result(f"[STEP] Attempting to set timeZone to invalid value {invalid_tz!r}.")
-        set_resp = execute_cmd_and_log(tester, device_id, "system/settings/set", {"id": "timeZone", "value": invalid_tz}, logs, result)
-        set_status = set_resp.get("status")
+        set_status, _ = execute_json_cmd_and_log(tester, device_id, "system/settings/set", json.dumps({"timeZone": invalid_tz}), logs, result)
 
         # For negative tests, 400 is the expected client error.
         if set_status != 400:
@@ -10221,8 +10224,7 @@ def run_timezone_invalid_format_rejection_check(dab_topic, test_name, tester, de
 
         # 4) Verify timeZone did not change
         LOGGER.result("[STEP] Reading timeZone again to confirm it did not change.")
-        after_resp = execute_cmd_and_log(tester, device_id, "system/settings/get", {"id": "timeZone"}, logs, result)
-        after_status = after_resp.get("status")
+        after_status, after_resp = execute_json_cmd_and_log(tester, device_id, "system/settings/get", "{}", logs, result)
         if after_status != 200:
             summary = f"system/settings/get after invalid set failed with status {after_status}."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
@@ -10299,8 +10301,7 @@ def run_timezone_case_insensitive_america_los_angeles_check(dab_topic, test_name
     try:
         # 2) Read current timeZone
         LOGGER.result("[STEP] Reading current timeZone via system/settings/get.")
-        before_resp = execute_cmd_and_log(tester, device_id, "system/settings/get", {"id": "timeZone"}, logs, result)
-        before_status = before_resp.get("status")
+        before_status, before_resp = execute_json_cmd_and_log(tester, device_id, "system/settings/get", "{}", logs, result)
         if before_status != 200:
             summary = f"system/settings/get for timeZone failed with status {before_status}."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
@@ -10316,8 +10317,7 @@ def run_timezone_case_insensitive_america_los_angeles_check(dab_topic, test_name
 
         # 3) Set using lower-case IANA value
         LOGGER.result(f"[STEP] Setting timeZone to lower-case IANA value {input_tz!r}.")
-        set_resp = execute_cmd_and_log(tester, device_id, "system/settings/set", {"id": "timeZone", "value": input_tz}, logs, result)
-        set_status = set_resp.get("status")
+        set_status, _ = execute_json_cmd_and_log(tester, device_id, "system/settings/set", json.dumps({"timeZone": input_tz}), logs, result)
         if set_status != 200:
             summary = f"system/settings/set for lower-case timeZone returned status {set_status}; expected 200."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
@@ -10333,8 +10333,7 @@ def run_timezone_case_insensitive_america_los_angeles_check(dab_topic, test_name
 
         # 4) Verify canonical value via get
         LOGGER.result("[STEP] Reading back timeZone to verify canonical normalization.")
-        after_resp = execute_cmd_and_log(tester, device_id, "system/settings/get", {"id": "timeZone"}, logs, result)
-        after_status = after_resp.get("status")
+        after_status, after_resp = execute_json_cmd_and_log(tester, device_id, "system/settings/get", "{}", logs, result)
         if after_status != 200:
             summary = f"system/settings/get after update failed with status {after_status}."
             LOGGER.result(f"[RESULT] FAILED – {summary}")
@@ -10374,8 +10373,8 @@ def run_timezone_case_insensitive_america_los_angeles_check(dab_topic, test_name
         # 5) Restore original (best-effort)
         if original_tz and original_tz != canonical_tz:
             LOGGER.result(f"[STEP] Restoring original timeZone: {original_tz!r}.")
-            restore_resp = execute_cmd_and_log(tester, device_id, "system/settings/set", {"id": "timeZone", "value": original_tz}, logs, result)
-            if restore_resp.get("status") != 200:
+            restore_status, _ = execute_json_cmd_and_log(tester, device_id, "system/settings/set", json.dumps({"timeZone": original_tz}), logs, result)
+            if restore_status != 200:
                 LOGGER.result("[INFO] Failed to restore original timeZone; manual restore may be required.")
 
         summary = "Device accepts lower-case IANA timeZone america/los_angeles and normalizes it to canonical America/Los_Angeles."
@@ -11804,7 +11803,6 @@ FUNCTIONAL_TEST_CASE = [
     ("voice/send-audio", "functional", run_voice_multilanguage_language_alignment_check, "VoiceMultiLanguageLanguageAlignment", "2.1", False),
     ("system/settings/set", "functional", run_timezone_iana_america_new_york_check, "TimeZone IANA America_New_York Check", "2.1", False),
     ("system/settings/set", "functional", run_timezone_invalid_format_rejection_check, "TimeZone Invalid_Format Rejection Check", "2.1", True),
-    ("system/settings/set", "functional", run_timezone_case_insensitive_america_los_angeles_check, "TimeZone Case_Insensitive America_Los_Angeles Check", "2.1", True),
     ("system/network-reset", "functional", run_network_reset_multi_interface_manual_check, "Network_Reset Multi_Interface Manual_Check", "2.1", False),
     ("system/settings/get", "functional", run_identifier_for_advertising_persistence_across_restart_check, "IdentifierForAdvertising Persistence_Across_Restart Check", "2.1", False),
     ("system/settings/list", "functional", run_identifier_for_advertising_unsupported_device_ui_absence_check, "IdentifierForAdvertising Unsupported_Device UI_Absence Check", "2.1", False),

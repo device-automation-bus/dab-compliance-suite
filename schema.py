@@ -378,7 +378,10 @@ list_system_settings_schema_21 = {
             },
             "required": ["min", "max"]
         },
-        "timeZone": {"type": "boolean"},
+        "timeZone": {
+            "type": "array",
+            "items": {"type": "string"}
+        },
         "screenSaver": {"type": "boolean"},
         "screenSaverMinTimeout": {"type": "integer"},
         "personalizedAds": {"type": "boolean"},
