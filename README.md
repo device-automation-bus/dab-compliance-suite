@@ -242,11 +242,12 @@ Summary:
 PASS
 
   - The test worked and the result was correct.
-  - For negative tests, expected failure = PASS.
+  - For negative tests, an expected error status (e.g. 400) = PASS.
 
 FAILED
 
   - The test ran, but gave the wrong result.
+  - For negative tests, the device accepted the invalid request with 200.
 
 OPTIONAL_FAILED
 

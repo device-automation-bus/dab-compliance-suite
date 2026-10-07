@@ -81,9 +81,8 @@ def run_content_recommendations_update_after_watch_check(dab_topic, test_name, t
         helpers.log_line(logs, "DESC", "Prefer content that is clearly different from usual recommendations (different genre/app).", result=result)
 
         user_ready = helpers.yes_or_no(
-            result,
+            "Have you watched new content (a few minutes) and returned to the home screen so recommendations can refresh?",
             logs,
-            "Have you watched new content (a few minutes) and returned to the home screen so recommendations can refresh?"
         )
         if not user_ready:
             helpers.finish(result, logs, "SKIPPED", "User did not complete viewing step; cannot validate recommendations update.")
@@ -149,9 +148,8 @@ def run_content_recommendations_update_after_watch_check(dab_topic, test_name, t
 
         # Step 5: Manual confirmation on UI
         user_validated = helpers.yes_or_no(
-            result,
+            "Do recommendations on the device UI appear updated to reflect the new content you watched?",
             logs,
-            "Do recommendations on the device UI appear updated to reflect the new content you watched?"
         )
 
         if user_validated:

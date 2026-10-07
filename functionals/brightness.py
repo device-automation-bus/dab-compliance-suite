@@ -229,7 +229,7 @@ def run_brightness_mid_level_50_screen_check(dab_topic, test_name, tester, devic
                 return result
 
         helpers.log_line(logs, "STEP", "Manual check: verify mid-level brightness is visible on screen.", result=result)
-        user_validated = helpers.yes_or_no(result, logs, "Does the screen appear at a reasonable mid (~50%) brightness compared to min/max?")
+        user_validated = helpers.yes_or_no("Does the screen appear at a reasonable mid (~50%) brightness compared to min/max?", logs)
         if user_validated:
             helpers.finish(result, logs, "PASS", "User confirmed mid-level brightness on screen.")
         else:
@@ -323,7 +323,7 @@ def run_brightness_60_video_content_check(dab_topic, test_name, tester, device_i
             return result
 
         helpers.log_line(logs, "[STEP] Manual check: play a video and confirm brightness looks correct.")
-        user_ok = helpers.yes_or_no(result, logs, "During video playback, does the picture reflect the ~60% brightness level?")
+        user_ok = helpers.yes_or_no("During video playback, does the picture reflect the ~60% brightness level?", logs)
         result.test_result = "PASS" if user_ok else "FAILED"
         helpers.log_line(logs, "[RESULT] PASS" if user_ok else "[RESULT] FAILED")
 
@@ -503,7 +503,7 @@ def run_brightness_mid_level_50_screen_check(dab_topic, test_name, tester, devic
             return result
 
         helpers.log_line(logs, "[STEP] Manual check: confirm screen looks mid brightness.")
-        user_ok = helpers.yes_or_no(result, logs, "Does the screen look like a mid (~50%) brightness level?")
+        user_ok = helpers.yes_or_no("Does the screen look like a mid (~50%) brightness level?", logs)
         result.test_result = "PASS" if user_ok else "FAILED"
         helpers.log_line(logs, "[RESULT] PASS" if user_ok else "[RESULT] FAILED")
 
@@ -582,7 +582,7 @@ def run_brightness_60_video_content_check(dab_topic, test_name, tester, device_i
             return result
 
         helpers.log_line(logs, "[STEP] Manual check: play a video and confirm brightness looks correct.")
-        user_ok = helpers.yes_or_no(result, logs, "During video playback, does the picture reflect the ~60% brightness level?")
+        user_ok = helpers.yes_or_no("During video playback, does the picture reflect the ~60% brightness level?", logs)
         result.test_result = "PASS" if user_ok else "FAILED"
         helpers.log_line(logs, "[RESULT] PASS" if user_ok else "[RESULT] FAILED")
 
@@ -856,7 +856,7 @@ def run_brightness_rapid_change_responsiveness_check(dab_topic, test_name, teste
                 helpers.finish(result, logs, "FAILED", f"final value mismatch: got {final_brightness!r}, expected {value_40!r}.")
                 return result
 
-        user_validated = helpers.yes_or_no(result, logs, "Did the screen update quickly after each change?")
+        user_validated = helpers.yes_or_no("Did the screen update quickly after each change?", logs)
         if user_validated:
             helpers.finish(result, logs, "PASS", "User confirmed responsiveness.")
         else:
@@ -959,7 +959,7 @@ def run_brightness_min_value_screen_check(dab_topic, test_name, tester, device_i
             return result
 
         helpers.log_line(logs, "STEP", "Manual check: screen should be very dim.")
-        user_validated = helpers.yes_or_no(result, logs, "Is the screen clearly at minimum brightness now?")
+        user_validated = helpers.yes_or_no("Is the screen clearly at minimum brightness now?", logs)
 
         if user_validated:
             helpers.finish(result, logs, "PASS", "User confirmed minimum brightness on screen.")

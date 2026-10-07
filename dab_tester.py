@@ -634,8 +634,13 @@ class DabTester:
                     self.logger.test_end(outcome=test_result.test_result, duration_ms=total_ms)
                     return test_result
 
+                # A negative test sends an invalid request, which the spec
+                # requires to be rejected with an error status (section 4).
+                if code == 0 and is_negative:
+                    test_result.test_result = "FAILED"
+                    log(test_result, "\033[1;31m[ FAILED - Invalid request accepted with status 200; expected an error status ]\033[0m")
                 # If execution succeeded (error code 200)
-                if code == 0:
+                elif code == 0:
                     end = datetime.datetime.now()
                     durationInMs = int((end - start).total_seconds() * 1000)
 
@@ -648,32 +653,18 @@ class DabTester:
                         else:
                             self.dab_checker.end_precheck(device_id, dab_request_topic, dab_request_body)
                     except Exception as e:
-                        # If this is a negative test case and validation fails (e.g., 200 response with incorrect behavior),
-                        # treat it as PASS because failure was the expected outcome in this scenario.
-                        if is_negative:
-                            # For negative test: failure is expected — pass the test
-                            test_result.test_result = "PASS"
-                            log(test_result, f"\033[1;33m[ NEGATIVE TEST PASSED - Exception as Expected ]\033[0m {(e)}")
-                            total_ms = int((time.time() - section_wall_start) * 1000)
-                            self.logger.test_end(outcome=test_result.test_result, duration_ms=total_ms)
-                            return test_result
-                        else:
-                            test_result.test_result = "SKIPPED"
-                            log(test_result, f"\033[1;34m[ SKIPPED - Internal Error During Validation ]\033[0m {str(e)}")
-                            total_ms = int((time.time() - section_wall_start) * 1000)
-                            self.logger.test_end(outcome=test_result.test_result, duration_ms=total_ms)
-                            return test_result
+                        test_result.test_result = "SKIPPED"
+                        log(test_result, f"\033[1;34m[ SKIPPED - Internal Error During Validation ]\033[0m {str(e)}")
+                        total_ms = int((time.time() - section_wall_start) * 1000)
+                        self.logger.test_end(outcome=test_result.test_result, duration_ms=total_ms)
+                        return test_result
 
                     if validate_result == True:
                         test_result.test_result = "PASS"
                         log(test_result, "\033[1;32m[ PASS ]\033[0m")
                     else:
-                        if is_negative:
-                            test_result.test_result = "PASS"
-                            log(test_result, "\033[1;33m[ NEGATIVE TEST PASSED - Validation Failed as Expected ]\033[0m")
-                        else:
-                            test_result.test_result = "FAILED"
-                            log(test_result, "\033[1;31m[ FAILED ]\033[0m")
+                        test_result.test_result = "FAILED"
+                        log(test_result, "\033[1;31m[ FAILED ]\033[0m")
                 else:
                     # Handle non-200 error codes
                     error_code = self.dab_client.last_error_code()
@@ -906,6 +897,14 @@ class DabTester:
                                 test_id, device_id, dab_topic, "{}", "SKIPPED", "",
                                 ["Functional test returned no result object."]
                             )
+                        # A request without a valid response is a failure, even when the
+                        # test's generic exception handler reported SKIPPED.
+                        # PASS is kept: polling loops expect timeouts while rebooting.
+                        if getattr(result, "no_response", False) and getattr(result, "test_result", None) in ("SKIPPED", "UNKNOWN"):
+                            result.test_result = "FAILED"
+                            # 'outcome' is the serialized field; tests using finish() set both
+                            result.outcome = "FAILED"
+                            log(result, "[FAILED] A DAB request received no valid response.")
                         result_list.append(result)
                         # derive outcome for the end marker
                         outcome_for_end = getattr(result, "test_result", None) or getattr(result, "outcome", "UNKNOWN")

@@ -34,6 +34,5 @@
   "system/logs/start-collection",
   "system/logs/stop-collection",
   "system/power-mode/get",
-  "system/power-mode/set",
-  "system/setup/skip"
+  "system/power-mode/set"
 ]

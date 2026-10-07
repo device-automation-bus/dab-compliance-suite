@@ -123,9 +123,8 @@ def run_content_search_inception_metadata_check(dab_topic, test_name, tester, de
         helpers.log_line(logs, "DESC", "On-screen results should be consistent with DAB response (e.g., 'Inception' from expected app).", result=result)
 
         user_validated = helpers.yes_or_no(
-            result,
+            "On the device UI, do you see relevant results for 'Inception' with correct movie details (title/poster/app)?",
             logs,
-            "On the device UI, do you see relevant results for 'Inception' with correct movie details (title/poster/app)?"
         )
 
         if user_validated:

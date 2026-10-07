@@ -21,6 +21,16 @@ class UnsupportedOperationError(Exception):
         self.topic = topic
         super().__init__(f"DAB operation '{topic}' is not supported by the device.")
 
+class NoResponseError(Exception):
+    def __init__(self, topic):
+        self.topic = topic
+        super().__init__(f"No response received for DAB operation '{topic}'.")
+
+class InvalidResponseError(Exception):
+    def __init__(self, topic):
+        self.topic = topic
+        super().__init__(f"Response for DAB operation '{topic}' has no status.")
+
 # === Capability-gate helpers (non-breaking additions) =========================
 def _split_items(s: str):
     return [x.strip() for x in s.split(",") if x and x.strip()]
@@ -183,18 +193,42 @@ def execute_cmd_and_log(tester, device_id, topic, payload, logs=None, result=Non
     else:
         resp_json = json.dumps({"status": rc, "raw": None if resp is None else str(resp)})
 
+    # A timeout must not look like an error status, or negative checks such
+    # as "status != 200" would pass a device that never answers.
+    if not resp:
+        # DabClient.response() is also empty for a payload without status;
+        # only code 100 is a timeout.
+        timed_out = tester.dab_client.last_error_code() == 100
+        if timed_out:
+            line = f"[FAILED] No response received for '{topic}'."
+        else:
+            line = f"[FAILED] Response for '{topic}' has no status."
+        LOGGER.warn(line)
+        if logs is not None: logs.append(line)
+        if result is not None:
+            result.test_result = "FAILED"
+            # Tests often turn exceptions into SKIPPED; the runner restores FAILED
+            result.no_response = True
+        if timed_out:
+            raise NoResponseError(topic)
+        raise InvalidResponseError(topic)
+
     # Log
     resp_line = f"[{topic}] Response: {resp_json}"
     LOGGER.info(resp_line)
     if logs is not None: logs.append(resp_line)
 
-    # Normalize status code (never None)
+    # A response without status must not look like an error status either:
+    # a default such as 500 would also satisfy "status != 200".
     status_code = dab_status_from(resp_json, rc)
     if status_code is None:
-        status_code = 500
-        warn = f"[WARN] No status code found for '{topic}'; defaulting to 500."
-        LOGGER.warn(warn)
-        if logs is not None: logs.append(warn)
+        line = f"[FAILED] Response for '{topic}' has no status."
+        LOGGER.warn(line)
+        if logs is not None: logs.append(line)
+        if result is not None:
+            result.test_result = "FAILED"
+            result.no_response = True
+        raise InvalidResponseError(topic)
 
     status_line = f"[{topic}] Status: {status_code}"
     LOGGER.info(status_line)
@@ -202,14 +236,16 @@ def execute_cmd_and_log(tester, device_id, topic, payload, logs=None, result=Non
     return status_code, resp_json
 
 def dab_status_from(resp, rc):
+    # rc is only 0/1 (success/failure), never a DAB status; return None when
+    # the response carries no status so the caller reports it.
     try:
         if isinstance(resp, str):    # JSON string
-            return json.loads(resp).get("status", rc)
+            return json.loads(resp).get("status")
         if isinstance(resp, dict):   # dict
-            return resp.get("status", rc)
+            return resp.get("status")
     except Exception:
         pass
-    return rc
+    return None
 
 def print_response(response, topic_for_color=None, indent=10):
     if isinstance(response, str):
@@ -226,15 +262,19 @@ def print_response(response, topic_for_color=None, indent=10):
         LOGGER.info(f"{' ' * indent}{key}: {value}")
 
 
-def yes_or_no(result, logs, question=""):
+def yes_or_no(question="", logs=None, default=None):
     positive = ['YES', 'Y']
     negative = ['NO', 'N']
+    default_norm = str(default).strip().upper()[:1] if default is not None else None
     while True:
-        prompt = f"{question}(Y/N)"
+        hint = "(Y/N)" if default_norm not in ("Y", "N") else ("(Y/n)" if default_norm == "Y" else "(y/N)")
+        prompt = f"{question}{hint}"
         LOGGER.prompt(prompt)
         if logs is not None:
             logs.append(prompt)
         ch = readchar().upper()
+        if ch in ('\r', '\n') and default_norm in ("Y", "N"):
+            ch = default_norm
         echo = f"[{ch}]"
         LOGGER.result(echo)
         if logs is not None:
@@ -245,7 +285,7 @@ def yes_or_no(result, logs, question=""):
             return False
 
 
-def select_input(result, logs, arr):
+def select_input(arr, logs=None):
     # Show options
     line0 = "*0: There is no option that meet the requirement."
     LOGGER.info(line0)
@@ -295,7 +335,7 @@ def countdown(title, count):
 
 def waiting_for_screensaver(result, logs, screenSaverTimeout, tips):
     while True:
-        if yes_or_no(result, logs, tips):
+        if yes_or_no(tips, logs):
             break
         else:
             continue
