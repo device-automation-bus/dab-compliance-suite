@@ -38,6 +38,8 @@ class ValidateCode(Enum):
 LOGS_COLLECTION_CATEGORIES = {"system", "application", "crash"}
 LOGS_COLLECTION_FOLDER = "logs"
 LOGS_COLLECTION_PACKAGE = f"{LOGS_COLLECTION_FOLDER}.tar.gz"
+# Spec 5.3: max period between stop-collection chunk responses
+LOGS_CHUNK_MAX_GAP_SEC = 2
 
 @singleton
 class EnforcementManager:
@@ -155,45 +157,58 @@ class EnforcementManager:
         return not self.supported_applications or application in self.supported_applications
 
     def verify_logs_chunk(self, tester, logs):
+        # The chunks carry consecutive pieces of ONE base64 string, so they are
+        # joined first and decoded once at the end.
         previous_remainingChunks = -1
-        all_logArchives = bytearray()
-        validate_state = True
+        previous_received_at = None
+        all_logArchives = []
+        validate_state = False
 
-        startTime = time.time()
-        while True:
-            chunkData = tester.dab_client.get_response_chunk()
-            currentTime = time.time()
-            if not chunkData:
-                if currentTime - startTime > 90:
-                    validate_state = False
-                    print(f"More than 90s without receiving logs chunk. Timeout!")
-                    logs.append(f"[FAILED] More than 90s without receiving logs chunk. Timeout!.")
-                    break
-                else:
+        try:
+            startTime = time.time()
+            while True:
+                chunkData, received_at = tester.dab_client.get_response_chunk()
+                currentTime = time.time()
+                if not chunkData:
+                    if currentTime - startTime > LOGS_CHUNK_MAX_GAP_SEC:
+                        print(f"More than {LOGS_CHUNK_MAX_GAP_SEC}s without receiving logs chunk. Timeout!")
+                        logs.append(f"[FAILED] More than {LOGS_CHUNK_MAX_GAP_SEC}s without receiving logs chunk. Timeout!")
+                        break
+                    time.sleep(0.05)
                     continue
 
-            startTime = currentTime
-            remainingChunks = chunkData["remainingChunks"]
-            if previous_remainingChunks != -1 and remainingChunks != previous_remainingChunks - 1:
-                validate_state = False
-                print(f"Lost the logs chunk with 'remainingChunks':{previous_remainingChunks - 1}.")
-                logs.append(f"[FAILED] Lost the logs chunk with 'remainingChunks':{previous_remainingChunks - 1}.")
-                break
-            if remainingChunks != previous_remainingChunks:
-                print(chunkData)
-                all_logArchives.extend(base64.b64decode(chunkData["logArchive"]))
-                logs.append(json.dumps(chunkData))
+                startTime = currentTime
+                if "remainingChunks" not in chunkData or "logArchive" not in chunkData:
+                    print(f"Logs chunk without 'logArchive'/'remainingChunks': {chunkData}")
+                    logs.append(f"[FAILED] Logs chunk without 'logArchive'/'remainingChunks': {json.dumps(chunkData)}")
+                    break
+                remainingChunks = chunkData["remainingChunks"]
+                if previous_remainingChunks != -1 and remainingChunks != previous_remainingChunks - 1:
+                    print(f"Lost the logs chunk with 'remainingChunks':{previous_remainingChunks - 1}.")
+                    logs.append(f"[FAILED] Lost the logs chunk with 'remainingChunks':{previous_remainingChunks - 1}.")
+                    break
+                if previous_received_at is not None and received_at - previous_received_at > LOGS_CHUNK_MAX_GAP_SEC:
+                    interval = received_at - previous_received_at
+                    print(f"Logs chunk with 'remainingChunks':{remainingChunks} arrived {interval:.2f}s after the previous one (max {LOGS_CHUNK_MAX_GAP_SEC}s).")
+                    logs.append(f"[FAILED] Logs chunk with 'remainingChunks':{remainingChunks} arrived {interval:.2f}s after the previous one (max {LOGS_CHUNK_MAX_GAP_SEC}s).")
+                    break
+                previous_received_at = received_at
+                all_logArchives.append(chunkData["logArchive"])
+                logs.append(f"Received logs chunk, remainingChunks={remainingChunks}, size={len(chunkData['logArchive'])}")
                 previous_remainingChunks = remainingChunks
                 if remainingChunks == 0:
                     validate_state = True
                     break
+        finally:
+            tester.dab_client.end_chunked_response()
 
         if validate_state == True:
             try:
+                archive = base64.b64decode("".join(all_logArchives), validate=True)
                 with open(LOGS_COLLECTION_PACKAGE, 'wb') as f:
-                    f.write(all_logArchives)
-                    print(f"Received all log chunks, and combined into log.tar.gz file.")
-                    logs.append(f"Received all log chunks, and combined into log.tar.gz file.")
+                    f.write(archive)
+                    print(f"Received all log chunks, and combined into {LOGS_COLLECTION_PACKAGE} file.")
+                    logs.append(f"Received all log chunks, and combined into {LOGS_COLLECTION_PACKAGE} file.")
             except Exception as e:
                 validate_state = False
                 print(f"[Error] Combine chunks failed: {str(e)}")
@@ -203,6 +218,9 @@ class EnforcementManager:
 
     def verify_logs_structure(self, logs):
         logs_structure = set()
+        # Drop folders left by a previous run so they can't satisfy the check
+        if os.path.exists(LOGS_COLLECTION_FOLDER):
+            shutil.rmtree(LOGS_COLLECTION_FOLDER, ignore_errors=True)
         try:
             with tarfile.open(LOGS_COLLECTION_PACKAGE, 'r:gz') as tar:
                 tar.extractall(LOGS_COLLECTION_FOLDER)
@@ -217,7 +235,7 @@ class EnforcementManager:
             if os.path.isdir(full_path):
                 logs_structure.add(entry)
 
-        if logs_structure == LOGS_COLLECTION_CATEGORIES:
+        if LOGS_COLLECTION_CATEGORIES.issubset(logs_structure):
             logs.append(f"The logs structure follow DAB requirement, include folder {LOGS_COLLECTION_CATEGORIES}")
             validate_state = True
         else:

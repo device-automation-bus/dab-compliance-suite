@@ -918,8 +918,7 @@ class DabChecker:
         try:
             validate_state = EnforcementManager().verify_logs_chunk(self.dab_tester, logs)
             if validate_state == False:
-                "\n".join(logs)
-                return validate_state, logs
+                return validate_state, "\n".join(logs)
             return EnforcementManager().verify_logs_structure(logs), "\n".join(logs)
         finally:
             EnforcementManager().delete_logs_collection_files()

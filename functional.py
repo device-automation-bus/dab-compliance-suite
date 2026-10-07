@@ -23,6 +23,7 @@ import functionals.setup_skip
 import functionals.power_mode
 import functionals.send_text
 import functionals.applications_exit    
+import functionals.logs_collection
 
 
 # --- Sleep Time Constants ---
@@ -11813,6 +11814,8 @@ FUNCTIONAL_TEST_CASE = [
     ("system/settings/set", "functional", run_high_contrast_text_invalid_value_type_check, "HighContrastText Invalid_Value_Type Check", "2.1", True),
     ("system/settings/set", "functional", run_contrast_max_value_check, "Contrast max value check", "2.1", False),
     ("system/logs/stop-collection", "functional", run_logs_stop_without_active_collection_check, "Logs Stop Without Active Collection Check", "2.1", True),
+    ("system/logs/stop-collection", "functional", functionals.logs_collection.run_logs_collection_app_folder_check, "Logs Collection App Folder Check", "2.1", False),
+    ("system/logs/stop-collection", "functional", functionals.logs_collection.run_logs_collection_repeat_check, "Logs Collection Repeat Check", "2.1", False),
     ("system/settings/set", "functional", functionals.contrast.run_contrast_minimum_value_check, "Contrast Minimum Value Check", "2.1", False),
     ("system/settings/set", "functional", functionals.contrast.run_contrast_invalid_value_check, "Contrast Invalid Value Check", "2.1", True),
     ("system/settings/set", "functional", functionals.brightness.run_brightness_min_decrement_guard_check, "Brightness Min Decrement Guard Check", "2.1", True),
